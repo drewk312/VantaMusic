@@ -96,3 +96,8 @@ window*.xml
 *.jpg
 *.jpeg
 *.webp
+
+# JamesDSP temporary git clones
+app/src/main/cpp/jdsp-repo/
+app/src/main/cpp/libjamesdsp-tmp/
+
