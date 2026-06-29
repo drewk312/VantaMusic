@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import androidx.core.net.toUri
 
 object AutoMainStageLyrics {
     const val MAX_DESCRIPTION_CHARS = 48
@@ -64,7 +65,7 @@ object AutoMainStageLyrics {
         if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
             return null
         }
-        return runCatching { android.net.Uri.parse(url) }.getOrNull()
+        return runCatching { url.toUri() }.getOrNull()
     }
 }
 

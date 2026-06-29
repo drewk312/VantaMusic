@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.google.gson.Gson
+import androidx.core.content.edit
 
 /**
  * Simple JSON persistence for queue + now-playing state.
@@ -20,7 +21,9 @@ class SharedPreferencesQueuePersistence(
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
     override fun save(snapshot: QueueSnapshot) {
-        prefs.edit().putString(key, gson.toJson(snapshot)).apply()
+        prefs.edit {
+                putString(key, gson.toJson(snapshot))
+            }
     }
 
     override fun load(): QueueSnapshot? {
@@ -35,7 +38,9 @@ class SharedPreferencesQueuePersistence(
     }
 
     fun clear() {
-        prefs.edit().remove(key).apply()
+        prefs.edit {
+                remove(key)
+            }
     }
 
     private fun isValidSnapshot(snapshot: QueueSnapshot): Boolean {

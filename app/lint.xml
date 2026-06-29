@@ -11,11 +11,13 @@
     <issue id="NewerVersionAvailable" severity="ignore" />
 
     <!--
-        UseKtx: 75 SharedPreferences.edit() / Uri.parse() / createBitmap calls.
-        Fixing these is mechanical but touches a lot of code, including
-        AppContainer.kt which is scheduled for deletion in the Hilt migration.
+        UseKtx: enforce everywhere except AppContainer.kt, which is the
+        legacy manual-DI bridge and is scheduled for deletion during the
+        Hilt migration.
     -->
-    <issue id="UseKtx" severity="ignore" />
+    <issue id="UseKtx" severity="warning">
+        <ignore path="src/main/java/com/audiophile/musicplayer/AppContainer.kt" />
+    </issue>
 
     <!--
         ModifierParameter: composables where modifier is not the first

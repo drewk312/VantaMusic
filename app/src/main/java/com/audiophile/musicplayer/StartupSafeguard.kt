@@ -3,6 +3,7 @@ package com.audiophile.musicplayer
 import android.content.Context
 import android.util.Log
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
+import androidx.core.content.edit
 
 /**
  * Detects repeated startup crashes and clears volatile playback prefs so a bad
@@ -18,7 +19,9 @@ object StartupSafeguard {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_IN_STARTUP, false)) {
             val crashCount = prefs.getInt(KEY_CRASH_COUNT, 0) + 1
-            prefs.edit().putInt(KEY_CRASH_COUNT, crashCount).apply()
+            prefs.edit {
+                    putInt(KEY_CRASH_COUNT, crashCount)
+                }
             Log.w(TAG, "Previous startup did not finish cleanly (count=$crashCount)")
             VantaDiagnosticLog.warn(
                 tag = "StartupSafeguard",
@@ -30,23 +33,30 @@ object StartupSafeguard {
                     tag = "StartupSafeguard",
                     message = "recovered_volatile_playback_state after $crashCount incomplete startups"
                 )
-                prefs.edit().putInt(KEY_CRASH_COUNT, 0).apply()
+                prefs.edit {
+                        putInt(KEY_CRASH_COUNT, 0)
+                    }
             }
         }
-        prefs.edit().putBoolean(KEY_IN_STARTUP, true).apply()
+        prefs.edit {
+                putBoolean(KEY_IN_STARTUP, true)
+            }
     }
 
     fun onMainUiReady(context: Context) {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_IN_STARTUP, false)
-            .putInt(KEY_CRASH_COUNT, 0)
-            .apply()
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+                putBoolean(KEY_IN_STARTUP, false)
+                putInt(KEY_CRASH_COUNT, 0)
+            }
     }
 
     fun recoverVolatileState(context: Context) {
         Log.w(TAG, "Clearing volatile playback prefs after repeated startup failures")
-        context.getSharedPreferences("playback_state", Context.MODE_PRIVATE).edit().clear().apply()
-        context.getSharedPreferences("now_playing_state", Context.MODE_PRIVATE).edit().clear().apply()
+        context.getSharedPreferences("playback_state", Context.MODE_PRIVATE).edit {
+                clear()
+            }
+        context.getSharedPreferences("now_playing_state", Context.MODE_PRIVATE).edit {
+                clear()
+            }
     }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import androidx.core.content.edit
 
 /**
  * Resolves artist genres from Last.fm top tags, cached in SharedPreferences.
@@ -130,9 +131,9 @@ class LastFmGenreResolver(
         val now = System.currentTimeMillis()
         memoryCache[artist] = CachedTags(tags, now)
         val key = cacheKey(artist)
-        prefs.edit()
-            .putString(key, tags.joinToString(","))
-            .putLong("${key}_at", now)
-            .apply()
+        prefs.edit {
+                putString(key, tags.joinToString(","))
+                putLong("${key}_at", now)
+            }
     }
 }

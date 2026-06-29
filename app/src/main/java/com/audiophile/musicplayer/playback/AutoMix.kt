@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.playback
 
 import android.content.Context
+import androidx.core.content.edit
 
 enum class AutoMixMode(val label: String, val description: String) {
     OFF("Off", "Play each track through to the end"),
@@ -27,9 +28,9 @@ class AutoMixPreferences(context: Context) {
     )
 
     fun save(config: AutoMixConfig) {
-        prefs.edit()
-            .putString("mode", config.mode.name)
-            .putInt("transition_seconds", config.transitionSeconds.coerceIn(2, 12))
-            .apply()
+        prefs.edit {
+                putString("mode", config.mode.name)
+                putInt("transition_seconds", config.transitionSeconds.coerceIn(2, 12))
+            }
     }
 }

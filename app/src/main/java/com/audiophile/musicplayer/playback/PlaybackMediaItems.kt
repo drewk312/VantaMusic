@@ -7,6 +7,7 @@ import com.audiophile.musicplayer.auto.AutoMainStageLyrics
 import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.local.entities.TrackSource
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import androidx.core.net.toUri
 
 /** Builds ExoPlayer [MediaItem]s with title, artist, album, and artwork attached. */
 object PlaybackMediaItems {
@@ -57,6 +58,6 @@ object PlaybackMediaItems {
         if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
             return null
         }
-        return runCatching { Uri.parse(url) }.getOrNull()
+        return runCatching { url.toUri() }.getOrNull()
     }
 }

@@ -79,6 +79,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import androidx.core.net.toUri
 
 data class ResolverConfigForm(
     val torBoxBaseUrl: String = "",
@@ -3063,7 +3064,7 @@ class MainViewModel @Inject constructor(
         try {
             val intent = android.content.Intent(
                 android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse(trimmed)
+                trimmed.toUri()
             ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             val chooser = android.content.Intent.createChooser(intent, "Open in browser")
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)

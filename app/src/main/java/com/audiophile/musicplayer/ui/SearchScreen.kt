@@ -66,6 +66,7 @@ import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
+import androidx.core.content.edit
 
 @Composable
 fun SearchScreen(
@@ -102,19 +103,25 @@ fun SearchScreen(
         if (trimmed.isNotEmpty()) {
             val updated = listOf(trimmed) + recentSearches.filter { !it.equals(trimmed, ignoreCase = true) }
             val limited = updated.take(8)
-            sharedPrefs.edit().putString("history_list", limited.joinToString("\n")).apply()
+            sharedPrefs.edit {
+                    putString("history_list", limited.joinToString("\n"))
+                }
             recentSearches = limited
         }
     }
 
     val removeRecentSearch = { term: String ->
         val updated = recentSearches.filter { !it.equals(term, ignoreCase = true) }
-        sharedPrefs.edit().putString("history_list", updated.joinToString("\n")).apply()
+        sharedPrefs.edit {
+                putString("history_list", updated.joinToString("\n"))
+            }
         recentSearches = updated
     }
 
     val clearAllRecentSearches = {
-        sharedPrefs.edit().remove("history_list").apply()
+        sharedPrefs.edit {
+                remove("history_list")
+            }
         recentSearches = emptyList()
     }
 

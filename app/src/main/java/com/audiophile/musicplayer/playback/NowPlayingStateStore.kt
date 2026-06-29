@@ -5,6 +5,7 @@ import android.util.Log
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.google.gson.Gson
+import androidx.core.content.edit
 
 class NowPlayingStateStore(
     context: Context,
@@ -29,7 +30,9 @@ class NowPlayingStateStore(
             lastSavedJson = json
             lastSaveTimeMs = System.currentTimeMillis()
         }
-        prefs.edit().putString(key, json).apply()
+        prefs.edit {
+                putString(key, json)
+            }
         Log.d("VANTA_PLAYBACK_STABILITY", "NowPlayingStateStore.save() persisted trackId=${state.trackId} pos=${state.positionMs} isPlaying=${state.isPlaying}")
     }
 
@@ -48,11 +51,16 @@ class NowPlayingStateStore(
 
     fun clear() {
         lastSavedJson = null
-        prefs.edit().remove(key).remove(failedSourcesKey).apply()
+        prefs.edit {
+                remove(key)
+                remove(failedSourcesKey)
+            }
     }
 
     fun saveFailedSourceIds(sourceIds: Set<Long>) {
-        prefs.edit().putString(failedSourcesKey, gson.toJson(sourceIds)).apply()
+        prefs.edit {
+                putString(failedSourcesKey, gson.toJson(sourceIds))
+            }
     }
 
     fun loadFailedSourceIds(): Set<Long> {

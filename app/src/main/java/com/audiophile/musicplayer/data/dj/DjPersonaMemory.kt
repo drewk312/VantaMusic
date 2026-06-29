@@ -3,6 +3,7 @@ package com.audiophile.musicplayer.data.dj
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.core.content.edit
 
 /** Persistent DJ relationship memory — feedback signals that shape future sets and prompts. */
 class DjPersonaMemory(context: Context) {
@@ -36,7 +37,9 @@ class DjPersonaMemory(context: Context) {
     fun totalSessions(): Int = prefs.getInt("total_sessions", 0)
 
     fun incrementSession() {
-        prefs.edit().putInt("total_sessions", totalSessions() + 1).apply()
+        prefs.edit {
+                putInt("total_sessions", totalSessions() + 1)
+            }
     }
 
     fun recordThumbsUp(
@@ -215,17 +218,23 @@ class DjPersonaMemory(context: Context) {
     fun blockTrack(trackId: Long, artist: String) {
         val tracks = blockedTrackIds().toMutableSet()
         tracks.add(trackId)
-        prefs.edit().putString("blocked_tracks", tracks.joinToString("|")).apply()
+        prefs.edit {
+                putString("blocked_tracks", tracks.joinToString("|"))
+            }
         if (artist.isNotBlank()) {
             val artists = blockedArtists().toMutableSet()
             artists.add(artist.trim().lowercase())
-            prefs.edit().putString("blocked_artists", artists.joinToString("|")).apply()
+            prefs.edit {
+                    putString("blocked_artists", artists.joinToString("|"))
+                }
         }
     }
 
     private fun appendSignal(signal: FeedbackSignal) {
         val updated = (listOf(signal) + loadSignals()).take(80)
-        prefs.edit().putString("signals_json", encodeSignals(updated)).apply()
+        prefs.edit {
+                putString("signals_json", encodeSignals(updated))
+            }
     }
 
     private fun loadSignals(): List<FeedbackSignal> {

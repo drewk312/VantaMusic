@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import androidx.core.net.toUri
 
 class AndroidAutoBrowseController(
     private val trackRepository: TrackRepository,
@@ -379,7 +380,7 @@ class AndroidAutoBrowseController(
             )
             .setRequestMetadata(
                 MediaItem.RequestMetadata.Builder()
-                    .setMediaUri(Uri.parse("vanta://track/${track.trackId}"))
+                    .setMediaUri("vanta://track/${track.trackId}".toUri())
                     .build()
             )
             .build()
@@ -395,7 +396,7 @@ class AndroidAutoBrowseController(
                     .setArtist(artist)
                     .setAlbumTitle(album)
                     .setDurationMs(durationMs ?: 0L)
-                    .apply { artworkUrl?.let { setArtworkUri(Uri.parse(it)) } }
+                    .apply { artworkUrl?.let { setArtworkUri(it.toUri()) } }
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                     .setExtras(AutoBrowseExtras.listItemExtras(artworkUrl, durationMs ?: 0L))

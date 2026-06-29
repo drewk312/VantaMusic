@@ -2,6 +2,7 @@ package com.audiophile.musicplayer.playback.dsp
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 
 class VantaEqualizerPreferences(context: Context) {
 
@@ -37,71 +38,79 @@ class VantaEqualizerPreferences(context: Context) {
     }
 
     fun save(config: VantaEqualizerConfig) {
-        prefs.edit()
-            .putBoolean(PREF_EQ_ENABLED, config.eqEnabled)
-            .putBoolean(PREF_SPATIAL_ENABLED, config.spatialEnabled)
-            .putFloat(PREF_STEREO_WIDEN, config.stereoWidenLevel)
-            .putBoolean(PREF_CROSSFEED_ENABLED, config.crossfeedEnabled)
-            .putInt(PREF_CROSSFEED_MODE, config.crossfeedMode)
-            .putBoolean(PREF_REVERB_ENABLED, config.reverbEnabled)
-            .putInt(PREF_REVERB_PRESET, config.reverbPreset)
-            .putBoolean(PREF_CONVOLVER_ENABLED, config.convolverEnabled)
-            .putString(PREF_CONVOLVER_IR_PATH, config.convolverIrAssetPath)
-            .putBoolean(PREF_TUBE_ENABLED, config.tubeEnabled)
-            .putFloat(PREF_TUBE_DRIVE, config.tubeDrive)
-            .putBoolean(PREF_BASS_CANNON_ENABLED, config.bassCannonEnabled)
-            .putFloat(PREF_BASS_CANNON_AMOUNT, config.bassCannonAmount)
-            .putBoolean(PREF_AUTO_EQ_ENABLED, config.autoEqEnabled)
-            .putString(PREF_AUTO_EQ_PROFILE, config.autoEqProfileName)
-            .putBoolean(PREF_LIMITER_ENABLED, config.limiterEnabled)
-            .putString(PREF_PRESET, config.preset.name)
-            .apply()
+        prefs.edit {
+                putBoolean(PREF_EQ_ENABLED, config.eqEnabled)
+                putBoolean(PREF_SPATIAL_ENABLED, config.spatialEnabled)
+                putFloat(PREF_STEREO_WIDEN, config.stereoWidenLevel)
+                putBoolean(PREF_CROSSFEED_ENABLED, config.crossfeedEnabled)
+                putInt(PREF_CROSSFEED_MODE, config.crossfeedMode)
+                putBoolean(PREF_REVERB_ENABLED, config.reverbEnabled)
+                putInt(PREF_REVERB_PRESET, config.reverbPreset)
+                putBoolean(PREF_CONVOLVER_ENABLED, config.convolverEnabled)
+                putString(PREF_CONVOLVER_IR_PATH, config.convolverIrAssetPath)
+                putBoolean(PREF_TUBE_ENABLED, config.tubeEnabled)
+                putFloat(PREF_TUBE_DRIVE, config.tubeDrive)
+                putBoolean(PREF_BASS_CANNON_ENABLED, config.bassCannonEnabled)
+                putFloat(PREF_BASS_CANNON_AMOUNT, config.bassCannonAmount)
+                putBoolean(PREF_AUTO_EQ_ENABLED, config.autoEqEnabled)
+                putString(PREF_AUTO_EQ_PROFILE, config.autoEqProfileName)
+                putBoolean(PREF_LIMITER_ENABLED, config.limiterEnabled)
+                putString(PREF_PRESET, config.preset.name)
+            }
         config.eqBands.forEachIndexed { i, gain ->
-            prefs.edit().putFloat("eq_band_${i}_gain", gain).apply()
+            prefs.edit {
+                    putFloat("eq_band_${i}_gain", gain)
+                }
         }
     }
 
     fun saveEqBand(index: Int, gainDb: Float) {
-        prefs.edit().putFloat("eq_band_${index}_gain", gainDb.coerceIn(
+        prefs.edit {
+                putFloat("eq_band_${index}_gain", gainDb.coerceIn(
             VantaEqualizerConfig.MIN_GAIN_DB.toFloat(),
             VantaEqualizerConfig.MAX_GAIN_DB.toFloat()
-        )).apply()
+        ))
+            }
     }
 
     fun saveEqEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(PREF_EQ_ENABLED, enabled).apply()
+        prefs.edit {
+                putBoolean(PREF_EQ_ENABLED, enabled)
+            }
     }
 
     fun saveSpatialEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(PREF_SPATIAL_ENABLED, enabled).apply()
+        prefs.edit {
+                putBoolean(PREF_SPATIAL_ENABLED, enabled)
+            }
     }
 
     fun saveBassCannon(enabled: Boolean, amount: Float = 0.5f) {
-        prefs.edit()
-            .putBoolean(PREF_BASS_CANNON_ENABLED, enabled)
-            .putFloat(PREF_BASS_CANNON_AMOUNT, amount)
-            .apply()
+        prefs.edit {
+                putBoolean(PREF_BASS_CANNON_ENABLED, enabled)
+                putFloat(PREF_BASS_CANNON_AMOUNT, amount)
+            }
     }
 
     fun saveTube(enabled: Boolean, drive: Float = 0.5f) {
-        prefs.edit()
-            .putBoolean(PREF_TUBE_ENABLED, enabled)
-            .putFloat(PREF_TUBE_DRIVE, drive)
-            .apply()
+        prefs.edit {
+                putBoolean(PREF_TUBE_ENABLED, enabled)
+                putFloat(PREF_TUBE_DRIVE, drive)
+            }
     }
 
     fun saveConvolver(enabled: Boolean, irPath: String? = null) {
-        prefs.edit()
-            .putBoolean(PREF_CONVOLVER_ENABLED, enabled)
-            .putString(PREF_CONVOLVER_IR_PATH, irPath)
-            .apply()
+        prefs.edit {
+                putBoolean(PREF_CONVOLVER_ENABLED, enabled)
+                putString(PREF_CONVOLVER_IR_PATH, irPath)
+            }
     }
 
     fun saveAutoEq(enabled: Boolean, profileName: String? = null) {
-        prefs.edit()
-            .putBoolean(PREF_AUTO_EQ_ENABLED, enabled)
-            .putString(PREF_AUTO_EQ_PROFILE, profileName)
-            .apply()
+        prefs.edit {
+                putBoolean(PREF_AUTO_EQ_ENABLED, enabled)
+                putString(PREF_AUTO_EQ_PROFILE, profileName)
+            }
     }
 
     private fun loadPreset(): VantaEqualizerPreset {

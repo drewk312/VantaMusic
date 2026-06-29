@@ -81,6 +81,7 @@ import kotlinx.coroutines.withContext
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicLong
+import androidx.core.net.toUri
 
 class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
@@ -926,7 +927,7 @@ class PlaybackService : MediaLibraryService() {
     private fun artworkUri(url: String?): Uri? {
         if (url.isNullOrBlank()) return null
         if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return null
-        return runCatching { Uri.parse(url) }.getOrNull()
+        return runCatching { url.toUri() }.getOrNull()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

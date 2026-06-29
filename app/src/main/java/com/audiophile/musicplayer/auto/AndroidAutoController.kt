@@ -24,6 +24,7 @@ import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.core.graphics.createBitmap
 
 class AndroidAutoController(
     private val context: Context,
@@ -78,7 +79,7 @@ class AndroidAutoController(
                             .build()
                         val result = Coil.imageLoader(context).execute(request)
                         val bitmap = (result as? SuccessResult)?.drawable?.let { drawable ->
-                            Bitmap.createBitmap(
+                            createBitmap(
                                 drawable.intrinsicWidth.coerceAtLeast(1),
                                 drawable.intrinsicHeight.coerceAtLeast(1),
                                 Bitmap.Config.ARGB_8888

@@ -3,6 +3,7 @@ package com.audiophile.musicplayer.data.dj
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.core.content.edit
 
 /** Station-scoped taste — thumbs on Yacht Rock don't poison global recommendations. */
 class StationTasteMemory(context: Context) {
@@ -24,7 +25,9 @@ class StationTasteMemory(context: Context) {
     fun saveStation(stationId: String) {
         val current = savedStationIds().toMutableSet()
         current.add(stationId)
-        prefs.edit().putString("saved_stations", current.joinToString("|")).apply()
+        prefs.edit {
+                putString("saved_stations", current.joinToString("|"))
+            }
     }
 
     fun recordStationLike(stationId: String, trackId: Long, artist: String) {
@@ -58,7 +61,9 @@ class StationTasteMemory(context: Context) {
     private fun appendSignal(signal: StationSignal) {
         val key = "signals_${signal.stationId}"
         val updated = (listOf(signal) + loadSignals(signal.stationId)).take(60)
-        prefs.edit().putString(key, encodeSignals(updated)).apply()
+        prefs.edit {
+                putString(key, encodeSignals(updated))
+            }
     }
 
     private fun loadSignals(stationId: String): List<StationSignal> {

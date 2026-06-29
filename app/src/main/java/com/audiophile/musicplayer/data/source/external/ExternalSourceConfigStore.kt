@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import androidx.core.content.edit
 
 class ExternalSourceConfigStore(context: Context) {
     private val prefs = context.getSharedPreferences("external_sources_config", Context.MODE_PRIVATE)
@@ -124,7 +125,9 @@ class ExternalSourceConfigStore(context: Context) {
 
     fun saveSources(sources: List<ExternalSourceConfig>) {
         val json = gson.toJson(sources)
-        prefs.edit().putString("sources_json", json).apply()
+        prefs.edit {
+                putString("sources_json", json)
+            }
     }
 
     fun addSource(source: ExternalSourceConfig) {

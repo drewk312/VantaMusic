@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.core.content.edit
 
 /** Persists user-built jukebox stations (multi-artist, artist seed, song seed). */
 class CustomStationStore(context: Context) {
@@ -24,12 +25,16 @@ class CustomStationStore(context: Context) {
     fun save(station: JukeboxStation) {
         val current = allStations().filterNot { it.id == station.id }
         val updated = (current + station).takeLast(40)
-        prefs.edit().putString("stations_json", encode(updated)).apply()
+        prefs.edit {
+                putString("stations_json", encode(updated))
+            }
     }
 
     fun delete(id: String) {
         val updated = allStations().filterNot { it.id == id }
-        prefs.edit().putString("stations_json", encode(updated)).apply()
+        prefs.edit {
+                putString("stations_json", encode(updated))
+            }
     }
 
     private fun encode(stations: List<JukeboxStation>): String {

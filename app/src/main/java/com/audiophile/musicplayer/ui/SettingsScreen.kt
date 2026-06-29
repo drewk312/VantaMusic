@@ -57,6 +57,7 @@ import com.audiophile.musicplayer.playback.AutoMixPreferences
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
 import com.audiophile.musicplayer.auto.AndroidAutoHelper
 import com.audiophile.musicplayer.audio.visualizer.AuraMode
+import androidx.core.content.edit
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -89,7 +90,9 @@ fun SettingsScreen(
 
     fun setDjFrequency(freq: String) {
         djFrequency = freq
-        sharedPrefs.edit().putString("dj_frequency", freq).apply()
+        sharedPrefs.edit {
+                putString("dj_frequency", freq)
+            }
     }
 
     fun saveEqualizer(config: VantaEqualizerConfig) {
@@ -311,7 +314,9 @@ private fun ConnectedLibrariesSettingsGroup(context: Context) {
     }
 
     fun saveBoolean(key: String, value: Boolean) {
-        prefs.edit().putBoolean(key, value).apply()
+        prefs.edit {
+                putBoolean(key, value)
+            }
     }
 
     fun toggleConnect(provider: String) {
@@ -370,7 +375,9 @@ private fun ConnectedLibrariesSettingsGroup(context: Context) {
             },
             onDeleteImportedData = {
                 appleLastImport = "Never"
-                prefs.edit().remove("apple_last_import").apply()
+                prefs.edit {
+                        remove("apple_last_import")
+                    }
             }
         )
         Box(
@@ -398,7 +405,9 @@ private fun ConnectedLibrariesSettingsGroup(context: Context) {
             },
             onDeleteImportedData = {
                 spotifyLastImport = "Never"
-                prefs.edit().remove("spotify_last_import").apply()
+                prefs.edit {
+                        remove("spotify_last_import")
+                    }
             }
         )
         Text(

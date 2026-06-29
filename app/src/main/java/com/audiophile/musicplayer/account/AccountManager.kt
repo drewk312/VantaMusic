@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.core.content.edit
 
 /**
  * Manages the local user profile / account state.
@@ -72,7 +73,9 @@ class AccountManager(context: Context) {
      * Signs out — clears profile but keeps local library intact.
      */
     fun signOut() {
-        prefs.edit().clear().apply()
+        prefs.edit {
+                clear()
+            }
         _profile.value = UserProfile()
     }
 
@@ -99,15 +102,15 @@ class AccountManager(context: Context) {
     }
 
     private fun saveProfile(profile: UserProfile) {
-        prefs.edit()
-            .putString("display_name", profile.displayName)
-            .putString("email", profile.email)
-            .putBoolean("is_onboarded", profile.isOnboarded)
-            .putString("avatar_seed", profile.avatarSeed)
-            .putBoolean("source_sync_enabled", profile.sourceSyncEnabled)
-            .putBoolean("history_sync_enabled", profile.historySyncEnabled)
-            .putString("apple_music_user_token", profile.appleMusicUserToken)
-            .putString("apple_music_storefront", profile.appleMusicStorefront)
-            .apply()
+        prefs.edit {
+                putString("display_name", profile.displayName)
+                putString("email", profile.email)
+                putBoolean("is_onboarded", profile.isOnboarded)
+                putString("avatar_seed", profile.avatarSeed)
+                putBoolean("source_sync_enabled", profile.sourceSyncEnabled)
+                putBoolean("history_sync_enabled", profile.historySyncEnabled)
+                putString("apple_music_user_token", profile.appleMusicUserToken)
+                putString("apple_music_storefront", profile.appleMusicStorefront)
+            }
     }
 }

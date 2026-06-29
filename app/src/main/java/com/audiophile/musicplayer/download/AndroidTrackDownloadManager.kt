@@ -7,6 +7,7 @@ import android.os.Environment
 import androidx.core.net.toUri
 import com.audiophile.musicplayer.data.local.entities.TrackSource
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
+import androidx.core.content.edit
 
 data class DownloadEnqueueResult(
     val downloadId: Long,
@@ -49,7 +50,9 @@ class AndroidTrackDownloadManager(
         val downloadId = downloadManager.enqueue(request)
         val pending = preferences.getStringSet(KEY_PENDING_IDS, emptySet()).orEmpty().toMutableSet()
         pending.add(downloadId.toString())
-        preferences.edit().putStringSet(KEY_PENDING_IDS, pending).apply()
+        preferences.edit {
+                putStringSet(KEY_PENDING_IDS, pending)
+            }
         return DownloadEnqueueResult(downloadId = downloadId, fileName = fileName)
     }
 
@@ -59,7 +62,9 @@ class AndroidTrackDownloadManager(
     fun markDownloadHandled(downloadId: Long) {
         val pending = preferences.getStringSet(KEY_PENDING_IDS, emptySet()).orEmpty().toMutableSet()
         pending.remove(downloadId.toString())
-        preferences.edit().putStringSet(KEY_PENDING_IDS, pending).apply()
+        preferences.edit {
+                putStringSet(KEY_PENDING_IDS, pending)
+            }
     }
 
     fun getDownloadedFileUri(downloadId: Long): Uri? =

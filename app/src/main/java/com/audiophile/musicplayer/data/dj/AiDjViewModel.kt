@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 data class AiDjUiState(
     val session: AiDjSessionUiState = AiDjSessionUiState(),
@@ -692,7 +693,9 @@ class AiDjViewModel @Inject constructor(
     }
 
     fun selectCompanionMode(mode: DjCompanionMode) {
-        djPrefs.edit().putString("dj_companion_mode", mode.name).apply()
+        djPrefs.edit {
+                putString("dj_companion_mode", mode.name)
+            }
         _state.update { it.copy(companionMode = mode) }
         if (mode.shouldShowMoment()) {
             val line = when (mode) {
