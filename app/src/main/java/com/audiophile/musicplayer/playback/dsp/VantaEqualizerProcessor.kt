@@ -48,8 +48,8 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
         ensureNativeEngine()
         synchronized(nativeLock) {
             native?.applyConfig(config)
+            configDirty = native == null
         }
-        configDirty = false
         return AudioProcessor.AudioFormat(
             currentSampleRate, 2, C.ENCODING_PCM_FLOAT
         )
@@ -67,13 +67,12 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
             return
         }
 
+        // Apply any pending config changes before processing this buffer.
         if (configDirty) {
             synchronized(nativeLock) {
-            native?.let { nativeEngine ->
-                    native?.applyConfig(config)
-                            } ?: Unit
+                native?.applyConfig(config)
+                if (native != null) configDirty = false
             }
-            configDirty = false
         }
 
         val enc = currentEncoding
@@ -88,84 +87,34 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
         try {
             val inOrder = inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
             val outOrder = output.order(ByteOrder.LITTLE_ENDIAN)
-            val nativeEngine = native
 
             var offset = 0
             while (offset < frameCount) {
                 val chunk = minOf(scratchL.size, frameCount - offset)
-                if (enc == C.ENCODING_PCM_FLOAT) {
-                    if (channels == 2) {
-                        for (i in 0 until chunk) {
-                            scratchL[i] = inOrder.getFloat()
-                            scratchR[i] = inOrder.getFloat()
-                        }
-                    } else {
-                        for (i in 0 until chunk) {
-                            val v = inOrder.getFloat()
-                            scratchL[i] = v
-                            scratchR[i] = v
-                        }
-                    }
-                } else {
-                    if (channels == 2) {
-                        for (i in 0 until chunk) {
-                            scratchL[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                            scratchR[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                        }
-                    } else {
-                        for (i in 0 until chunk) {
-                            val v = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                            scratchL[i] = v
-                            scratchR[i] = v
-                        }
-                    }
-                }
-            native?.let { nativeEngine ->
+                readInputChunk(inOrder, enc, channels, chunk)
 
                 synchronized(nativeLock) {
-                    try {
-                        nativeEngine.processDeinterleaved(scratchL, scratchR, 0, chunk)
-                    } catch (e: Exception) {
-                        android.util.Log.e("VANTA_DSP", "Native processDeinterleaved failed", e)
-                        nativeFailed = true
-                    }
+                    native?.processDeinterleaved(scratchL, scratchR, 0, chunk)
                 }
-            } ?: Unit
-            for (i in 0 until chunk) {
-                outOrder.putFloat(scratchL[i])
-                outOrder.putFloat(scratchR[i])
+
+                for (i in 0 until chunk) {
+                    outOrder.putFloat(scratchL[i])
+                    outOrder.putFloat(scratchR[i])
+                }
+                offset += chunk
             }
-            offset += chunk
-        }
-        if (!nativeFailed) {
-            spectrumListener?.let { listener ->
-                synchronized(nativeLock) {
-                    native?.getSpectrumMagnitudes()?.let { mags ->
-                        listener.invoke(mags)
-                    }
+
+            synchronized(nativeLock) {
+                native?.getSpectrumMagnitudes()?.let { mags ->
+                    spectrumListener?.invoke(mags)
                 }
             }
-        }
+
             output.flip()
         } catch (e: Exception) {
             if (e is java.util.concurrent.CancellationException) throw e
             android.util.Log.e("VANTA_DSP", "VantaEqualizer failed; bypassing", e)
-            output.clear()
-            if (enc == C.ENCODING_PCM_FLOAT) {
-                output.put(inputBuffer.duplicate().apply {
-                    position(inputStart)
-                    limit(inputStart + remaining)
-                })
-            } else {
-                val dup = inputBuffer.duplicate()
-                dup.position(inputStart)
-                dup.limit(inputStart + remaining)
-                while (dup.hasRemaining()) {
-                    output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
-                    output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
-                }
-            }
-            output.flip()
+            bypassOutput(output, inputBuffer, inputStart, remaining, enc)
             nativeFailed = true
             synchronized(nativeLock) {
                 native?.destroy()
@@ -175,15 +124,73 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
         inputBuffer.position(inputBuffer.limit())
     }
 
+    private fun readInputChunk(
+        inOrder: ByteBuffer,
+        enc: Int,
+        channels: Int,
+        chunk: Int
+    ) {
+        if (enc == C.ENCODING_PCM_FLOAT) {
+            if (channels == 2) {
+                for (i in 0 until chunk) {
+                    scratchL[i] = inOrder.getFloat()
+                    scratchR[i] = inOrder.getFloat()
+                }
+            } else {
+                for (i in 0 until chunk) {
+                    val v = inOrder.getFloat()
+                    scratchL[i] = v
+                    scratchR[i] = v
+                }
+            }
+        } else {
+            if (channels == 2) {
+                for (i in 0 until chunk) {
+                    scratchL[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
+                    scratchR[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
+                }
+            } else {
+                for (i in 0 until chunk) {
+                    val v = inOrder.getShort() / Short.MAX_VALUE.toFloat()
+                    scratchL[i] = v
+                    scratchR[i] = v
+                }
+            }
+        }
+    }
+
+    private fun bypassOutput(
+        output: ByteBuffer,
+        inputBuffer: ByteBuffer,
+        inputStart: Int,
+        remaining: Int,
+        enc: Int
+    ) {
+        output.clear()
+        if (enc == C.ENCODING_PCM_FLOAT) {
+            output.put(inputBuffer.duplicate().apply {
+                position(inputStart)
+                limit(inputStart + remaining)
+            })
+        } else {
+            val dup = inputBuffer.duplicate()
+            dup.position(inputStart)
+            dup.limit(inputStart + remaining)
+            while (dup.hasRemaining()) {
+                output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
+                output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
+            }
+        }
+        output.flip()
+    }
+
     override fun onFlush() {
         if (nativeFailed) {
             ensureNativeEngine()
         }
-        if (!nativeFailed) {
-            synchronized(nativeLock) {
-                native?.applyConfig(config)
-            }
-            configDirty = false
+        synchronized(nativeLock) {
+            native?.applyConfig(config)
+            if (native != null) configDirty = false
         }
     }
 

@@ -290,6 +290,10 @@ fun AppNavGraph(
             if (route in setOf(AppRoute.Home, AppRoute.Library, AppRoute.Search, AppRoute.AiDj)) {
                 previousMainRoute = route
             }
+            detailRoute = null
+            detailHistory = emptyList()
+            radioStationId = null
+            mixRoute = null
         }
         route = next
     }

@@ -880,6 +880,33 @@ private fun Modifier.searchResultSurface(featured: Boolean = false): Modifier {
     }
 }
 
+private fun artistLineWithFeatures(primaryArtist: String, featuredArtists: List<String>): String {
+    val primary = primaryArtist.trim()
+    val normalizedPrimary = primary.lowercase()
+    val features = featuredArtists
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+        .filterNot { feature ->
+            val normalizedFeature = feature.lowercase()
+            normalizedFeature == normalizedPrimary || normalizedPrimary.contains(normalizedFeature)
+        }
+        .map { it.toDisplayArtistName() }
+
+    return if (features.isEmpty()) primary else "$primary feat. ${features.joinToString(", ")}"
+}
+
+private fun String.toDisplayArtistName(): String {
+    return trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { char ->
+                if (char.isLowerCase()) char.titlecase() else char.toString()
+            }
+        }
+}
+
 @Composable
 private fun SearchSubtitleLine(
     artist: String,
@@ -967,6 +994,9 @@ private fun TopResultCard(
     }
     val dTitle = cleaned.title.ifBlank { track.displayTitle }
     val dArtist = cleaned.artist.ifBlank { track.displayArtist }
+    val dArtistLine = remember(dArtist, track.featuredArtists) {
+        artistLineWithFeatures(dArtist, track.featuredArtists)
+    }
     val dAlbum = track.album
 
     Row(
@@ -1008,7 +1038,7 @@ private fun TopResultCard(
                 }
             }
             SearchSubtitleLine(
-                artist = dArtist,
+                artist = dArtistLine,
                 album = dAlbum,
                 onArtistClick = { onNavigateToArtist(dArtist, null) },
                 onAlbumClick = dAlbum?.let { { onNavigateToAlbum(it, dArtist, track.artworkUrl) } }
@@ -1044,6 +1074,9 @@ private fun SearchSongRow(
     }
     val dTitle = cleaned.title.ifBlank { track.displayTitle }
     val dArtist = cleaned.artist.ifBlank { track.displayArtist }
+    val dArtistLine = remember(dArtist, track.featuredArtists) {
+        artistLineWithFeatures(dArtist, track.featuredArtists)
+    }
     val dAlbum = track.album
 
     Row(
@@ -1085,7 +1118,7 @@ private fun SearchSongRow(
                 }
             }
             SearchSubtitleLine(
-                artist = dArtist,
+                artist = dArtistLine,
                 album = dAlbum,
                 onArtistClick = { onNavigateToArtist(dArtist, null) },
                 onAlbumClick = dAlbum?.let { { onNavigateToAlbum(it, dArtist, track.artworkUrl) } }

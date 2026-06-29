@@ -19,7 +19,7 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "STATION_BACKEND_URL", "\"${project.findProperty("STATION_BACKEND_URL") as? String ?: ""}\"")
-        buildConfigField("String", "TORBOX_BASE_URL", "\"https://api.torbox.app/v1/\"")
+        buildConfigField("String", "TORBOX_BASE_URL", "\"${project.findProperty("TORBOX_BASE_URL") as? String ?: ""}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

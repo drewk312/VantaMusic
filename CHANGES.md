@@ -90,6 +90,10 @@ changes drove the report to **0 errors and 0 warnings** while keeping tests gree
 
 ### Fixed / Suppressed
 
+- **Equalizer processor** — fixed race conditions in `VantaEqualizerProcessor.kt`: config changes are now applied atomically under `nativeLock`, `configDirty` is only cleared when the native engine exists, and the per-buffer process loop reads/processes/writes cleanly instead of using redundant volatile reads.
+- **Visualizer conservative attachment** — `VantaAudioAnalyzer.kt` now caps the Visualizer capture rate at 22,050 Hz (avoids offload parameter warnings on Pixel devices), catches `UnsupportedOperationException`/`RuntimeException` separately, and always falls back to a breathing animation when the platform Visualizer is unavailable.
+- **Gateway metrics** — `workers/music-gateway/src/index.ts` now tracks request counts per route, errors, and rate-limited hits. Added `/metrics` endpoint (use `?reset=1` to reset counters).
+
 - `PlaybackService.kt` — repaired brace balance in `createNotificationChannel()`
   after the API 26 guard removal.
 - `UpnpCastingManager.kt` — removed an unused local `context` assignment that
@@ -131,3 +135,31 @@ for dedicated cleanup passes:
 - `./gradlew.bat :app:testDebugUnitTest` — passes
 - `./gradlew.bat :app:lintDebug` — **0 errors, 0 warnings**
 - `cd station-backend && npx tsc --noEmit` — passes
+
+## Current Session — Pre-Premium Pass (Uncommitted)
+
+### Fixed
+- **Equalizer processor** — fixed race conditions in `VantaEqualizerProcessor.kt`: config changes are now applied atomically under `nativeLock`, `configDirty` is only cleared when the native engine exists, and the per-buffer process loop reads/processes/writes cleanly instead of using redundant volatile reads.
+- **Visualizer conservative attachment** — `VantaAudioAnalyzer.kt` now caps the Visualizer capture rate at 22,050 Hz (avoids offload parameter warnings on Pixel devices), catches `UnsupportedOperationException`/`RuntimeException` separately, and always falls back to a breathing animation when the platform Visualizer is unavailable.
+- **Gateway metrics** — `workers/music-gateway/src/index.ts` now tracks request counts per route, errors, and rate-limited hits. Added `/metrics` endpoint (use `?reset=1` to reset counters).
+
+- **Hardcoded TorBox URL** — `app/build.gradle.kts` now reads `TORBOX_BASE_URL` from `local.properties` instead of hardcoding `https://api.torbox.app/v1/`.
+- **Modern edge-to-edge system bars** — `MainActivity.kt` replaced deprecated `window.statusBarColor` / `window.navigationBarColor` with `WindowCompat.setDecorFitsSystemWindows(window, false)` + `WindowInsetsControllerCompat`.
+- **Local configuration** — `app/local.properties` now documents both `STATION_BACKEND_URL` and `TORBOX_BASE_URL`.
+- **Attribution tag** — attempted `android:attributionTag="VANTA"` in `AndroidManifest.xml`, but AAPT rejects the attribute at compileSdk 36. Reverted. The `AppOps: attributionTag not declared` warning is a runtime-only platform message and must be addressed via `AppOpsManager` API if needed later.
+
+### Pending from Previous Session
+- `AppNavGraph.kt` — clears detail overlays when opening Now Playing from mini-player tap.
+- `SearchScreen.kt` — renders featured artists (e.g., "feat. Lil Wayne") in search result rows and top result card.
+- `SearchIdentityScorerTest.kt` — regression test ensuring featured artists propagate through `UnifiedSearchEngine.process()`.
+
+### Verification Blocked in This Sandbox
+- Android Gradle build **can** run on the user's machine. Verified in this session: compile and unit tests pass. Lint was launched on the user's machine; result pending.
+- `station-backend` Vitest execution is blocked by esbuild attempting to traverse parent directories outside the workspace.
+- **Run on the user's machine:**
+  ```powershell
+  .\gradlew.bat :app:compileDebugKotlin
+  .\gradlew.bat :app:testDebugUnitTest
+  .\gradlew.bat :app:lintDebug
+  ```
+

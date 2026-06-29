@@ -73,4 +73,21 @@ class SearchIdentityScorerTest {
         assertEquals("jay sean", intent.primaryArtist)
         assertTrue(intent.featuredArtists.any { it.contains("lil wayne") })
     }
+
+    @Test
+    fun processDownJaySeanCarriesFeaturedArtistToResults() {
+        val response = UnifiedSearchEngine.process(
+            "Down Jay Sean feat Lil Wayne",
+            listOf(
+                track("That Ain't Me", "Lil Wayne"),
+                track("Down", "Random Cover Artist"),
+                track("Down", "Jay Sean", album = "All or Nothing")
+            )
+        )
+
+        assertEquals("Jay Sean", response.topResult?.artist)
+        assertEquals("Down", response.topResult?.title)
+        assertTrue(response.topResult?.featuredArtists.orEmpty().any { it.contains("lil wayne") })
+        assertTrue(response.songs.first().featuredArtists.any { it.contains("lil wayne") })
+    }
 }

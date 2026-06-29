@@ -21,6 +21,8 @@ class VantaAudioAnalyzer(
         private const val TAG = "VANTA_AURA_ANALYZER"
         private const val CAPTURE_RATE_MS = 50L
         private const val FALLBACK_FRAME_INTERVAL_MS = 100L
+        // Avoid the highest capture rates that can trigger offload parameter warnings on Pixel devices.
+        private const val CAPTURE_RATE_HZ = 22050
     }
 
     private var visualizer: Visualizer? = null
@@ -56,6 +58,7 @@ class VantaAudioAnalyzer(
             val viz = Visualizer(sessionId)
             val captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
             viz.captureSize = captureSize
+            val captureRate = Visualizer.getMaxCaptureRate().coerceAtMost(CAPTURE_RATE_HZ)
             viz.setDataCaptureListener(
                 object : Visualizer.OnDataCaptureListener {
                     override fun onWaveFormDataCapture(
@@ -78,16 +81,22 @@ class VantaAudioAnalyzer(
                         _audioFrame.value = frame
                     }
                 },
-                Visualizer.getMaxCaptureRate() / 2,
+                captureRate,
                 true,
                 true
             )
             viz.enabled = true
             visualizer = viz
             _isActive.value = true
-            Log.d(TAG, "attach success sessionId=$sessionId captureSize=$captureSize")
+            Log.d(TAG, "attach success sessionId=$sessionId captureSize=$captureSize captureRate=$captureRate")
+        } catch (e: UnsupportedOperationException) {
+            Log.w(TAG, "Visualizer unsupported for sessionId=$sessionId (offload?); falling back", e)
+            startFallbackFrameEmitter()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Visualizer runtime error for sessionId=$sessionId; falling back", e)
+            startFallbackFrameEmitter()
         } catch (e: Exception) {
-            Log.w(TAG, "attach failed sessionId=$sessionId error=${e.message}")
+            Log.w(TAG, "Visualizer attach failed sessionId=$sessionId error=${e.message}; falling back")
             startFallbackFrameEmitter()
         }
     }

@@ -13,6 +13,7 @@ import {
 } from "./http";
 import { checkRateLimit } from "./lib/rate-limit";
 import { checkProviderHealth } from "./lib/health";
+import { getMetrics, incrementErrors, incrementRateLimited, incrementRequests, incrementRoute, resetMetrics } from "./lib/metrics";
 import { searchAll } from "./providers/search";
 import { resolveTrack } from "./providers/resolve";
 import { streamWithFallback } from "./providers/stream";
@@ -66,6 +67,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   };
 
   if (!rate.allowed) {
+    incrementRateLimited();
     return errorResponse(
       "rate_limited",
       "Too many requests. Slow down or upgrade your plan.",
@@ -75,6 +77,8 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       rateHeaders
     );
   }
+
+  incrementRequests();
 
   const logBase = {
     req: id,
@@ -121,6 +125,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (pathname === "/search" || pathname === "/api/search") {
     const query = url.searchParams.get("q") ?? url.searchParams.get("query") ?? "";
     if (!query.trim()) return withHeaders(badRequest("missing query parameter q"), rateHeaders);
+    incrementRoute("search");
     console.log("VANTA_SEARCH_REQUEST", JSON.stringify({ ...logBase, query }));
     return json(await searchAll(query.trim(), env), 200, rateHeaders);
   }
@@ -139,6 +144,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         rateHeaders
       );
     }
+    incrementRoute("resolve");
     console.log(
       "VANTA_RESOLVE_REQUEST",
       JSON.stringify({ ...logBase, id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null })
@@ -152,6 +158,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       });
       return json(result, 200, rateHeaders);
     } catch (error) {
+      incrementErrors();
       const message = error instanceof Error ? error.message : "resolve_failed";
       return errorResponse(
         "resolve_failed",
@@ -168,6 +175,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (streamId && request.method === "GET") {
     const quality = normalizeQuality(url.searchParams.get("quality"), env.DEFAULT_STREAM_QUALITY);
     const provider = providerFromQuery(url);
+    incrementRoute("stream");
     console.log(
       "VANTA_PLAY_TRACK_REQUEST",
       JSON.stringify({ ...logBase, id: streamId, service: provider ?? "auto", quality })
@@ -201,6 +209,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         rateHeaders
       );
     }
+    incrementRoute("play");
     console.log(
       "VANTA_PLAY_REDIRECT_REQUEST",
       JSON.stringify({ ...logBase, id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null, quality })
@@ -243,6 +252,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (!body?.id?.trim()) return withHeaders(badRequest("missing id"), rateHeaders);
     const quality = normalizeQuality(body.quality, env.DEFAULT_STREAM_QUALITY);
     const provider = providerFromQuery(url, body.service ?? body.provider);
+    incrementRoute("download");
     console.log(
       "VANTA_PLAY_TRACK_REQUEST",
       JSON.stringify({ ...logBase, id: body.id.trim(), service: provider ?? "auto", quality })
@@ -264,6 +274,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (pathname.startsWith("/search/")) {
     const query = decodeURIComponent(pathname.slice("/search/".length));
     if (!query.trim()) return withHeaders(badRequest("missing search path"), rateHeaders);
+    incrementRoute("search");
     console.log("VANTA_SEARCH_REQUEST", JSON.stringify({ ...logBase, query }));
     return json(await searchAll(query.trim(), env), 200, rateHeaders);
   }
@@ -303,6 +314,7 @@ export default {
     try {
       return await handleRequest(request, env);
     } catch (error) {
+      incrementErrors();
       console.error("gateway_error", error);
       return json(
         {
