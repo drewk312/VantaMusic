@@ -107,7 +107,8 @@ data class SourceSearchResult(
     val durationMs: Long?,
     val isrc: String? = null,
     val status: SearchItemStatus,
-    val qualityLabel: String?
+    val qualityLabel: String?,
+    val featuredArtists: List<String> = emptyList()
 ) {
     val artworkUrl: String?
         get() {

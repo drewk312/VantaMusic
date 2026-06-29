@@ -19,10 +19,14 @@ data class CanonicalTrack(
     val sourceStatus: SearchItemStatus? = null,
     val sourceProviderId: String? = null,
     val externalTrackId: String? = null,
-    val qualityInfo: VantaQualityInfo? = null
+    val qualityInfo: VantaQualityInfo? = null,
+    val featuredArtists: List<String> = emptyList()
 ) {
     val displayTitle: String get() = title.ifBlank { "Unknown Track" }
-    val displayArtist: String get() = artist.ifBlank { "Unknown Artist" }
+    val displayArtist: String get() {
+        val primary = artist.ifBlank { "Unknown Artist" }
+        return if (featuredArtists.isNotEmpty()) "$primary feat. ${featuredArtists.joinToString(", ")}" else primary
+    }
 }
 
 data class CanonicalAlbum(

@@ -21,8 +21,8 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private val VantaBlackGlass = Color(0xFF080C11)
-private val VantaDeepViolet = Color(0xFF1A0B2E)
+private val VantaBlackGlass = Color(0xFF000000)
+private val VantaDeepViolet = Color(0xFF0D0518)
 private val VantaEmerald = Color(0xFF00E676)
 private val VantaTeal = Color(0xFF00B0FF)
 
@@ -57,7 +57,7 @@ fun VantaAuraBackground(
     val targetAlpha = if (isPlaying && !reducedMotion) {
         0.04f + hiddenEnergy * 0.22f
     } else {
-        0.08f // Calm static glow for silence/reduced motion
+        0.0f // Pure black when idle/paused for premium OLED vibe
     }
 
     val smoothedAlpha by animateFloatAsState(

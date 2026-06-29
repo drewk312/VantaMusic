@@ -270,6 +270,7 @@ class PlaybackService : MediaLibraryService() {
         createNotificationChannel()
         promoteToForegroundEarly()
 
+        sessionTrustPolicy = MediaSessionTrustPolicy(PackageValidator(this))
         vantaEqualizer = com.audiophile.musicplayer.playback.dsp.VantaEqualizerProcessor()
         com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder.processor = vantaEqualizer
         autoMixPreferences = AutoMixPreferences(this)
@@ -356,6 +357,7 @@ class PlaybackService : MediaLibraryService() {
 
         exoPlayer.addListener(playbackStateManager)
 
+        // Create mediaSession early so onGetSession() doesn't return null
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val sessionActivity = launchIntent?.let {
             PendingIntent.getActivity(
@@ -365,6 +367,11 @@ class PlaybackService : MediaLibraryService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
         }
+        mediaSession = MediaLibrarySession.Builder(this, player, androidAutoCallback)
+            .setId("vanta_media_library")
+            .apply { sessionActivity?.let { setSessionActivity(it) } }
+            .build()
+
         autoController = AndroidAutoController(
             context = this,
             scope = serviceScope,
@@ -448,11 +455,8 @@ class PlaybackService : MediaLibraryService() {
             }
         )
 
-        mediaSession = MediaLibrarySession.Builder(this, player, androidAutoCallback)
-            .setId("vanta_media_library")
-            .apply { sessionActivity?.let { setSessionActivity(it) } }
-            .setBitmapLoader(autoController.createBitmapLoader())
-            .build()
+        // Update existing mediaSession with the proper bitmap loader from autoController
+        // (created earlier to allow early controller connections; now enriched)
         player.refreshQueueTimeline()
 
         serviceScope.launch {

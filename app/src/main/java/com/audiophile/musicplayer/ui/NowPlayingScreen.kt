@@ -176,10 +176,22 @@ fun NowPlayingScreen(
             auraState?.palette?.forArtwork(listOf(screenAccent)) ?: com.audiophile.musicplayer.audio.visualizer.AuraPalette()
         }
 
+        val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                // If granted, we can restart the visualizer polling or analyzer attachment.
+                visualizerViewModel?.setPlaying(nowPlayingState.isPlaying)
+            }
+        }
+
         LaunchedEffect(nowPlayingState.trackId) {
             visualizerViewModel?.setTrackId(nowPlayingState.trackId?.toLongOrNull())
         }
         LaunchedEffect(nowPlayingState.isPlaying) {
+            if (nowPlayingState.isPlaying && visualizerViewModel?.hasRecordAudioPermission() == false) {
+                permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
             visualizerViewModel?.setPlaying(nowPlayingState.isPlaying)
         }
 
@@ -453,8 +465,9 @@ private fun PortraitNowPlayingContent(
             }
 
             Column(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = horizontalPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Spacer(Modifier.weight(1f))
                 CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 24.sp else 30.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -474,10 +487,11 @@ private fun PortraitNowPlayingContent(
                         NowPlayingQualitySignal(qualityInfo = pq, onClick = onOpenQualityDetails)
                     }
                 }
-                Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
+                Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
                 LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = canPlayPrevious, canPlayNext = canPlayNext, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
                 PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
+                Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
             }
         }
     }

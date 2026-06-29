@@ -129,9 +129,10 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .imePadding()
             .padding(horizontal = 24.dp)
-            .padding(top = 22.dp, bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)),
+            .padding(top = 16.dp, bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Search", color = AppText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -188,7 +189,8 @@ fun SearchScreen(
             trimmedQuery.isEmpty() && activeBrowseCategory == null -> {
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -367,17 +369,23 @@ fun SearchScreen(
                 )
             }
             activeBrowseCategory != null -> {
-                BrowseCategoryResults(
-                    category = activeBrowseCategory,
-                    songs = uiState.searchSongs,
-                    onBack = { onQueryChanged("") },
-                    onPlaySourceResult = onPlaySourceResult,
-                    onSaveSourceResult = onSaveSourceResult,
-                    onNavigateToArtist = onNavigateToArtist,
-                    onNavigateToAlbum = onNavigateToAlbum,
-                    onOpenTrackSheet = onOpenTrackSheet,
-                    onStartStation = onStartStation
-                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    BrowseCategoryResults(
+                        category = activeBrowseCategory,
+                        songs = uiState.searchSongs,
+                        onBack = { onQueryChanged("") },
+                        onPlaySourceResult = onPlaySourceResult,
+                        onSaveSourceResult = onSaveSourceResult,
+                        onNavigateToArtist = onNavigateToArtist,
+                        onNavigateToAlbum = onNavigateToAlbum,
+                        onOpenTrackSheet = onOpenTrackSheet,
+                        onStartStation = onStartStation
+                    )
+                }
             }
             uiState.searchSongs.isEmpty() &&
                 uiState.searchAlbums.isEmpty() &&
@@ -408,7 +416,8 @@ fun SearchScreen(
 
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
+                        .fillMaxWidth()
                         .padding(bottom = 28.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -441,7 +450,8 @@ fun SearchScreen(
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .weight(1f)
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {

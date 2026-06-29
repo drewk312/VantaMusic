@@ -2274,7 +2274,7 @@ class MainViewModel @Inject constructor(
 
             val trackId = container.trackRepository.addTrackSource(
                 title = result.title,
-                artist = result.artist,
+                artist = result.displayArtist,
                 album = result.album,
                 coverArtUrl = result.artworkUrl,
                 sourceType = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.sourceTypeForProvider(playable.providerId),
@@ -2375,7 +2375,7 @@ class MainViewModel @Inject constructor(
             val (playable, resolvedStream) = resolved
             container.trackRepository.addTrackSource(
                 title = result.title,
-                artist = result.artist,
+                artist = result.displayArtist,
                 album = result.album,
                 coverArtUrl = result.artworkUrl,
                 sourceType = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.sourceTypeForProvider(playable.providerId),

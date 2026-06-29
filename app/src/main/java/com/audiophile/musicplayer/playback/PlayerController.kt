@@ -51,52 +51,57 @@ class PlayerController(
         val future = MediaController.Builder(appContext, sessionToken).buildAsync()
         controllerFuture = future
         future.addListener({
-            val mc = future.get()
-            mediaController = mc
-            val listener = object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    Log.d("VANTA_PLAYER_STATE", "MEDIA_TRANSITION isPlaying=$isPlaying")
-                    val currentMediaTrackId = mediaItemTrackId(mc.currentMediaItem?.mediaId)
-                    val current = playbackState.snapshot()
-                    if (current.trackId != null && currentMediaTrackId != null && current.trackId != currentMediaTrackId) {
-                        Log.d(
-                            "VANTA_PLAYBACK",
-                            "skip stale isPlaying mediaId=${mc.currentMediaItem?.mediaId} liveTrackId=${current.trackId}"
-                        )
+            try {
+                val mc = future.get()
+                mediaController = mc
+                val listener = object : androidx.media3.common.Player.Listener {
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        Log.d("VANTA_PLAYER_STATE", "MEDIA_TRANSITION isPlaying=$isPlaying")
+                        val currentMediaTrackId = mediaItemTrackId(mc.currentMediaItem?.mediaId)
+                        val current = playbackState.snapshot()
+                        if (current.trackId != null && currentMediaTrackId != null && current.trackId != currentMediaTrackId) {
+                            Log.d(
+                                "VANTA_PLAYBACK",
+                                "skip stale isPlaying mediaId=${mc.currentMediaItem?.mediaId} liveTrackId=${current.trackId}"
+                            )
+                            updatePosition()
+                            return
+                        }
+                        playbackState.update { copy(isPlaying = isPlaying) }
                         updatePosition()
-                        return
+                        if (isPlaying) startPolling() else stopPolling()
                     }
-                    playbackState.update { copy(isPlaying = isPlaying) }
-                    updatePosition()
-                    if (isPlaying) startPolling() else stopPolling()
-                }
-                override fun onPlaybackStateChanged(state: Int) {
-                    val stateLabel = when (state) {
-                        androidx.media3.common.Player.STATE_IDLE -> "IDLE"
-                        androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
-                        androidx.media3.common.Player.STATE_READY -> "READY"
-                        androidx.media3.common.Player.STATE_ENDED -> "ENDED"
-                        else -> "UNKNOWN"
+                    override fun onPlaybackStateChanged(state: Int) {
+                        val stateLabel = when (state) {
+                            androidx.media3.common.Player.STATE_IDLE -> "IDLE"
+                            androidx.media3.common.Player.STATE_BUFFERING -> "BUFFERING"
+                            androidx.media3.common.Player.STATE_READY -> "READY"
+                            androidx.media3.common.Player.STATE_ENDED -> "ENDED"
+                            else -> "UNKNOWN"
+                        }
+                        Log.d("VANTA_PLAYER_STATE", "PLAYBACK_STATE state=$stateLabel")
+                        updatePosition()
                     }
-                    Log.d("VANTA_PLAYER_STATE", "PLAYBACK_STATE state=$stateLabel")
-                    updatePosition()
+                    override fun onPositionDiscontinuity(
+                        oldPosition: androidx.media3.common.Player.PositionInfo,
+                        newPosition: androidx.media3.common.Player.PositionInfo,
+                        reason: Int
+                    ) {
+                        Log.d("VANTA_PLAYER_STATE", "MEDIA_TRANSITION old=${oldPosition.mediaItem?.mediaId} new=${newPosition.mediaItem?.mediaId} reason=$reason")
+                        updatePosition()
+                        _trackTransition.tryEmit(Unit)
+                    }
                 }
-                override fun onPositionDiscontinuity(
-                    oldPosition: androidx.media3.common.Player.PositionInfo,
-                    newPosition: androidx.media3.common.Player.PositionInfo,
-                    reason: Int
-                ) {
-                    Log.d("VANTA_PLAYER_STATE", "MEDIA_TRANSITION old=${oldPosition.mediaItem?.mediaId} new=${newPosition.mediaItem?.mediaId} reason=$reason")
-                    updatePosition()
-                    _trackTransition.tryEmit(Unit)
-                }
+                playerListener = listener
+                mc.addListener(listener)
+
+                playbackState.update { copy(isPlaying = mc.isPlaying) }
+                updatePosition()
+                if (mc.isPlaying) startPolling()
+            } catch (e: Exception) {
+                Log.e("VANTA_PLAYER", "MediaSession connection rejected (service not ready yet), will retry on play action", e)
+                mediaController = null
             }
-            playerListener = listener
-            mc.addListener(listener)
-            
-            playbackState.update { copy(isPlaying = mc.isPlaying) }
-            updatePosition()
-            if (mc.isPlaying) startPolling()
         }, ContextCompat.getMainExecutor(appContext))
     }
 

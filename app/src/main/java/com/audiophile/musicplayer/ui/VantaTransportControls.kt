@@ -71,21 +71,25 @@ fun PremiumTransportButton(
                 spotColor = if (isPrimary) AppAccentGlow else Color.Black.copy(alpha = 0.3f)
             )
             .clip(CircleShape)
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (isPrimary) 0.16f else 0.12f),
-                        Color.White.copy(alpha = 0.06f),
-                        Color.Black.copy(alpha = 0.30f)
+            .let { m ->
+                if (isPrimary) m.background(Color.White)
+                else m.background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.12f),
+                            Color.White.copy(alpha = 0.04f),
+                            Color.Transparent
+                        )
                     )
                 )
-            )
+            }
             .border(
                 width = 1.dp,
-                brush = Brush.verticalGradient(
+                brush = if (isPrimary) Brush.verticalGradient(listOf(Color.White, Color.White))
+                else Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.22f),
-                        AppAccent.copy(alpha = if (isPrimary) 0.18f else 0.08f)
+                        Color.White.copy(alpha = 0.15f),
+                        Color.White.copy(alpha = 0.03f)
                     )
                 ),
                 shape = CircleShape
@@ -114,7 +118,7 @@ fun PremiumTransportButton(
             Icon(
                 imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = null,
-                tint = Color.White,
+                tint = if (isPrimary) Color.Black else Color.White,
                 modifier = Modifier.size(iconSize)
             )
         }

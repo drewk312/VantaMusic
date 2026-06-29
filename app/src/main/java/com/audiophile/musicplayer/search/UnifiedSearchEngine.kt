@@ -120,15 +120,16 @@ object UnifiedSearchEngine {
             .map { it.first }
             .firstOrNull() ?: songs.firstOrNull()
 
-        // SSS Rule: If we have a famous song fallback, it SHOULD be the top result if it scored well
-        val topResult = topCandidate
+        // Enrich with featured artists if parsed from intent
+        val topResult = topCandidate?.copy(featuredArtists = intent.featuredArtists)
+        val enrichedSongs = songs.map { it.copy(featuredArtists = intent.featuredArtists) }
         
-        val topScore = scoredTracks.firstOrNull { it.first == topResult }?.second?.finalScore ?: 0
+        val topScore = scoredTracks.firstOrNull { it.first == topCandidate }?.second?.finalScore ?: 0
         val identityMatch = topScore >= IDENTITY_THRESHOLD
 
         return UnifiedSearchResponse(
             topResult = topResult,
-            songs = songs,
+            songs = enrichedSongs,
             albums = albums.values.toList().sortedByDescending { scoreText(normalizedQuery, it.title) },
             artists = artists.values.toList().sortedByDescending { scoreText(normalizedQuery, it.name) },
             identityMatch = identityMatch
