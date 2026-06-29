@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
@@ -181,7 +182,7 @@ private fun PlayableTrackRow(
                     Icon(Icons.Filled.SkipNext, contentDescription = "Play Next", tint = AppTextSecondary, modifier = Modifier.size(22.dp))
                 }
                 Box(modifier = Modifier.size(40.dp).clip(CircleShape).clickable { onAddToQueue(track) }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.QueueMusic, contentDescription = "Add to Queue", tint = AppTextSecondary, modifier = Modifier.size(22.dp))
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "Add to Queue", tint = AppTextSecondary, modifier = Modifier.size(22.dp))
                 }
             }
         }

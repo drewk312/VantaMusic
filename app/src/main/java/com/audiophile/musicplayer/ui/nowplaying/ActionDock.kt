@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -41,8 +42,8 @@ fun PortraitUtilityBar(
         modifier = Modifier.fillMaxWidth().height(52.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        UtilityAction(icon = Icons.Filled.QueueMusic, label = "Queue", active = mode == NowPlayingMode.QUEUE, modifier = Modifier.weight(1f), onClick = { onModeChange(if (mode == NowPlayingMode.QUEUE) NowPlayingMode.ARTWORK else NowPlayingMode.QUEUE) })
-        UtilityAction(icon = Icons.Filled.Article, label = "Lyrics", active = mode == NowPlayingMode.LYRICS, modifier = Modifier.weight(1f), onClick = { onModeChange(if (mode == NowPlayingMode.LYRICS) NowPlayingMode.ARTWORK else NowPlayingMode.LYRICS) })
+        UtilityAction(icon = Icons.AutoMirrored.Filled.QueueMusic, label = "Queue", active = mode == NowPlayingMode.QUEUE, modifier = Modifier.weight(1f), onClick = { onModeChange(if (mode == NowPlayingMode.QUEUE) NowPlayingMode.ARTWORK else NowPlayingMode.QUEUE) })
+        UtilityAction(icon = Icons.AutoMirrored.Filled.Article, label = "Lyrics", active = mode == NowPlayingMode.LYRICS, modifier = Modifier.weight(1f), onClick = { onModeChange(if (mode == NowPlayingMode.LYRICS) NowPlayingMode.ARTWORK else NowPlayingMode.LYRICS) })
         UtilityAction(icon = Icons.Filled.Share, label = "Share", active = false, modifier = Modifier.weight(1f), onClick = {
             val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Listening to $displayTitle by $displayArtist on VANTA") }
             context.startActivity(Intent.createChooser(intent, "Share").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
@@ -74,9 +75,9 @@ fun NowPlayingActionIcons(isFavorite: Boolean, mode: NowPlayingMode, displayTitl
             contentDescription = "Like", tint = if (isFavorite) AppAccent else AppTextSecondary,
             modifier = Modifier.size(48.dp).graphicsLayer(scaleX = likeScale, scaleY = likeScale).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_heart' result='tap'"); Log.d("VANTA_LIBRARY_ACTION", "liked=${!isFavorite} track='${displayTitle}'"); onToggleFavorite() }
         )
-        Icon(Icons.Filled.QueueMusic, contentDescription = "Queue", tint = if (mode == NowPlayingMode.QUEUE) AppAccent else AppTextSecondary,
+        Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "Queue", tint = if (mode == NowPlayingMode.QUEUE) AppAccent else AppTextSecondary,
             modifier = Modifier.size(48.dp).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_queue' result='tap'"); onModeChange(if (mode == NowPlayingMode.QUEUE) NowPlayingMode.ARTWORK else NowPlayingMode.QUEUE) })
-        Icon(Icons.Filled.Article, contentDescription = "Lyrics", tint = if (mode == NowPlayingMode.LYRICS) AppAccent else AppTextSecondary,
+        Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Lyrics", tint = if (mode == NowPlayingMode.LYRICS) AppAccent else AppTextSecondary,
             modifier = Modifier.size(48.dp).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_lyrics' result='tap'"); onModeChange(if (mode == NowPlayingMode.LYRICS) NowPlayingMode.ARTWORK else NowPlayingMode.LYRICS) })
         Icon(Icons.Filled.Share, contentDescription = "Share", tint = AppTextSecondary,
             modifier = Modifier.size(48.dp).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_share' result='tap'"); Log.d("VANTA_SHARE", "track='${displayTitle}'"); val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Listening to $displayTitle by $displayArtist on VANTA") }; ctx.startActivity(Intent.createChooser(intent, "Share").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }) })

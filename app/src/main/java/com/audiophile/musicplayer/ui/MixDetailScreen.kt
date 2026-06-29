@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,7 +55,7 @@ fun MixDetailScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = AppText, modifier = Modifier.size(32.dp).clickable(onClick = onBack).padding(4.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AppText, modifier = Modifier.size(32.dp).clickable(onClick = onBack).padding(4.dp))
             Spacer(Modifier.weight(1f))
             Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = AppTextSecondary, modifier = Modifier.size(32.dp).padding(4.dp))
         }

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -697,7 +698,7 @@ private fun BrowseCategoryResults(
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = AppText, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AppText, modifier = Modifier.size(20.dp))
             }
             Column {
                 Text(category, color = AppText, fontSize = 24.sp, fontWeight = FontWeight.Black)

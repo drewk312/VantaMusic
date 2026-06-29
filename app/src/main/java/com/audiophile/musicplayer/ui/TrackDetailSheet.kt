@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -87,7 +88,7 @@ fun TrackDetailSheet(
                 Log.d("VANTA_ACTION_MENU", "clicked action='add_to_library'")
                 onSaveToLibrary()
             })
-            VantaSheetAction(icon = Icons.Filled.PlaylistAdd, label = "Add to Playlist", onClick = {
+            VantaSheetAction(icon = Icons.AutoMirrored.Filled.PlaylistAdd, label = "Add to Playlist", onClick = {
                 Log.d("VANTA_ACTION_MENU", "clicked action='add_to_playlist'")
                 onAddToPlaylist()
             })
@@ -109,7 +110,7 @@ fun TrackDetailSheet(
                 Log.d("VANTA_ACTION_MENU", "clicked action='play_next'")
                 onPlayNext()
             })
-            VantaSheetAction(icon = Icons.Filled.QueueMusic, label = "Add to Queue", onClick = {
+            VantaSheetAction(icon = Icons.AutoMirrored.Filled.QueueMusic, label = "Add to Queue", onClick = {
                 Log.d("VANTA_ACTION_MENU", "clicked action='add_to_queue'")
                 onAddToQueue()
             })

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -418,13 +419,13 @@ private fun ActionItem(
     val icon = when (availability.action) {
         VantaActionSheetAction.PLAY -> Icons.Filled.PlayArrow
         VantaActionSheetAction.PLAY_NEXT -> Icons.Filled.SkipNext
-        VantaActionSheetAction.ADD_TO_QUEUE -> Icons.Filled.QueueMusic
+        VantaActionSheetAction.ADD_TO_QUEUE -> Icons.AutoMirrored.Filled.QueueMusic
         VantaActionSheetAction.START_RADIO -> Icons.Filled.Radio
         VantaActionSheetAction.ADD_TO_LIBRARY -> Icons.Filled.LibraryAdd
         VantaActionSheetAction.REMOVE_FROM_LIBRARY -> Icons.Filled.LibraryAddCheck
         VantaActionSheetAction.FAVORITE -> Icons.Filled.FavoriteBorder
         VantaActionSheetAction.UNFAVORITE -> Icons.Filled.Favorite
-        VantaActionSheetAction.ADD_TO_PLAYLIST -> Icons.Filled.PlaylistAdd
+        VantaActionSheetAction.ADD_TO_PLAYLIST -> Icons.AutoMirrored.Filled.PlaylistAdd
         VantaActionSheetAction.VIEW_ALBUM -> Icons.Filled.Album
         VantaActionSheetAction.VIEW_ARTIST -> Icons.Filled.Person
         VantaActionSheetAction.SHARE_TRACK,

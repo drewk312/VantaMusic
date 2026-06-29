@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,7 +59,7 @@ fun QueueView(
         )
         if (queueSnapshot.upNextQueue.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                VantaEmptyState(title = "Queue Empty", description = "Add tracks to your queue to keep the music going.", icon = Icons.Filled.QueueMusic)
+                VantaEmptyState(title = "Queue Empty", description = "Add tracks to your queue to keep the music going.", icon = Icons.AutoMirrored.Filled.QueueMusic)
             }
         } else {
             LazyColumn(

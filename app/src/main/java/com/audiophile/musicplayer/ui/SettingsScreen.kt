@@ -22,6 +22,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -1145,7 +1146,7 @@ fun AdvancedSettingsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Filled.OpenInNew,
+                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                                             contentDescription = null,
                                             tint = AppAccent,
                                             modifier = Modifier.size(18.dp)
@@ -1391,7 +1392,7 @@ private fun CloudGetTokenPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.OpenInNew,
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                 contentDescription = null,
                 tint = AppAccent,
                 modifier = Modifier.size(18.dp)
