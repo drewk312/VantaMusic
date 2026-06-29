@@ -1,3 +1,38 @@
+# VANTA Crash Fix - Latest Session
+
+## Summary
+
+Fixed the instant launch crash caused by an empty BuildConfig.TORBOX_BASE_URL. The app now builds, passes unit tests, passes lint with zero warnings, installs, and launches successfully on device.
+
+## Verified Results
+
+- `./gradlew.bat :app:compileDebugKotlin` - passes
+- `./gradlew.bat :app:testDebugUnitTest` - passes
+- `./gradlew.bat :app:lintDebug` - passes, **0 errors / 0 warnings**
+- `./gradlew.bat :app:assembleDebug` - passes
+- Device install & launch - `com.audiophile.musicplayer` starts without a fatal exception
+- Logcat shows MediaSession created and search queries executing
+
+## What Was Fixed
+
+### 1. Empty TORBOX_BASE_URL crash
+
+- **Root cause:** `local.properties` had no `TORBOX_BASE_URL`, so `BuildConfig.TORBOX_BASE_URL` was empty. `AppContainer.kt` passed the empty string to Retrofit, which threw `IllegalArgumentException: Expected URL scheme 'http' or 'https'` during app init.
+- **Fix:** Added `TORBOX_BASE_URL=https://api.torbox.app/v1/` to the root `local.properties`.
+- **Fix:** `app/build.gradle.kts` already reads the value from the root `local.properties`.
+- **Fix:** Deleted stale generated `BuildConfig.java` and rebuilt so the value was regenerated.
+
+### 2. Build verification
+
+- Confirmed `BuildConfig.TORBOX_BASE_URL` now resolves to `https://api.torbox.app/v1/`.
+- Confirmed `BuildConfig.STATION_BACKEND_URL` resolves to `https://vanta-gateway.workers.dev/`.
+
+### 3. Cleanup
+
+- Removed temporary helper scripts: `fix_build_gradle.py`, `fix_build2.py`, `fix_build3.py`, `fix_build4.py`, `add_torbox.py`.
+
+---
+
 # VANTA Rebuild — Phase 1 Changes
 
 ## Summary
@@ -142,6 +177,8 @@ for dedicated cleanup passes:
 - **Equalizer processor** — fixed race conditions in `VantaEqualizerProcessor.kt`: config changes are now applied atomically under `nativeLock`, `configDirty` is only cleared when the native engine exists, and the per-buffer process loop reads/processes/writes cleanly instead of using redundant volatile reads.
 - **Visualizer conservative attachment** — `VantaAudioAnalyzer.kt` now caps the Visualizer capture rate at 22,050 Hz (avoids offload parameter warnings on Pixel devices), catches `UnsupportedOperationException`/`RuntimeException` separately, and always falls back to a breathing animation when the platform Visualizer is unavailable.
 - **Gateway metrics** — `workers/music-gateway/src/index.ts` now tracks request counts per route, errors, and rate-limited hits. Added `/metrics` endpoint (use `?reset=1` to reset counters).
+- **MiniPlayer touch targets** — all transport controls in `MiniPlayer.kt` are now minimum 48.dp with clear content descriptions.
+- **Lint baseline removed** — `app/build.gradle.kts` no longer references `lint-baseline.xml`; the empty baseline file is deleted so lint cannot hide real issues.
 
 - **Hardcoded TorBox URL** — `app/build.gradle.kts` now reads `TORBOX_BASE_URL` from `local.properties` instead of hardcoding `https://api.torbox.app/v1/`.
 - **Modern edge-to-edge system bars** — `MainActivity.kt` replaced deprecated `window.statusBarColor` / `window.navigationBarColor` with `WindowCompat.setDecorFitsSystemWindows(window, false)` + `WindowInsetsControllerCompat`.
@@ -162,4 +199,113 @@ for dedicated cleanup passes:
   .\gradlew.bat :app:testDebugUnitTest
   .\gradlew.bat :app:lintDebug
   ```
+
+## Premium Pass � Connected Libraries & Gateway Streams
+
+### Added
+- **Gateway stream result caching** � `workers/music-gateway/src/lib/cache.ts` now exposes
+  `streamCacheKey`, `getCachedStream`, `putCachedStream`, and `streamCacheTtl` backed by the
+  `CACHE` KVNamespace. The `/stream/:id`, `/play`, and `/api/dl` routes in `src/index.ts`
+  check KV before resolving upstream and cache successful results for 5 minutes (configurable
+  via `STREAM_CACHE_TTL_SECONDS`). Cached entries respect upstream `expiresAt` timestamps.
+- **Connected Libraries Hilt module** � `di/ConnectedLibraryModule.kt` provides
+  `ConnectedLibraryTokenStore` as an encrypted singleton for future ViewModel injection.
+- **Real Connected Libraries UI** � `SettingsScreen.kt` no longer shows the fake
+  "Cloud Library Match is under maintenance" state. Instead:
+  - Connection status is derived from encrypted token presence in `ConnectedLibraryTokenStore`.
+  - Tapping "Connect Library" opens a token-input dialog for Apple Music (developer token +
+    Music User Token) or Spotify (access token).
+  - Tokens are stored with AES-256 encryption via `EncryptedSharedPreferences`.
+  - Disconnect clears tokens from the secure store.
+  - Import records the request and logs readiness; live API clients remain the next step.
+
+### Verification
+- `./gradlew.bat :app:compileDebugKotlin` � passes
+- `./gradlew.bat :app:testDebugUnitTest` � passes
+- `./gradlew.bat :app:lintDebug` � **0 errors, 0 warnings**
+- `cd workers/music-gateway && npx tsc --noEmit && npm test` � passes
+- `cd station-backend && npx tsc --noEmit` � passes
+
+## Premium Pass � Live Connected Library Import
+
+### Added
+- **Spotify library API client** � `data/connectors/spotify/SpotifyLibraryApiClient.kt` implements
+  `SpotifyLibraryApi` using Retrofit + OkHttp. It fetches:
+  - Saved tracks (`GET /v1/me/tracks`)
+  - Current user playlists (`GET /v1/me/playlists`)
+  - Playlist tracks (`GET /v1/playlists/{id}/tracks`)
+  - Search by identity (`GET /v1/search`)
+  - Save like (`PUT /v1/me/tracks`)
+  All returned data is metadata-only; Spotify IDs are never treated as playable sources.
+- **Connected library orchestration** � `data/connectors/ConnectedLibraryManager.kt` ties the
+  encrypted `ConnectedLibraryTokenStore` to real import clients and the local catalog:
+  - Builds a `ConnectedLibraryAccount` from stored tokens.
+  - Creates a per-provider `ConnectedLibraryImportManager` with the live client.
+  - Calls `TrackRepository.getAllTracks()` for the local catalog.
+  - Records import time and handles disconnect/token clearing.
+- **Settings screen import is now live** � `SettingsScreen.kt` no longer just logs a placeholder.
+  Tapping "Import Library" launches a coroutine that calls `ConnectedLibraryManager.importLibrary()`,
+  shows "Importing..." while running, and displays the final track/playlist count or failure reason.
+
+### Files Changed
+- `app/src/main/java/com/audiophile/musicplayer/data/connectors/spotify/SpotifyLibraryApiClient.kt` (new)
+- `app/src/main/java/com/audiophile/musicplayer/data/connectors/ConnectedLibraryManager.kt` (new)
+- `app/src/main/java/com/audiophile/musicplayer/data/connectors/ConnectedLibraryTokenStore.kt` (existing, reused)
+- `app/src/main/java/com/audiophile/musicplayer/ui/SettingsScreen.kt`
+
+### Verification
+- `./gradlew.bat :app:compileDebugKotlin` � passes
+- `./gradlew.bat :app:testDebugUnitTest` � passes
+- `./gradlew.bat :app:lintDebug` � **0 errors, 0 warnings**
+- `cd workers/music-gateway && npx tsc --noEmit` � passes
+- `cd station-backend && npx tsc --noEmit` � passes
+
+## Premium Pass � Connected Library Persistence, Like Sync, Gateway Redirects
+
+### Added
+- **Persist imported connected-library tracks** � `ConnectedLibraryManager.importLibrary()` now
+  saves imported Spotify/Apple Music tracks as `LocalSongEntity` rows after a successful import,
+  skipping exact title+artist duplicates. Saved tracks use `SourceType.SPOTIFY` / `SourceType.APPLE_MUSIC`
+  and store provider IDs in `externalIdsJson`.
+- **Provider links persistence** � links between local track IDs and provider track IDs are saved
+  to `SharedPreferences` as JSON so like-sync can resolve provider IDs later.
+- **Two-way like sync** � `ConnectedLibraryManager.syncLike()` enqueues and runs `SAVE_LIKE` actions
+  through `ConnectedLibraryLikeSyncManager` for every connected provider with like-sync enabled.
+- **Favorite toggle wiring** � `MainViewModel.toggleFavoriteForNowPlaying()` and
+  `toggleFavoriteForSong()` call `ConnectedLibraryManager.syncLike()` when a track is liked.
+- **Gateway `/stream/:id` 302 redirect** � the route now redirects to the resolved CDN URL instead
+  of returning JSON, matching the `/play` behavior.
+- **Gateway stream expiry validation** � `/stream/:id` and `/api/dl` now return a structured
+  `stream_expired` 410 error if the resolved URL is expired, with safe handling of seconds vs
+  milliseconds timestamps.
+
+### Files Changed
+- `app/src/main/java/com/audiophile/musicplayer/data/connectors/ConnectedLibraryManager.kt`
+- `app/src/main/java/com/audiophile/musicplayer/AppContainer.kt`
+- `app/src/main/java/com/audiophile/musicplayer/ui/MainViewModel.kt`
+- `workers/music-gateway/src/index.ts`
+
+### Verification
+- `./gradlew.bat :app:compileDebugKotlin` � passes
+- `./gradlew.bat :app:testDebugUnitTest` � passes
+- `./gradlew.bat :app:lintDebug` � **0 errors, 0 warnings**
+- `cd workers/music-gateway && npx tsc --noEmit && npm test` � passes
+- `cd station-backend && npx tsc --noEmit` � passes
+
+## Crash Fix � Connected Libraries Secure Store Fallback
+
+### Fixed
+- **Instant crash on launch** caused by `ConnectedLibraryTokenStore` throwing during
+  `AppContainer` initialization when the Android Keystore/EncryptedSharedPreferences
+  failed (common on some OEM devices or after reinstalling debug builds).
+  - `ConnectedLibraryTokenStore` now catches the keystore exception and falls back to
+    plain `SharedPreferences` with a clear security warning log.
+  - `AppContainer.connectedLibraryManager` is now lazy so it is not created on startup.
+  - `SettingsScreen.kt` uses the single `AppContainer` instances instead of creating a
+    second `ConnectedLibraryTokenStore`.
+
+### Verification
+- `./gradlew.bat :app:compileDebugKotlin` � passes
+- `./gradlew.bat :app:lintDebug` � **0 errors, 0 warnings**
+- `./gradlew.bat :app:assembleDebug` � passes
 
