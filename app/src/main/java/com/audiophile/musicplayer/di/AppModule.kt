@@ -85,4 +85,13 @@ object AppModule {
 
     @Provides
     fun provideQueueManager(container: AppContainer): com.audiophile.musicplayer.playback.QueueManager = container.queueManager
+
+    @Provides
+    fun provideTrackRepository(container: AppContainer): com.audiophile.musicplayer.data.repository.TrackRepository = container.trackRepository
+
+    @Provides
+    fun provideLocalLibraryRepository(container: AppContainer): com.audiophile.musicplayer.data.repository.LocalLibraryRepository = container.localLibraryRepository
+
+    @Provides
+    fun provideSourceRegistry(container: AppContainer): com.audiophile.musicplayer.data.source.SourceRegistry = container.sourceRegistry
 }
