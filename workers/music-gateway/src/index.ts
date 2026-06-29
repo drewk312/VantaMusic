@@ -11,6 +11,7 @@ import {
   serviceUnavailable,
   unauthorized,
 } from "./http";
+import { checkRateLimit } from "./lib/rate-limit";
 import { searchAll } from "./providers/search";
 import { resolveTrack } from "./providers/resolve";
 import { streamWithFallback } from "./providers/stream";
@@ -24,35 +25,68 @@ function isAuthorized(request: Request, env: Env): boolean {
   return request.headers.get("X-Api-Key") === required;
 }
 
+function requestId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (request.method === "OPTIONS") return handleOptions();
   if (!isAuthorized(request, env)) return unauthorized();
 
+  const id = requestId();
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
 
+  const rate = await checkRateLimit(request, env);
+  const rateHeaders = {
+    "X-RateLimit-Limit": String(rate.state.remaining + (rate.allowed ? 1 : 0)),
+    "X-RateLimit-Remaining": String(rate.state.remaining),
+    "X-RateLimit-Reset": String(rate.state.resetAt),
+    "X-Request-Id": id,
+  };
+
+  if (!rate.allowed) {
+    return json(
+      { error: "rate_limited", message: "Too many requests. Slow down or upgrade your plan." },
+      429,
+      rateHeaders
+    );
+  }
+
+  const logBase = {
+    req: id,
+    route: pathname,
+    method: request.method,
+    ip: rate.key,
+  };
+
   if (pathname === "/" || pathname === "/health") {
-    return json({ ok: true, gateway: env.GATEWAY_NAME, version: env.GATEWAY_VERSION });
+    return json({ ok: true, gateway: env.GATEWAY_NAME, version: env.GATEWAY_VERSION }, 200, rateHeaders);
   }
 
   if (pathname === "/status") {
-    return json({
-      gateway: env.GATEWAY_NAME,
-      version: env.GATEWAY_VERSION,
-      searchProviders: parseProviderList(env.ENABLED_SEARCH_PROVIDERS),
-      streamProviders: parseProviderList(env.ENABLED_STREAM_PROVIDERS),
-      providers: providerStatus(env),
-    });
+    return json(
+      {
+        gateway: env.GATEWAY_NAME,
+        version: env.GATEWAY_VERSION,
+        searchProviders: parseProviderList(env.ENABLED_SEARCH_PROVIDERS),
+        streamProviders: parseProviderList(env.ENABLED_STREAM_PROVIDERS),
+        providers: providerStatus(env),
+      },
+      200,
+      rateHeaders
+    );
   }
 
   if (pathname === "/manifest.json") {
-    return json(buildManifest(env));
+    return json(buildManifest(env), 200, rateHeaders);
   }
 
   if (pathname === "/search" || pathname === "/api/search") {
     const query = url.searchParams.get("q") ?? url.searchParams.get("query") ?? "";
-    if (!query.trim()) return badRequest("missing query parameter q");
-    return json(await searchAll(query.trim(), env));
+    if (!query.trim()) return withHeaders(badRequest("missing query parameter q"), rateHeaders);
+    console.log("VANTA_SEARCH_REQUEST", JSON.stringify({ ...logBase, query }));
+    return json(await searchAll(query.trim(), env), 200, rateHeaders);
   }
 
   if (pathname === "/resolve" || pathname === "/api/resolve") {
@@ -61,7 +95,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const provider = url.searchParams.get("provider") ?? undefined;
     console.log(
       "VANTA_PLAY_TRACK_REQUEST",
-      JSON.stringify({ route: "/resolve", id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null })
+      JSON.stringify({ ...logBase, id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null })
     );
     try {
       const result = await resolveTrack({
@@ -70,9 +104,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         provider,
         env,
       });
-      return json(result);
+      return json(result, 200, rateHeaders);
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : "resolve_failed");
+      return withHeaders(
+        badRequest(error instanceof Error ? error.message : "resolve_failed"),
+        rateHeaders
+      );
     }
   }
 
@@ -82,41 +119,55 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const provider = providerFromQuery(url);
     console.log(
       "VANTA_PLAY_TRACK_REQUEST",
-      JSON.stringify({ route: pathname, id: streamId, service: provider ?? "auto", quality })
+      JSON.stringify({ ...logBase, id: streamId, service: provider ?? "auto", quality })
     );
     const stream = await streamWithFallback(env, streamId, quality, provider, { provider });
     if (!stream) {
-      return serviceUnavailable(
-        provider ?? "auto",
-        "No stream source succeeded. Set QOBUZ_APP_ID+QOBUZ_AUTH_TOKEN, TIDAL_STREAM_UPSTREAM, MUSICDL_BASE_URL, or other upstream secrets. Check GET /status."
+      return withHeaders(
+        serviceUnavailable(
+          provider ?? "auto",
+          "No stream source succeeded. Set QOBUZ_APP_ID+QOBUZ_AUTH_TOKEN, TIDAL_STREAM_UPSTREAM, MUSICDL_BASE_URL, or other upstream secrets. Check GET /status."
+        ),
+        rateHeaders
       );
     }
-    return json(stream);
+    return json(stream, 200, rateHeaders);
   }
 
   if (pathname === "/api/dl" && request.method === "POST") {
     const body = await readJson<{ id?: string; quality?: string; service?: string; provider?: string }>(request);
-    if (!body?.id?.trim()) return badRequest("missing id");
+    if (!body?.id?.trim()) return withHeaders(badRequest("missing id"), rateHeaders);
     const quality = normalizeQuality(body.quality, env.DEFAULT_STREAM_QUALITY);
     const provider = providerFromQuery(url, body.service ?? body.provider);
     console.log(
       "VANTA_PLAY_TRACK_REQUEST",
-      JSON.stringify({ route: "/api/dl", id: body.id.trim(), service: provider ?? "auto", quality })
+      JSON.stringify({ ...logBase, id: body.id.trim(), service: provider ?? "auto", quality })
     );
     const stream = await streamWithFallback(env, body.id.trim(), quality, provider, { provider });
     if (!stream) {
-      return serviceUnavailable(provider ?? "auto", "No stream source succeeded for /api/dl. Check GET /status.");
+      return withHeaders(
+        serviceUnavailable(provider ?? "auto", "No stream source succeeded for /api/dl. Check GET /status."),
+        rateHeaders
+      );
     }
-    return json(stream);
+    return json(stream, 200, rateHeaders);
   }
 
   if (pathname.startsWith("/search/")) {
     const query = decodeURIComponent(pathname.slice("/search/".length));
-    if (!query.trim()) return badRequest("missing search path");
-    return json(await searchAll(query.trim(), env));
+    if (!query.trim()) return withHeaders(badRequest("missing search path"), rateHeaders);
+    console.log("VANTA_SEARCH_REQUEST", JSON.stringify({ ...logBase, query }));
+    return json(await searchAll(query.trim(), env), 200, rateHeaders);
   }
 
-  return notFound();
+  return withHeaders(notFound(), rateHeaders);
+}
+
+function withHeaders(response: Response, headers: Record<string, string>): Response {
+  for (const [key, value] of Object.entries(headers)) {
+    response.headers.set(key, value);
+  }
+  return response;
 }
 
 export default {

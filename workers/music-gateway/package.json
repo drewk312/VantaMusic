@@ -5,11 +5,17 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",
+    "@vitest/coverage-v8": "^1.5.0",
     "typescript": "^5.7.3",
-    "wrangler": "^3.109.2"
+    "vitest": "^1.5.0",
+    "vitest-environment-miniflare": "^2.14.4",
+    "wrangler": "^3.109.2",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
   }
 }

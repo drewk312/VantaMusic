@@ -25,6 +25,8 @@ export interface Env {
   /** Comma-separated backup community gateway base URLs tried after the primary. */
   FALLBACK_COMMUNITY_GATEWAYS?: string;
   GDSTUDIO_API_URL?: string;
+  RATE_LIMIT_WINDOW_SECONDS?: string;
+  RATE_LIMIT_MAX_REQUESTS?: string;
   CACHE?: KVNamespace;
 }
 
@@ -107,3 +109,4 @@ export function enrichLimit(env: Env): number {
 export function qobuzFormatId(quality: string): string {
   return quality === "16" ? "6" : "27";
 }
+

@@ -4,12 +4,13 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers": "Content-Type, X-Api-Key, User-Agent, Accept",
 };
 
-export function json(data: unknown, status = 200): Response {
+export function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       ...CORS_HEADERS,
+      ...extraHeaders,
     },
   });
 }
