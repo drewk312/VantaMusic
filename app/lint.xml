@@ -1,12 +1,15 @@
 <lint>
     <!--
         VANTA lint policy: drive the report to 0 warnings while preserving
-        correctness checks. Dependency suggestions and API-reordering are
-        not correctness issues and are suppressed here; the project tracks
-        them manually.
+        correctness checks.
     -->
 
-    <!-- Dependency update suggestions are not correctness issues. -->
+    <!--
+        Dependency update suggestions are not correctness issues. Major version
+        bumps (Retrofit 2->3, OkHttp 4->5, etc.) are intentionally deferred to
+        dedicated upgrade passes to avoid breaking API changes while the core
+        architecture rebuild is in flight.
+    -->
     <issue id="GradleDependency" severity="ignore" />
     <issue id="NewerVersionAvailable" severity="ignore" />
 
