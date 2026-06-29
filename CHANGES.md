@@ -1,3 +1,52 @@
+# VANTA Premium Polish — Orb, Colors, Search
+
+## Summary
+
+Addressed user feedback about the Now Playing visual vibe: bright blue orb, lost orb, player not following cover art, and a black bar in Search.
+
+## Verified Results
+
+- `./gradlew.bat :app:compileDebugKotlin` - passes
+- `./gradlew.bat :app:testDebugUnitTest` - passes
+- `./gradlew.bat :app:lintDebug` - passes, **0 errors / 0 warnings**
+- `./gradlew.bat :app:assembleDebug` - passes
+- Device install & launch - no `FATAL EXCEPTION` for `com.audiophile.musicplayer`
+
+## What Was Fixed
+
+### 1. VantaBeatOrb (`VantaBeatOrb.kt`)
+
+- **Removed the hated bright blue.** Replaced `VantaTeal` (`0xFF00B0FF`) and `VantaEmerald` (`0xFF00E676`) with a warm champagne/gold house palette.
+- Added a `coerceNonBlue()` helper that nudges cold cyan/blue/purple hues toward warm amber/gold while preserving 40% of the original hue.
+- Orb now always shows a faint breathing pulse, even when paused, so it never disappears.
+- Made `audioFrame` nullable so the orb renders even before DSP spectrum data arrives.
+
+### 2. NowPlayingScreen orb visibility
+
+- The orb is now shown in `ARTWORK` mode whenever the aura engine is active.
+- Removed `reduceMotionInCar` and `animatedArtworkEnabled` from the orb's `reducedMotion` calculation. Only system accessibility reduced motion hides the orb now.
+- This fixes "we lost the orb" when the car-reduced-motion default was true.
+
+### 3. Artwork color extraction (`ArtworkColorProvider.kt`)
+
+- `normalizeLuxuryHue` no longer hard-overrides cover hues; it now blends 60% toward a warm target and keeps 40% of the original color.
+- Widened saturation and lightness clamp ranges so light, saturated covers pop instead of being washed out.
+- The player background and accent now follow the actual cover art more closely while staying in the premium warm family.
+
+### 4. SearchScreen black bar / dividers
+
+- Removed the thin 0.5dp black-ish suggestion divider between search suggestions and results.
+- Removed the thin `HorizontalDivider` in the artist card top-tracks section.
+- `SearchShimmer` now draws each shimmer row on a raised `AppSurfaceRaised` card with slightly brighter shimmer bars, so loading placeholders no longer read as black holes.
+
+### 5. Equalizer status
+
+- Verified the equalizer processor is still wired into `PlaybackService` via `DefaultAudioSink.setAudioProcessors(arrayOf(vantaEqualizer))`.
+- `applyVantaEqualizer()` is called on playback state changes and via `ACTION_REFRESH_IMMERSIVE_AUDIO`.
+- EQ defaults to disabled; enable it in Settings/Parametric EQ and use a preset like Bass Cannon or Studio to hear the difference.
+
+---
+
 # VANTA UI Polish — Radio detail, lyric taps, waveform seek
 
 ## Summary

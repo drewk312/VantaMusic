@@ -56,8 +56,8 @@ private fun clampSwatchColor(rgb: Int): Color {
         hsl
     )
     normalizeLuxuryHue(hsl)
-    hsl[1] = hsl[1].coerceIn(0.28f, 0.72f)
-    hsl[2] = hsl[2].coerceIn(0.14f, 0.42f)
+    hsl[1] = hsl[1].coerceIn(0.22f, 0.78f)
+    hsl[2] = hsl[2].coerceIn(0.12f, 0.48f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
@@ -70,18 +70,22 @@ private fun luxuryAccentColor(color: Color): Color {
         hsl
     )
     normalizeLuxuryHue(hsl)
-    hsl[1] = hsl[1].coerceIn(0.30f, 0.68f)
-    hsl[2] = hsl[2].coerceIn(0.32f, 0.62f)
+    hsl[1] = hsl[1].coerceIn(0.28f, 0.72f)
+    hsl[2] = hsl[2].coerceIn(0.30f, 0.68f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
 private fun normalizeLuxuryHue(hsl: FloatArray) {
-    hsl[0] = when (hsl[0]) {
-        in 70f..170f -> 38f
-        in 170f..270f -> 32f
-        in 270f..335f -> 350f
-        else -> hsl[0]
+    val original = hsl[0]
+    val target = when (original) {
+        in 70f..170f -> 38f   // greens toward amber gold
+        in 170f..270f -> 32f   // blues toward warm amber
+        in 270f..335f -> 350f  // magentas toward warm rose
+        else -> original
     }
+    // Blend 60% toward the warm target so cover art still reads as itself,
+    // but VANTA never looks cold or neon.
+    hsl[0] = (original * 0.40f + target * 0.60f)
 }
 
 private fun extractAppleMusicPalette(bitmap: Bitmap): ArtworkGradientColors? {

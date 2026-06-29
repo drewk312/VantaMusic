@@ -319,12 +319,12 @@ private fun WideNowPlayingContent(
         horizontalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Box(modifier = Modifier.weight(0.62f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            if (mode == NowPlayingMode.ARTWORK && auraState != null && audioFrame != null && auraState.isActive && auraState.audioReactiveEnabled) {
+            if (mode == NowPlayingMode.ARTWORK && auraState != null && auraState.isActive) {
                 VantaBeatOrb(
                     palette = effectiveAuraPalette ?: AuraPalette(),
                     audioFrame = audioFrame,
                     isPlaying = nowPlayingState.isPlaying,
-                    reducedMotion = auraState.reduceMotionInCar || !animatedArtworkEnabled,
+                    reducedMotion = auraState.reducedMotion,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -445,12 +445,12 @@ private fun PortraitNowPlayingContent(
                     .fillMaxWidth()
             }
             Box(modifier = stageModifier.padding(horizontal = horizontalPadding).padding(top = stageTopPadding, bottom = 4.dp)) {
-                if (mode == NowPlayingMode.ARTWORK && auraState != null && audioFrame != null && auraState.isActive && auraState.audioReactiveEnabled) {
+                if (mode == NowPlayingMode.ARTWORK && auraState != null && auraState.isActive) {
                     VantaBeatOrb(
                         palette = effectiveAuraPalette ?: AuraPalette(),
                         audioFrame = audioFrame,
                         isPlaying = nowPlayingState.isPlaying,
-                        reducedMotion = auraState.reduceMotionInCar || !animatedArtworkEnabled,
+                        reducedMotion = auraState.reducedMotion,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

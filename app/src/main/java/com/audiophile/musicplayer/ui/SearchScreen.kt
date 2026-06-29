@@ -496,7 +496,7 @@ fun SearchScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(0.5.dp).fillMaxWidth().background(AppOutline.copy(alpha = 0.72f)))
+                        Spacer(Modifier.height(12.dp))
                     }
 
                     // Intent badge
@@ -1411,9 +1411,7 @@ private fun RichArtistCard(
             )
         }
         if (topTracks.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = AppOutline, thickness = 0.5.dp)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
             topTracks.forEachIndexed { i, track ->
                 val display = remember(track.track) { TrackDisplayResolver.resolve(track.track) }
                 Row(
@@ -1800,27 +1798,32 @@ private fun CategoryCard(
 private fun SearchShimmer(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
     val shimmerAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
+        initialValue = 0.35f,
+        targetValue = 0.75f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 1000, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "shimmerAlpha"
     )
-    val shimmerColor = Color.White.copy(alpha = shimmerAlpha)
+    val shimmerBase = Color.White.copy(alpha = shimmerAlpha)
+    val surfaceColor = AppSurfaceRaised
     val shape = RoundedCornerShape(12.dp)
-    Column(modifier = modifier.padding(horizontal = 0.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         repeat(5) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shape)
+                    .background(surfaceColor)
+                    .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Box(modifier = Modifier.size(48.dp).clip(shape).background(shimmerColor))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
-                    Box(modifier = Modifier.fillMaxWidth(0.7f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(shimmerColor))
-                    Box(modifier = Modifier.fillMaxWidth(0.4f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(shimmerColor))
+                Box(modifier = Modifier.size(48.dp).clip(shape).background(shimmerBase))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.fillMaxWidth(0.7f).height(12.dp).clip(RoundedCornerShape(4.dp)).background(shimmerBase))
+                    Box(modifier = Modifier.fillMaxWidth(0.45f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(shimmerBase))
                 }
             }
         }
