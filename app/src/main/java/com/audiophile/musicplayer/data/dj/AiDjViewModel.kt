@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.util.Log
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
 import com.audiophile.musicplayer.data.llm.PulseAiBrain
 import com.audiophile.musicplayer.playback.PlaybackStateHolder
@@ -48,8 +50,9 @@ data class AiDjUiState(
     val isCompanionThinking: Boolean = false
 )
 
-class AiDjViewModel(
-    context: Context,
+@HiltViewModel
+class AiDjViewModel @Inject constructor(
+    @ApplicationContext context: Context,
     private val playerController: PlayerController,
     private val playbackStateHolder: PlaybackStateHolder,
     private val sessionManager: AiDjSessionManager,
@@ -1392,37 +1395,5 @@ class AiDjViewModel(
 
     override fun onCleared() {
         super.onCleared()
-    }
-}
-
-class AiDjViewModelFactory(
-    private val context: Context,
-    private val playerController: PlayerController,
-    private val playbackStateHolder: PlaybackStateHolder,
-    private val sessionManager: AiDjSessionManager,
-    private val narrationGenerator: AiDjNarrationGenerator,
-    private val queuePlanner: AiDjQueuePlanner,
-    private val pulseAiBrain: PulseAiBrain,
-    private val accountManager: AccountManager,
-    private val pulseVoiceEngine: PulseVoiceEngine,
-    private val liveRadioTrackLibrary: LiveRadioTrackLibrary
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(AiDjViewModel::class.java)) {
-            return AiDjViewModel(
-                context = context,
-                playerController = playerController,
-                playbackStateHolder = playbackStateHolder,
-                sessionManager = sessionManager,
-                narrationGenerator = narrationGenerator,
-                queuePlanner = queuePlanner,
-                pulseAiBrain = pulseAiBrain,
-                accountManager = accountManager,
-                pulseVoiceEngine = pulseVoiceEngine,
-                liveRadioTrackLibrary = liveRadioTrackLibrary
-            ) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }

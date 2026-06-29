@@ -27,9 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.audiophile.musicplayer.data.dj.AiDjViewModel
-import com.audiophile.musicplayer.data.dj.AiDjViewModelFactory
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
-import com.audiophile.musicplayer.playback.NowPlayingViewModelFactory
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
 import com.audiophile.musicplayer.data.source.isMetadataOnly
 import com.audiophile.musicplayer.data.source.isUnavailable
@@ -37,7 +35,6 @@ import com.audiophile.musicplayer.auto.AndroidAutoHelper
 import com.audiophile.musicplayer.ui.AppMainScreen
 import com.audiophile.musicplayer.ui.MainViewModel
 import com.audiophile.musicplayer.ui.PersonalizedMixViewModel
-import com.audiophile.musicplayer.ui.PersonalizedMixViewModelFactory
 import com.audiophile.musicplayer.ui.SharedImportPayload
 import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
 import com.audiophile.musicplayer.data.local.entities.SourceType
@@ -393,37 +390,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val mainVm: MainViewModel = hiltViewModel()
-            val nowPlayingVm: NowPlayingViewModel = viewModel(
-                factory = NowPlayingViewModelFactory(
-                    stateStore = container.nowPlayingStateStore,
-                    lyricsRepository = container.lyricsRepository,
-                    playbackState = container.playbackStateHolder,
-                    playerController = container.playerController,
-                    pulseAiBrain = container.pulseAiBrain,
-                    lyricsTranslationProvider = container.lyricsTranslationProvider
-                )
-            )
-            val aiDjViewModel: AiDjViewModel = viewModel(
-                factory = AiDjViewModelFactory(
-                    context = applicationContext,
-                    playerController = container.playerController,
-                    playbackStateHolder = container.playbackStateHolder,
-                    sessionManager = container.aiDjSessionManager,
-                    narrationGenerator = container.aiDjNarrationGenerator,
-                    queuePlanner = container.aiDjQueuePlanner,
-                    pulseAiBrain = container.pulseAiBrain,
-                    accountManager = container.accountManager,
-                    pulseVoiceEngine = container.pulseVoiceEngine,
-                    liveRadioTrackLibrary = container.liveRadioTrackLibrary
-                )
-            )
-            val personalizedMixViewModel: PersonalizedMixViewModel = viewModel(
-                factory = PersonalizedMixViewModelFactory(
-                    manager = container.personalizedMixManager,
-                    registry = container.personalizedMixRegistry,
-                    playback = container.personalizedMixPlayback
-                )
-            )
+            val nowPlayingVm: NowPlayingViewModel = hiltViewModel()
+            val aiDjViewModel: AiDjViewModel = hiltViewModel()
+            val personalizedMixViewModel: PersonalizedMixViewModel = hiltViewModel()
             val visualizerViewModel: VantaVisualizerViewModel = viewModel()
             // Store references for debug receiver
             androidx.compose.runtime.LaunchedEffect(mainVm) {

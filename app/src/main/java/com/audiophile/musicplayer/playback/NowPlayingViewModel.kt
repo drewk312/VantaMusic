@@ -2,7 +2,8 @@ package com.audiophile.musicplayer.playback
 
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import com.audiophile.musicplayer.data.lyrics.LyricsRepository
 import com.audiophile.musicplayer.data.lyrics.LyricsTranslationProvider
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
@@ -17,7 +18,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
 
-class NowPlayingViewModel(
+@HiltViewModel
+class NowPlayingViewModel @Inject constructor(
     private val playerController: PlayerController,
     private val stateStore: NowPlayingStateStore,
     private val lyricsRepository: LyricsRepository?,
@@ -290,29 +292,5 @@ class NowPlayingViewModel(
             _pulseInsightLoading.value = false
             _pulseInsight.value = if (fromAi && text.isNotBlank()) text.trim() else null
         }
-    }
-}
-
-class NowPlayingViewModelFactory(
-    private val stateStore: NowPlayingStateStore,
-    private val lyricsRepository: LyricsRepository?,
-    private val playbackState: PlaybackStateHolder,
-    private val playerController: PlayerController,
-    private val pulseAiBrain: PulseAiBrain,
-    private val lyricsTranslationProvider: LyricsTranslationProvider? = null
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(NowPlayingViewModel::class.java)) {
-            return NowPlayingViewModel(
-                playerController,
-                stateStore,
-                lyricsRepository,
-                playbackState,
-                pulseAiBrain,
-                lyricsTranslationProvider
-            ) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }

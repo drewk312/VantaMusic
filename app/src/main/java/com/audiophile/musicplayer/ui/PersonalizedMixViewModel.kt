@@ -1,7 +1,8 @@
 package com.audiophile.musicplayer.ui
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixKind
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixManager
@@ -34,7 +35,8 @@ data class PersonalizedMixUiState(
     val statusMessage: String? = null
 )
 
-class PersonalizedMixViewModel(
+@HiltViewModel
+class PersonalizedMixViewModel @Inject constructor(
     private val manager: PersonalizedMixManager,
     private val registry: PersonalizedMixRegistry,
     private val playback: PersonalizedMixPlayback
@@ -144,19 +146,5 @@ class PersonalizedMixViewModel(
         if (timestamp == null) return null
         val formatter = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
         return "Updated ${formatter.format(Date(timestamp))}"
-    }
-}
-
-class PersonalizedMixViewModelFactory(
-    private val manager: PersonalizedMixManager,
-    private val registry: PersonalizedMixRegistry,
-    private val playback: PersonalizedMixPlayback
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(PersonalizedMixViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return PersonalizedMixViewModel(manager, registry, playback) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }
