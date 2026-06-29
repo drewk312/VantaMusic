@@ -90,12 +90,12 @@ fun VantaLyricsStage(
     displayArtist: String,
     displayAlbum: String?,
     qualityInfo: VantaQualityInfo?,
-    translationEnabled: Boolean = false,
-    onToggleTranslation: () -> Unit = {},
     onSeekTo: (Long) -> Unit,
     onRetryLyrics: () -> Unit,
     onOpenQualityDetails: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    translationEnabled: Boolean = false,
+    onToggleTranslation: () -> Unit = {}
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -136,8 +136,8 @@ fun LyricsView(
     positionMs: Long,
     durationMs: Long,
     onSeekTo: (Long) -> Unit,
-    translationEnabled: Boolean = false,
     modifier: Modifier = Modifier,
+    translationEnabled: Boolean = false,
     isPlaying: Boolean = true
 ) {
     val context = LocalContext.current

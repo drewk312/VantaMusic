@@ -45,8 +45,8 @@ fun QueueView(
     queueSnapshot: QueueSnapshot,
     onMoveQueueItem: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
-    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
 

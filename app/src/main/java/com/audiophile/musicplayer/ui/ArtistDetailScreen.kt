@@ -494,9 +494,9 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
 fun TrackRow(
     track: UnifiedTrackWithSources,
     onTap: () -> Unit,
+    modifier: Modifier = Modifier,
     showIndex: Boolean = false,
-    index: Int = 0,
-    modifier: Modifier = Modifier
+    index: Int = 0
 ) {
     val display = remember(track.track) {
         TrackDisplayResolver.resolve(track.track)

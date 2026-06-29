@@ -54,12 +54,12 @@ fun MiniPlayer(
     onOpen: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
+    modifier: Modifier = Modifier,
     onPrevious: () -> Unit = {},
     onToggleFavorite: () -> Unit = {},
     animatedArtworkEnabled: Boolean = true,
     pulseHint: String? = null,
-    queueSnapshot: com.audiophile.musicplayer.playback.QueueSnapshot? = null,
-    modifier: Modifier = Modifier
+    queueSnapshot: com.audiophile.musicplayer.playback.QueueSnapshot? = null
 ) {
     val queueTrack = queueSnapshot?.currentTrack?.track
     val rawTitle = nowPlayingState.title?.takeIf { it.isNotBlank() }

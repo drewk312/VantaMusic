@@ -485,7 +485,7 @@ private fun PortraitNowPlayingContent(
 
 
 @Composable
-private fun VantaSceneHeaderRow(centerLabel: String, titleForMenu: String, onBack: () -> Unit, onOpenEqualizer: () -> Unit, onOpenTrackSheet: () -> Unit, onOpenCast: () -> Unit = {}, modifier: Modifier = Modifier) {
+private fun VantaSceneHeaderRow(centerLabel: String, titleForMenu: String, onBack: () -> Unit, onOpenEqualizer: () -> Unit, onOpenTrackSheet: () -> Unit, modifier: Modifier = Modifier, onOpenCast: () -> Unit = {}) {
     Row(modifier = modifier.fillMaxWidth().height(50.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back", tint = AppText,
             modifier = Modifier.size(40.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_back' result='tap'"); onBack() }.padding(8.dp))

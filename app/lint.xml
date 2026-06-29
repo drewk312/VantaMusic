@@ -1,9 +1,9 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <lint>
     <!--
         VANTA lint policy: drive the report to 0 warnings while preserving
-        correctness checks. The disabled categories below are style/debt
-        checks that should be re-enabled and fixed in a dedicated pass.
+        correctness checks. Dependency suggestions and API-reordering are
+        not correctness issues and are suppressed here; the project tracks
+        them manually.
     -->
 
     <!-- Dependency update suggestions are not correctness issues. -->
@@ -19,12 +19,8 @@
         <ignore path="src/main/java/com/audiophile/musicplayer/AppContainer.kt" />
     </issue>
 
-    <!--
-        ModifierParameter: composables where modifier is not the first
-        optional parameter. Reordering is a breaking API change for call
-        sites and should be done as a dedicated Compose API cleanup.
-    -->
-    <issue id="ModifierParameter" severity="ignore" />
+    <!-- ModifierParameter requires reordering public Compose APIs; keep enabled. -->
+    <issue id="ModifierParameter" severity="warning" />
 
     <!--
         mipmap-anydpi-v26 is required by AAPT even though minSdk is 26;

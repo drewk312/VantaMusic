@@ -66,9 +66,9 @@ private val avatarColors = listOf(
 @Composable
 fun AccountScreen(
     accountManager: AccountManager,
-    mainViewModel: MainViewModel? = null,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    mainViewModel: MainViewModel? = null
 ) {
     val profile by accountManager.profile.collectAsState()
 

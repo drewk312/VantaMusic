@@ -63,9 +63,9 @@ fun VantaSectionHeader(
 @Composable
 fun VantaChip(
     text: String,
-    selected: Boolean = false,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selected: Boolean = false
 ) {
     Box(
         modifier = modifier
@@ -156,8 +156,8 @@ fun VantaExplicitBadge(
 @Composable
 fun VantaCompactQualityChip(
     qualityInfo: VantaQualityInfo?,
-    onClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
 ) {
     val label = qualityInfo?.bestQualityLabel()?.trim()?.takeIf { it.isNotEmpty() } ?: return
     val lower = label.lowercase()
@@ -250,11 +250,11 @@ fun VantaSongRow(
     displayTitle: String,
     displayArtist: String,
     artworkUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     badgeText: String? = null,
     badgeColor: Color = AppAccent,
-    onClick: () -> Unit,
-    onArtistClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onArtistClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -308,10 +308,10 @@ fun VantaSongRow(
 fun VantaEmptyState(
     title: String,
     description: String,
+    modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onAction: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
