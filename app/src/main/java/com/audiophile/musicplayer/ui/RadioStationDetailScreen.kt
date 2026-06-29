@@ -10,13 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,10 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,19 +69,22 @@ fun RadioStationDetailScreen(
         miniPlayerVisible = miniPlayerVisible,
         bottomNavVisible = bottomNavVisible
     )
+    val topPadding = WindowInsets.safeDrawing.only(WindowInsetsSides.Top).asPaddingValues().calculateTopPadding()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
             .verticalScroll(scrollState)
-            .padding(bottom = bottomPadding)
+            .padding(top = topPadding, bottom = bottomPadding)
     ) {
+        // Inline header: back | emoji | title+kind | more
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,
@@ -93,9 +96,27 @@ fun RadioStationDetailScreen(
                     .clickable(onClick = onBack)
                     .padding(8.dp)
             )
-            Spacer(Modifier.weight(1f))
-            Text(text = station.emoji, fontSize = 28.sp)
-            Spacer(Modifier.width(12.dp))
+            Text(
+                text = station.emoji,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = station.name,
+                    style = VantaType.songTitle,
+                    color = AppText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stationKindLabel(station),
+                    style = VantaType.caption,
+                    color = AppTextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Icon(
                 imageVector = Icons.Filled.MoreVert,
                 contentDescription = "Options",
@@ -108,208 +129,187 @@ fun RadioStationDetailScreen(
             )
         }
 
-        Spacer(Modifier.height(16.dp))
-
+        // Description + chips
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.Start
         ) {
-            Text(
-                text = station.name,
-                style = VantaType.editorialLarge.copy(
-                    fontSize = 32.sp,
-                    lineHeight = 36.sp
-                ),
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = AppText
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 60.dp)
-                    .height(1.dp)
-                    .fillMaxWidth()
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color.Transparent,
-                                AppAccent.copy(alpha = 0f),
-                                AppAccent.copy(alpha = 0.4f),
-                                AppAccent.copy(alpha = 0f),
-                            )
-                        )
-                    )
-            )
-
-            Spacer(Modifier.height(16.dp))
-
             if (station.description.isNotBlank()) {
                 Text(
                     text = station.description,
                     style = VantaType.subtitle,
                     color = AppTextSecondary,
-                    textAlign = TextAlign.Center,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
+                Spacer(Modifier.height(8.dp))
             }
-
-            eraLabel(station)?.let { label ->
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = label,
-                    style = VantaType.caption,
-                    color = AppAccent.copy(alpha = 0.6f),
-                    letterSpacing = 1.5.sp
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                eraLabel(station)?.let { label -> StationChip(label) }
             }
-
             if (!statusMessage.isNullOrBlank() && !statusMessage.startsWith("Playing")) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = statusMessage,
                     style = VantaType.caption,
                     color = AppWarning,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 16.sp
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
 
-        Column(
+        // Compact action row
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(28.dp))
-                    .border(0.5.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(28.dp))
-                    .clickable(enabled = !isStarting, onClick = onShuffleStation)
-                    .padding(16.dp),
+                    .background(AppAccent)
+                    .clickable(enabled = !isStarting, onClick = onStartStation)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Filled.Shuffle,
-                    contentDescription = "Shuffle Station",
-                    tint = AppAccent.copy(alpha = 0.7f),
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = "Shuffle Station",
-                    style = VantaType.songTitle,
-                    color = AppText
-                )
-            }
-
-            Spacer(Modifier.height(20.dp))
-
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .shadow(
-                        elevation = 16.dp,
-                        shape = CircleShape,
-                        ambientColor = Color.Black.copy(alpha = 0.5f),
-                        spotColor = AppAccent.copy(alpha = 0.2f)
-                    )
-                    .clip(CircleShape)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                AppAccent.copy(alpha = 0.2f),
-                                AppAccent.copy(alpha = 0.08f)
-                            )
-                        )
-                    )
-                    .border(0.5.dp, AppAccent.copy(alpha = 0.15f), CircleShape)
-                    .clickable(enabled = !isStarting, onClick = onStartStation),
-                contentAlignment = Alignment.Center
-            ) {
                 if (isStarting) {
                     CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.size(32.dp),
-                        strokeWidth = 2.5.dp
+                        color = AppBackground,
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = "Play station",
-                        tint = Color.White,
-                        modifier = Modifier.size(40.dp)
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = AppBackground,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isStarting) "Starting..." else "Play Station",
+                    style = VantaType.songTitle.copy(color = AppBackground)
+                )
             }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = if (isStarting) "Starting…" else "Play Station",
-                style = VantaType.subtitle,
-                color = AppTextSecondary
-            )
-        }
-
-        Spacer(Modifier.height(40.dp))
-
-        if (isLoadingPreview) {
-            TrackListShimmer(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                count = 5
-            )
-        } else if (previewTracks.isEmpty()) {
-            Column(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .border(0.5.dp, Color.White.copy(alpha = 0.12f), CircleShape)
+                    .background(AppSurfaceRaised)
+                    .clickable(enabled = !isStarting, onClick = onShuffleStation),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    "No tracks loaded yet",
-                    style = VantaType.songTitle,
-                    color = AppTextMuted
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Tap Play to start the AI curation",
-                    style = VantaType.subtitle,
-                    color = AppTextMuted
-                )
-            }
-        } else {
-            Text(
-                text = "Tracks in this mix",
-                style = VantaType.caption,
-                color = AppAccent.copy(alpha = 0.5f),
-                letterSpacing = 1.5.sp,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            previewTracks.forEach { track ->
-                StationTrackRow(
-                    track = track,
-                    onPlay = { onPlayPreviewTrack(track) }
+                Icon(
+                    imageVector = Icons.Filled.Shuffle,
+                    contentDescription = "Shuffle Station",
+                    tint = AppAccent,
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(20.dp))
+
+        // Tracks / empty / loading
+        Column(modifier = Modifier.fillMaxWidth()) {
+            when {
+                isLoadingPreview -> {
+                    TrackListShimmer(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        count = 5
+                    )
+                }
+                previewTracks.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(AppSurfaceRaised)
+                            .border(0.5.dp, AppOutline, RoundedCornerShape(18.dp))
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Your station is taking shape.",
+                            style = VantaType.songTitle,
+                            color = AppText,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Tap Play to curate the first tracks, or check back in a moment.",
+                            style = VantaType.subtitle,
+                            color = AppTextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(AppAccent)
+                                .clickable(enabled = !isStarting, onClick = onStartStation)
+                                .padding(horizontal = 20.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = "Start Station",
+                                style = VantaType.songTitle.copy(color = AppBackground)
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    Text(
+                        text = "${previewTracks.size} tracks in this mix",
+                        style = VantaType.caption,
+                        color = AppAccent.copy(alpha = 0.5f),
+                        letterSpacing = 1.5.sp,
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    previewTracks.forEach { track ->
+                        StationTrackRow(
+                            track = track,
+                            onPlay = { onPlayPreviewTrack(track) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun StationChip(label: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(AppAccent.copy(alpha = 0.12f))
+            .border(0.5.dp, AppAccent.copy(alpha = 0.22f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = label.uppercase(),
+            style = VantaType.caption.copy(
+                color = AppAccent,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp
+            )
+        )
     }
 }
 
@@ -323,22 +323,22 @@ private fun StationTrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 20.dp, vertical = 5.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(AppSurfaceRaised)
             .clickable(onClick = onPlay)
-            .padding(12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         NetworkArtwork(
             artworkUrl = track.track.coverArtUrl,
             seed = display.title,
             modifier = Modifier
-                .size(52.dp)
+                .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
         )
 
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(12.dp))
 
         Column(
             modifier = Modifier.weight(1f),
@@ -362,13 +362,13 @@ private fun StationTrackRow(
             }
         }
 
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(12.dp))
 
         Icon(
-            Icons.Filled.PlayArrow,
+            imageVector = Icons.Filled.PlayArrow,
             contentDescription = "Play",
             tint = AppAccent,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(24.dp)
         )
     }
 }
@@ -384,7 +384,7 @@ fun RadioStationSearchCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(132.dp)
+            .height(110.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(AppSurface)
             .border(0.5.dp, accent.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
@@ -402,7 +402,7 @@ fun RadioStationSearchCard(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Filled.PlayArrow,
+                imageVector = Icons.Filled.PlayArrow,
                 contentDescription = "Start station",
                 tint = AppAccent,
                 modifier = Modifier.size(22.dp)
@@ -413,11 +413,11 @@ fun RadioStationSearchCard(
             modifier = Modifier.align(Alignment.BottomStart),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(station.emoji, fontSize = 22.sp)
+            Text(station.emoji, fontSize = 20.sp)
             Text(
                 station.name,
                 color = AppText,
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -437,7 +437,7 @@ private fun eraLabel(station: JukeboxStation): String? {
     val start = station.decadeStart ?: return null
     val startLabel = "${start}s"
     val end = station.decadeEnd
-    return if (end != null && end != start) "$startLabel–${end}s" else startLabel
+    return if (end != null && end != start) "$startLabel-${end}s" else startLabel
 }
 
 private fun stationAccentColor(station: JukeboxStation): Color {

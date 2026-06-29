@@ -4,15 +4,13 @@ import android.util.Log
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,16 +21,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.audio.visualizer.VantaAudioFrame
@@ -76,7 +70,7 @@ fun VantaBeatProgressBar(
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
-    val actualFraction = if (seekable) {
+    val actualFraction = if (seekable && !mini) {
         (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
@@ -104,54 +98,12 @@ fun VantaBeatProgressBar(
     val hasLiveAudio = audioFrame?.isLiveAudio == true
 
     Box(modifier = modifier.fillMaxWidth()) {
-        Canvas(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(touchTargetHeight)
-                .pointerInput(seekable, durationMs) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        if (!seekable || size.width <= 0) {
-                            waitForUpOrCancellation()
-                            return@awaitEachGesture
-                        }
-
-                        val startX = down.position.x
-                        var dragging = false
-
-                        fun updateDragFraction(x: Float) {
-                            dragFraction = (x / size.width).coerceIn(0f, 1f)
-                        }
-
-                        updateDragFraction(startX)
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-
-                            if (!change.pressed) {
-                                val targetMs = seekTargetMs(
-                                    durationMs,
-                                    if (dragging) dragFraction else startX / size.width
-                                )
-                                isDragging = false
-                                onSeek(targetMs)
-                                Log.d(TAG, "seek positionMs=$targetMs durationMs=$durationMs result=seek_to")
-                                break
-                            }
-
-                            val deltaX = change.position.x - startX
-                            if (!dragging && abs(deltaX) > viewConfiguration.touchSlop) {
-                                dragging = true
-                                isDragging = true
-                            }
-                            if (dragging) {
-                                change.consume()
-                                updateDragFraction(change.position.x)
-                            }
-                        }
-                    }
-                }
         ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
                 drawBeatProgress(
                     progress = animatedProgress,
                     isPlaying = isPlaying,
@@ -164,6 +116,32 @@ fun VantaBeatProgressBar(
                     audioReactive = audioReactive,
                     hasLiveAudio = hasLiveAudio
                 )
+            }
+            if (seekable && !mini) {
+                Slider(
+                    value = displayFraction,
+                    onValueChange = {
+                        isDragging = true
+                        dragFraction = it
+                    },
+                    onValueChangeFinished = {
+                        isDragging = false
+                        val targetMs = seekTargetMs(durationMs, dragFraction)
+                        onSeek(targetMs)
+                        Log.d(TAG, "seek positionMs=$targetMs durationMs=$durationMs result=seek_to")
+                    },
+                    valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.Transparent,
+                        activeTrackColor = Color.Transparent,
+                        inactiveTrackColor = Color.Transparent,
+                        disabledThumbColor = Color.Transparent,
+                        disabledActiveTrackColor = Color.Transparent,
+                        disabledInactiveTrackColor = Color.Transparent
+                    ),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         if (!mini) {
@@ -189,7 +167,6 @@ fun VantaBeatProgressBar(
             }
         }
     }
-
 }
 
 private fun seekTargetMs(durationMs: Long, fraction: Float): Long {

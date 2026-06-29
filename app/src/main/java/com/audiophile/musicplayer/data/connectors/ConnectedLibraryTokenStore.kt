@@ -7,6 +7,14 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.core.content.edit
 
+/**
+ * Encrypted storage for connected-library OAuth tokens.
+ *
+ * Tries to use AES-256 encrypted [EncryptedSharedPreferences]. If the device keystore
+ * is unavailable or corrupted (common on some OEM devices or after debug/reinstall),
+ * it falls back to plain [SharedPreferences] so the app keeps working and the user
+ * can still connect libraries. The fallback is logged as a security warning.
+ */
 class ConnectedLibraryTokenStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = createSecurePrefs(appContext)
@@ -23,8 +31,12 @@ class ConnectedLibraryTokenStore(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        Log.e("VANTA_CONNECTOR_TOKEN", "provider=unknown status=secure_store_unavailable")
-        throw e
+        Log.e(
+            "VANTA_CONNECTOR_TOKEN",
+            "provider=unknown status=secure_store_unavailable fallback=plain_shared_prefs",
+            e
+        )
+        context.getSharedPreferences("connected_libraries_plain", Context.MODE_PRIVATE)
     }
 
     fun storeTokens(

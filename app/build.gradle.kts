@@ -1,9 +1,17 @@
+import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+}
+
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -18,8 +26,8 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        buildConfigField("String", "STATION_BACKEND_URL", "\"${project.findProperty("STATION_BACKEND_URL") as? String ?: ""}\"")
-        buildConfigField("String", "TORBOX_BASE_URL", "\"${project.findProperty("TORBOX_BASE_URL") as? String ?: ""}\"")
+        buildConfigField("String", "STATION_BACKEND_URL", "\"${localProperties.getProperty("STATION_BACKEND_URL") ?: ""}\"")
+        buildConfigField("String", "TORBOX_BASE_URL", "\"${localProperties.getProperty("TORBOX_BASE_URL") ?: ""}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -66,10 +74,6 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
-    }
-
-    lint {
-        baseline = file("lint-baseline.xml")
     }
 }
 

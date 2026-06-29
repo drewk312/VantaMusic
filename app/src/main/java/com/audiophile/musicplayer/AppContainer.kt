@@ -49,6 +49,8 @@ import com.audiophile.musicplayer.data.resolution.TorBoxCatalogResolverClient
 import com.audiophile.musicplayer.download.AndroidTrackDownloadManager
 import com.audiophile.musicplayer.playback.NowPlayingStateStore
 import com.audiophile.musicplayer.account.AccountManager
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryManager
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryTokenStore
 import com.audiophile.musicplayer.data.connectors.apple.AppleMusicLibraryConnector
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
 import com.audiophile.musicplayer.playback.UpnpCastingManager
@@ -110,6 +112,15 @@ class AppContainer(
     val catalogBrowseRepository = CatalogBrowseRepository()
 
     val localLibraryRepository = LocalLibraryRepository(musicDatabase.libraryDao(), metadataResolver)
+    val connectedLibraryTokenStore = ConnectedLibraryTokenStore(appContext)
+    val connectedLibraryManager by lazy {
+        ConnectedLibraryManager(
+            context = appContext,
+            tokenStore = connectedLibraryTokenStore,
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository
+        )
+    }
     val libraryImporter = LibraryImporter(
         localLibraryRepository,
         metadataResolver = metadataResolver,

@@ -180,29 +180,29 @@ fun MiniPlayer(
 
                 Icon(
                     imageVector = if (nowPlayingState.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "Favorite",
+                    contentDescription = if (nowPlayingState.isFavorite) "Remove favorite" else "Add favorite",
                     tint = if (nowPlayingState.isFavorite) AppAccent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable { onToggleFavorite() }
-                        .padding(6.dp)
+                        .padding(12.dp)
                 )
 
                 Icon(
                     imageVector = Icons.Filled.SkipPrevious,
-                    contentDescription = "Previous",
+                    contentDescription = "Previous track",
                     tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable { onPrevious() }
-                        .padding(8.dp)
+                        .padding(12.dp)
                 )
 
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .background(AppAccent.copy(alpha = 0.16f))
                         .border(0.5.dp, AppAccent.copy(alpha = 0.28f), CircleShape)
@@ -211,21 +211,21 @@ fun MiniPlayer(
                 ) {
                     Icon(
                         imageVector = if (nowPlayingState.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = "Play/Pause",
+                        contentDescription = if (nowPlayingState.isPlaying) "Pause" else "Play",
                         tint = Color.White,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
                 Icon(
                     imageVector = Icons.Filled.SkipNext,
-                    contentDescription = "Next",
+                    contentDescription = "Next track",
                     tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable { onNext() }
-                        .padding(8.dp)
+                        .padding(12.dp)
                 )
             }
         }

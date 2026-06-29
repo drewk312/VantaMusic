@@ -30,6 +30,7 @@ export interface Env {
   SEARCH_CACHE_TTL_SECONDS?: string;
   SEARCH_CACHE_EMPTY_TTL_SECONDS?: string;
   HEALTH_CACHE_TTL_SECONDS?: string;
+  STREAM_CACHE_TTL_SECONDS?: string;
   CACHE?: KVNamespace;
 }
 

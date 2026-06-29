@@ -3505,10 +3505,19 @@ class MainViewModel @Inject constructor(
                         newFavorite = false
                     }
                 }
-                newFavorite
+                Pair(localLibraryId, newFavorite)
             }
             refreshAll()
-            val newFavorite = result
+            val (localLibraryId, newFavorite) = result
+            if (newFavorite) {
+                val isrc = nowPlaying.isrc ?: container.nowPlayingStateStore.load()?.isrc
+                container.connectedLibraryManager.syncLike(
+                    localTrackId = localLibraryId,
+                    title = title,
+                    artist = artist,
+                    isrc = isrc
+                )
+            }
             setStatusMessage(if (newFavorite) "Liked" else "Unliked")
             Log.d("VANTA_LIBRARY_ACTION", "after persistedLiked=${newFavorite}")
             Log.d("VANTA_SNACKBAR", "message=${if (newFavorite) "Liked" else "Unliked"}")
@@ -3534,7 +3543,16 @@ class MainViewModel @Inject constructor(
 
     fun toggleFavoriteForSong(songId: Long) {
         viewModelScope.launch {
+            val song = withContext(Dispatchers.IO) { container.localLibraryRepository.songById(songId) }
             withContext(Dispatchers.IO) { container.localLibraryRepository.toggleFavorite(songId) }
+            if (song != null) {
+                container.connectedLibraryManager.syncLike(
+                    localTrackId = songId,
+                    title = song.title,
+                    artist = song.artist,
+                    isrc = song.isrc
+                )
+            }
             val snapshots = withContext(Dispatchers.IO) {
                 container.localLibraryRepository.allSongsSnapshot() to container.localLibraryRepository.libraryCountsSnapshot()
             }

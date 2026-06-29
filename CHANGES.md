@@ -1,3 +1,44 @@
+# VANTA UI Polish — Radio detail, lyric taps, waveform seek
+
+## Summary
+
+Addressed the user's live feedback: the radio station detail screen was too heavy and empty, lyric lines couldn't be tapped to seek, and the waveform-style progress bar didn't respond to taps.
+
+## Verified Results
+
+- `./gradlew.bat :app:compileDebugKotlin` - passes
+- `./gradlew.bat :app:testDebugUnitTest` - passes
+- `./gradlew.bat :app:lintDebug` - passes, **0 errors / 0 warnings**
+- `./gradlew.bat :app:assembleDebug` - passes
+- Device install & launch - no `FATAL EXCEPTION` for `com.audiophile.musicplayer`
+
+## What Was Fixed
+
+### 1. Radio station detail screen (`RadioStationDetailScreen.kt`)
+
+- Replaced the oversized header + giant 88dp play button + giant shuffle row with a compact inline header.
+- Station emoji is now small and sits next to the title instead of dominating the screen.
+- Action row is a single 48dp-height "Play Station" pill plus a compact shuffle icon button.
+- Track list is visible immediately below the action row.
+- Empty state now says "Your station is taking shape" with an inline "Start Station" button instead of "Tap Play to start the AI curation".
+- Track rows use consistent 48dp artwork and tighter padding.
+- Reduced `RadioStationSearchCard` height from 132dp to 110dp for consistent card sizing.
+
+### 2. Lyric tap-to-seek (`LyricsStage.kt`)
+
+- Each lyric line now has a full-width, minimum 56dp-height clickable area.
+- Added an `onClickLabel` for accessibility.
+- Removed the unnecessary conditional `canSeekLine` wrapper; every rendered line is seekable.
+
+### 3. Waveform/progress tap-and-drag seek (`VantaBeatProgressBar.kt`)
+
+- The beat-progress waveform is now overlaid with a transparent Material3 `Slider`.
+- Tapping or dragging anywhere on the waveform seeks the player to that position.
+- The waveform visual and playhead remain unchanged; the Slider handles all gesture reliability.
+- Gated the interactive slider to the full-size bar only, so the mini-player waveform stays non-interactive (prevents stealing the mini-player expand tap).
+
+---
+
 # VANTA Crash Fix - Latest Session
 
 ## Summary

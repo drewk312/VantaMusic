@@ -267,16 +267,14 @@ fun LyricsView(
                     targetValue = if (isActive) 1f else 0.96f,
                     animationSpec = tween(420), label = "lyricScale"
                 )
-                val canSeekLine = lines.isNotEmpty()
-
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 56.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .then(
-                            if (canSeekLine) {
-                                Modifier.clickable(onClick = { seekToLine(lineSeekTargetMs(index, line)) })
-                            } else Modifier
+                        .clickable(
+                            onClick = { seekToLine(lineSeekTargetMs(index, line)) },
+                            onClickLabel = "Seek to this lyric"
                         )
                         .graphicsLayer(alpha = alpha, scaleX = scale, scaleY = scale, transformOrigin = TransformOrigin(0f, 0.5f))
                         .padding(horizontal = 8.dp, vertical = 10.dp)

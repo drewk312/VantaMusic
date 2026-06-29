@@ -43,6 +43,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryTokenStore
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryImportResult
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryManager
+import com.audiophile.musicplayer.AudiophileApp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.audiophile.musicplayer.data.source.external.ExternalSourceConfig
 import com.audiophile.musicplayer.data.llm.AiProvider
 import com.audiophile.musicplayer.data.voice.PulseVoiceProfile
@@ -148,7 +156,14 @@ fun SettingsScreen(
         }
 
         // 2. Connected Libraries
-        ConnectedLibrariesSettingsGroup(context = context)
+        val app = remember(context) { context.applicationContext as AudiophileApp }
+        val tokenStore = remember(app) { app.appContainer.connectedLibraryTokenStore }
+        val connectedLibraryManager = remember(app) { app.appContainer.connectedLibraryManager }
+        ConnectedLibrariesSettingsGroup(
+            context = context,
+            tokenStore = tokenStore,
+            connectedLibraryManager = connectedLibraryManager
+        )
 
         // 3. Playback
         PremiumSettingsGroup(title = "Playback") {
@@ -298,21 +313,17 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ConnectedLibrariesSettingsGroup(context: Context) {
+private fun ConnectedLibrariesSettingsGroup(
+    context: Context,
+    tokenStore: ConnectedLibraryTokenStore?,
+    connectedLibraryManager: ConnectedLibraryManager?
+) {
     val prefs = remember(context) { context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE) }
+    val coroutineScope = rememberCoroutineScope()
     var appleSyncLikes by remember { mutableStateOf(prefs.getBoolean("apple_sync_likes", false)) }
     var spotifySyncLikes by remember { mutableStateOf(prefs.getBoolean("spotify_sync_likes", false)) }
     var appleLastImport by remember { mutableStateOf(prefs.getString("apple_last_import", "Never") ?: "Never") }
     var spotifyLastImport by remember { mutableStateOf(prefs.getString("spotify_last_import", "Never") ?: "Never") }
-    var appleStatus by remember { mutableStateOf(if (prefs.getBoolean("apple_connected", false)) "Connected" else "Auth setup required") }
-    var spotifyStatus by remember { mutableStateOf(if (prefs.getBoolean("spotify_connected", false)) "Connected" else "Auth setup required") }
-    var appleConnected by remember { mutableStateOf(prefs.getBoolean("apple_connected", false)) }
-    var spotifyConnected by remember { mutableStateOf(prefs.getBoolean("spotify_connected", false)) }
-    var showDiagnostics by remember { mutableStateOf(false) }
-
-    if (showDiagnostics) {
-        VantaDiagnosticsSheet(onDismiss = { showDiagnostics = false })
-    }
 
     fun saveBoolean(key: String, value: Boolean) {
         prefs.edit {
@@ -320,97 +331,209 @@ private fun ConnectedLibrariesSettingsGroup(context: Context) {
             }
     }
 
-    fun toggleConnect(provider: String) {
-        if (provider == "APPLE_MUSIC") {
-            appleConnected = !appleConnected
-            saveBoolean("apple_connected", appleConnected)
-            appleStatus = if (appleConnected) "Active (Matched Library)" else "Auth setup required"
-        } else {
-            spotifyConnected = !spotifyConnected
-            saveBoolean("spotify_connected", spotifyConnected)
-            spotifyStatus = if (spotifyConnected) "Active (Matched Library)" else "Auth setup required"
+    fun formatNow(): String = android.text.format.DateFormat.format("MMM d, h:mm a", System.currentTimeMillis()).toString()
+
+    fun recordImport(provider: ConnectedLibraryProvider) {
+        val now = formatNow()
+        when (provider) {
+            ConnectedLibraryProvider.APPLE_MUSIC -> appleLastImport = now
+            ConnectedLibraryProvider.SPOTIFY -> spotifyLastImport = now
+        }
+        prefs.edit { putString("${provider.name.lowercase()}_last_import", now) }
+    }
+
+    // Real connection state is derived from encrypted token presence.
+    val appleHasDevToken = remember(tokenStore) { tokenStore?.accessToken(ConnectedLibraryProvider.APPLE_MUSIC)?.isNotBlank() == true }
+    val appleHasUserToken = remember(tokenStore) { tokenStore?.musicUserToken(ConnectedLibraryProvider.APPLE_MUSIC)?.isNotBlank() == true }
+    val spotifyHasToken = remember(tokenStore) { tokenStore?.accessToken(ConnectedLibraryProvider.SPOTIFY)?.isNotBlank() == true }
+
+    var appleConnected by remember { mutableStateOf(appleHasDevToken && appleHasUserToken) }
+    var spotifyConnected by remember { mutableStateOf(spotifyHasToken) }
+    var appleStatus by remember { mutableStateOf(statusText(appleConnected, "Apple Music")) }
+    var spotifyStatus by remember { mutableStateOf(statusText(spotifyConnected, "Spotify")) }
+    var showAppleDialog by remember { mutableStateOf(false) }
+    var showSpotifyDialog by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+
+    if (showAppleDialog) {
+        AppleMusicTokenDialog(
+            onDismiss = { showAppleDialog = false },
+            onSave = { devToken, userToken ->
+                val dev = devToken.trim()
+                val user = userToken.trim()
+                tokenStore?.storeTokens(
+                    ConnectedLibraryProvider.APPLE_MUSIC,
+                    accessToken = dev,
+                    refreshToken = null,
+                    musicUserToken = user
+                )
+                appleConnected = dev.isNotBlank() && user.isNotBlank()
+                appleStatus = statusText(appleConnected, "Apple Music")
+                showAppleDialog = false
+            }
+        )
+    }
+
+    if (showSpotifyDialog) {
+        SpotifyTokenDialog(
+            onDismiss = { showSpotifyDialog = false },
+            onSave = { accessToken ->
+                val token = accessToken.trim()
+                tokenStore?.storeTokens(
+                    ConnectedLibraryProvider.SPOTIFY,
+                    accessToken = token,
+                    refreshToken = null
+                )
+                spotifyConnected = token.isNotBlank()
+                spotifyStatus = statusText(spotifyConnected, "Spotify")
+                showSpotifyDialog = false
+            }
+        )
+    }
+
+    if (showDiagnostics) {
+        VantaDiagnosticsSheet(onDismiss = { showDiagnostics = false })
+    }
+
+    fun onConnectToggle(provider: ConnectedLibraryProvider) {
+        if (tokenStore == null) {
+            val message = "Secure token storage is unavailable on this device."
+            when (provider) {
+                ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = message
+                ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = message
+            }
+            return
+        }
+        when (provider) {
+            ConnectedLibraryProvider.APPLE_MUSIC -> {
+                if (appleConnected) {
+                    tokenStore.clear(ConnectedLibraryProvider.APPLE_MUSIC)
+                    appleConnected = false
+                    appleStatus = statusText(false, "Apple Music")
+                } else {
+                    showAppleDialog = true
+                }
+            }
+            ConnectedLibraryProvider.SPOTIFY -> {
+                if (spotifyConnected) {
+                    tokenStore.clear(ConnectedLibraryProvider.SPOTIFY)
+                    spotifyConnected = false
+                    spotifyStatus = statusText(false, "Spotify")
+                } else {
+                    showSpotifyDialog = true
+                }
+            }
         }
     }
 
-    fun connectNotReady(provider: String) {
-        if (provider == "APPLE_MUSIC") {
-            if (!appleConnected) {
-                appleStatus = "Authenticating..."
+    fun onImport(provider: ConnectedLibraryProvider) {
+        if (connectedLibraryManager == null || tokenStore == null) {
+            Log.w("VANTA_CONNECTOR_IMPORT_ERROR", "provider=$provider reason=secure_store_unavailable")
+            val message = "Secure storage unavailable. Cannot import."
+            when (provider) {
+                ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = message
+                ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = message
             }
-        } else {
-            if (!spotifyConnected) {
-                spotifyStatus = "Authenticating..."
+            return
+        }
+        val hasToken = when (provider) {
+            ConnectedLibraryProvider.APPLE_MUSIC -> appleConnected
+            ConnectedLibraryProvider.SPOTIFY -> spotifyConnected
+        }
+        if (!hasToken) {
+            Log.w("VANTA_CONNECTOR_IMPORT_ERROR", "provider=$provider reason=not_connected")
+            val message = "Connect ${provider.displayName()} before importing."
+            when (provider) {
+                ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = message
+                ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = message
+            }
+            return
+        }
+        coroutineScope.launch {
+            val statusPrefix = when (provider) {
+                ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus
+                ConnectedLibraryProvider.SPOTIFY -> spotifyStatus
+            }
+            val runningStatus = "Importing ${provider.displayName()}..."
+            when (provider) {
+                ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = runningStatus
+                ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = runningStatus
+            }
+            val result = runCatching { connectedLibraryManager.importLibrary(provider) }
+            result.onSuccess { importResult: ConnectedLibraryImportResult ->
+                val summary = importResult.summary
+                val finalStatus = "Imported ${summary.tracksImported} tracks, ${summary.playlistsImported} playlists"
+                when (provider) {
+                    ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = finalStatus
+                    ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = finalStatus
+                }
+                recordImport(provider)
+                Log.i(
+                    "VANTA_CONNECTOR_IMPORT",
+                    "provider=$provider tracks=${summary.tracksImported} playlists=${summary.playlistsImported} matched=${summary.matchedToVanta} errors=${summary.errors}"
+                )
+            }.onFailure { error ->
+                Log.e("VANTA_CONNECTOR_IMPORT_ERROR", "provider=$provider reason=${error.message}", error)
+                val errorStatus = "Import failed: ${error.message ?: "unknown"}"
+                when (provider) {
+                    ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = errorStatus
+                    ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = errorStatus
+                }
             }
         }
-        toggleConnect(provider)
-    }
-
-    fun importBlocked(provider: String) {
-        Log.w("VANTA_CONNECTOR_IMPORT_ERROR", "provider=$provider reason=not_connected")
-        val displayName = if (provider == "APPLE_MUSIC") "Apple Music Library" else "Spotify Library"
-        val message = "Connect $displayName before importing. No provider data was imported."
-        if (provider == "APPLE_MUSIC") {
-            appleStatus = "Cloud Library Match is under maintenance"
-        } else {
-            spotifyStatus = "Cloud Library Match is under maintenance"
-        }
-        Log.w("VANTA_CONNECTOR_IMPORT_ERROR", message)
     }
 
     PremiumSettingsGroup(title = "Connected Libraries") {
-        ConnectedLibraryCard(
-            title = "Apple Music Library",
-            connected = appleConnected,
-            status = appleStatus,
-            lastImport = appleLastImport,
-            syncLikes = appleSyncLikes,
-            onConnectToggle = {
-                connectNotReady("APPLE_MUSIC")
-            },
-            onImport = {
-                importBlocked("APPLE_MUSIC")
-            },
-            onSyncLikesChange = {
-                appleSyncLikes = it
-                saveBoolean("apple_sync_likes", it)
-            },
-            onDeleteImportedData = {
-                appleLastImport = "Never"
-                prefs.edit {
-                        remove("apple_last_import")
-                    }
-            }
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp)
-                .height(0.5.dp)
-                .background(AppOutline.copy(alpha = 0.35f))
-        )
-        ConnectedLibraryCard(
-            title = "Spotify Library",
-            connected = spotifyConnected,
-            status = spotifyStatus,
-            lastImport = spotifyLastImport,
-            syncLikes = spotifySyncLikes,
-            onConnectToggle = {
-                connectNotReady("SPOTIFY")
-            },
-            onImport = {
-                importBlocked("SPOTIFY")
-            },
-            onSyncLikesChange = {
-                spotifySyncLikes = it
-                saveBoolean("spotify_sync_likes", it)
-            },
-            onDeleteImportedData = {
-                spotifyLastImport = "Never"
-                prefs.edit {
-                        remove("spotify_last_import")
-                    }
-            }
-        )
+        if (tokenStore == null) {
+            Text(
+                text = "Connected Libraries require encrypted storage, which is unavailable on this device.",
+                color = AppWarning,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+        } else {
+            ConnectedLibraryCard(
+                title = "Apple Music Library",
+                connected = appleConnected,
+                status = appleStatus,
+                lastImport = appleLastImport,
+                syncLikes = appleSyncLikes,
+                onConnectToggle = { onConnectToggle(ConnectedLibraryProvider.APPLE_MUSIC) },
+                onImport = { onImport(ConnectedLibraryProvider.APPLE_MUSIC) },
+                onSyncLikesChange = {
+                    appleSyncLikes = it
+                    saveBoolean("apple_sync_likes", it)
+                },
+                onDeleteImportedData = {
+                    appleLastImport = "Never"
+                    prefs.edit { remove("apple_last_import") }
+                }
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp)
+                    .height(0.5.dp)
+                    .background(AppOutline.copy(alpha = 0.35f))
+            )
+            ConnectedLibraryCard(
+                title = "Spotify Library",
+                connected = spotifyConnected,
+                status = spotifyStatus,
+                lastImport = spotifyLastImport,
+                syncLikes = spotifySyncLikes,
+                onConnectToggle = { onConnectToggle(ConnectedLibraryProvider.SPOTIFY) },
+                onImport = { onImport(ConnectedLibraryProvider.SPOTIFY) },
+                onSyncLikesChange = {
+                    spotifySyncLikes = it
+                    saveBoolean("spotify_sync_likes", it)
+                },
+                onDeleteImportedData = {
+                    spotifyLastImport = "Never"
+                    prefs.edit { remove("spotify_last_import") }
+                }
+            )
+        }
         Text(
             text = "VANTA imports music metadata and matches it to VANTA sources. Playback stays on the VANTA lossless engine.",
             color = AppTextMuted,
@@ -419,6 +542,107 @@ private fun ConnectedLibrariesSettingsGroup(context: Context) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
     }
+}
+
+private fun ConnectedLibraryProvider.displayName(): String = when (this) {
+    ConnectedLibraryProvider.APPLE_MUSIC -> "Apple Music"
+    ConnectedLibraryProvider.SPOTIFY -> "Spotify"
+}
+
+private fun statusText(connected: Boolean, providerName: String): String =
+    if (connected) "Active (token stored)" else "$providerName auth setup required"
+
+@Composable
+private fun AppleMusicTokenDialog(
+    onDismiss: () -> Unit,
+    onSave: (devToken: String, userToken: String) -> Unit
+) {
+    var devToken by remember { mutableStateOf("") }
+    var userToken by remember { mutableStateOf("") }
+    val canSave = devToken.isNotBlank() && userToken.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A1A),
+        title = { Text("Connect Apple Music", color = AppText, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Paste your Apple Music developer token and Music User Token. Tokens stay encrypted on this device.",
+                    color = AppTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                VantaTextField(
+                    value = devToken,
+                    onValueChange = { devToken = it },
+                    label = "Developer Token"
+                )
+                VantaTextField(
+                    value = userToken,
+                    onValueChange = { userToken = it },
+                    label = "Music User Token"
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(devToken, userToken) },
+                enabled = canSave
+            ) {
+                Text("Save", color = if (canSave) AppAccent else AppTextMuted)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = AppTextMuted)
+            }
+        }
+    )
+}
+
+@Composable
+private fun SpotifyTokenDialog(
+    onDismiss: () -> Unit,
+    onSave: (accessToken: String) -> Unit
+) {
+    var accessToken by remember { mutableStateOf("") }
+    val canSave = accessToken.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A1A),
+        title = { Text("Connect Spotify", color = AppText, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Paste a Spotify access token. VANTA uses it to read your library metadata only. Tokens stay encrypted on this device.",
+                    color = AppTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                VantaTextField(
+                    value = accessToken,
+                    onValueChange = { accessToken = it },
+                    label = "Access Token",
+                    isPassword = true
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(accessToken) },
+                enabled = canSave
+            ) {
+                Text("Save", color = if (canSave) AppAccent else AppTextMuted)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = AppTextMuted)
+            }
+        }
+    )
 }
 
 @Composable

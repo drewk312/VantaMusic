@@ -13,13 +13,14 @@ import {
 } from "./http";
 import { checkRateLimit } from "./lib/rate-limit";
 import { checkProviderHealth } from "./lib/health";
+import { getCachedStream, putCachedStream, streamCacheKey, streamCacheTtl } from "./lib/cache";
 import { getMetrics, incrementErrors, incrementRateLimited, incrementRequests, incrementRoute, resetMetrics } from "./lib/metrics";
 import { searchAll } from "./providers/search";
 import { resolveTrack } from "./providers/resolve";
 import { streamWithFallback } from "./providers/stream";
 import { providerStatus } from "./providers/shared";
 import { parseProviderList } from "./types";
-import type { Env } from "./types";
+import type { Env, StreamResult } from "./types";
 
 function isAuthorized(request: Request, env: Env): boolean {
   const required = env.GATEWAY_API_KEY?.trim();
@@ -48,6 +49,34 @@ function errorResponse(
 ): Response {
   const body: StructuredError = { error: code, message, retryable, requestId };
   return json(body, status, extraHeaders);
+}
+
+async function resolveStreamWithCache(
+  env: Env,
+  trackId: string,
+  quality: string,
+  provider: string | undefined,
+  logBase: Record<string, unknown>
+): Promise<StreamResult | null> {
+  const key = streamCacheKey(trackId, provider, quality);
+  const cached = await getCachedStream(env, key);
+  if (cached) {
+    console.log("VANTA_STREAM_CACHE_HIT", JSON.stringify({ ...logBase, id: trackId, service: provider ?? "auto", quality }));
+    return cached;
+  }
+  const stream = await streamWithFallback(env, trackId, quality, provider, { provider });
+  if (stream) {
+    await putCachedStream(env, key, stream, streamCacheTtl(env));
+  }
+  return stream;
+}
+
+function isStreamExpired(stream: StreamResult): boolean {
+  if (!stream.expiresAt) return false;
+  // expiresAt may be seconds or milliseconds; treat values before year 3000 as seconds.
+  const threshold = 32_000_000_000;
+  const expiresMs = stream.expiresAt > threshold ? stream.expiresAt : stream.expiresAt * 1000;
+  return expiresMs < Date.now();
 }
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -180,8 +209,8 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       "VANTA_PLAY_TRACK_REQUEST",
       JSON.stringify({ ...logBase, id: streamId, service: provider ?? "auto", quality })
     );
-    const stream = await streamWithFallback(env, streamId, quality, provider, { provider });
-    if (!stream) {
+    const stream = await resolveStreamWithCache(env, streamId, quality, provider, logBase);
+    if (!stream?.url) {
       return errorResponse(
         "no_stream_source",
         "No stream source succeeded. Set QOBUZ_APP_ID+QOBUZ_AUTH_TOKEN, TIDAL_STREAM_UPSTREAM, MUSICDL_BASE_URL, or other upstream secrets. Check GET /status.",
@@ -191,7 +220,23 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         rateHeaders
       );
     }
-    return json(stream, 200, rateHeaders);
+    if (isStreamExpired(stream)) {
+      return errorResponse(
+        "stream_expired",
+        "Resolved stream URL is expired. Retry or request a fresh resolve.",
+        410,
+        id,
+        true,
+        rateHeaders
+      );
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: stream.url,
+        ...rateHeaders,
+      },
+    });
   }
 
   if (pathname === "/play" || pathname === "/api/play") {
@@ -227,7 +272,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         rateHeaders
       );
     }
-    const stream = await streamWithFallback(env, idToStream, quality, provider, { provider });
+    const stream = await resolveStreamWithCache(env, idToStream, quality, provider, logBase);
     if (!stream?.url) {
       return errorResponse(
         "no_stream_source",
@@ -257,12 +302,22 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       "VANTA_PLAY_TRACK_REQUEST",
       JSON.stringify({ ...logBase, id: body.id.trim(), service: provider ?? "auto", quality })
     );
-    const stream = await streamWithFallback(env, body.id.trim(), quality, provider, { provider });
+    const stream = await resolveStreamWithCache(env, body.id.trim(), quality, provider, logBase);
     if (!stream) {
       return errorResponse(
         "no_stream_source",
         "No stream source succeeded for /api/dl. Check GET /status.",
         503,
+        id,
+        true,
+        rateHeaders
+      );
+    }
+    if (isStreamExpired(stream)) {
+      return errorResponse(
+        "stream_expired",
+        "Resolved stream URL is expired. Retry or request a fresh resolve.",
+        410,
         id,
         true,
         rateHeaders
