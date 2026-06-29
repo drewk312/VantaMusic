@@ -1,0 +1,309 @@
+package com.audiophile.musicplayer.data.source
+
+import android.util.Log
+import com.audiophile.musicplayer.data.source.ContentPurityFilter
+import com.audiophile.musicplayer.data.source.external.ExternalSourceProvider
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
+
+class SourceRegistry(
+    private val providers: List<MusicSourceProvider>
+) {
+    suspend fun searchAll(query: String, timeoutMs: Long = 25_000L): List<SourceSearchResult> = coroutineScope {
+        val results = mutableListOf<SourceSearchResult>()
+        val searchGroups = providers.groupBy { searchGroupKey(it) }
+        Log.d(
+            "VANTA_SEARCH",
+            "SourceRegistry query='$query' providerCount=${providers.size} searchGroups=${searchGroups.size} timeoutMs=$timeoutMs"
+        )
+
+        val deferred = searchGroups.entries
+            .sortedBy { (_, groupProviders) -> searchGroupPriority(groupProviders.first()) }
+            .map { (groupKey, groupProviders) ->
+            async {
+                val representative = groupProviders.first()
+                val startMs = System.currentTimeMillis()
+                try {
+                    val providerResults = withTimeout(timeoutMs) { representative.search(query) }
+                    val durationMs = System.currentTimeMillis() - startMs
+                    Log.d(
+                        "VANTA_SEARCH_PERF",
+                        "query='$query' groupKey=$groupKey representative=${representative.providerId} " +
+                            "groupSize=${groupProviders.size} resultCount=${providerResults.size} " +
+                            "durationMs=$durationMs timeout=false"
+                    )
+                    providerResults.filter { result ->
+                        ContentPurityFilter.isAllowed(
+                            title = result.title,
+                            artist = result.artist,
+                            album = result.album,
+                            durationMs = result.durationMs,
+                            source = result.providerId,
+                            userQuery = query
+                        )
+                    }
+                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    val durationMs = System.currentTimeMillis() - startMs
+                    Log.w(
+                        "VANTA_SEARCH_PERF",
+                        "query='$query' groupKey=$groupKey representative=${representative.providerId} " +
+                            "durationMs=$durationMs timeout=true"
+                    )
+                    emptyList()
+                } catch (e: Exception) {
+                    Log.e(
+                        "VANTA_SEARCH_PERF",
+                        "query='$query' groupKey=$groupKey representative=${representative.providerId} error='${e.message}'"
+                    )
+                    emptyList()
+                }
+            }
+        }
+
+        deferred.forEach { deferredResult ->
+            results.addAll(deferredResult.await())
+        }
+
+        Log.d("VANTA_SEARCH", "SourceRegistry finalResultCount=${results.size}")
+        results
+    }
+
+    private fun searchGroupKey(provider: MusicSourceProvider): String =
+        when (provider) {
+            is ExternalSourceProvider -> provider.searchGroupKey
+            else -> provider.providerId
+        }
+
+    /** Gateway/catalog before supplemental providers (e.g. YouTube). */
+    private fun searchGroupPriority(provider: MusicSourceProvider): Int = when {
+        provider is ExternalSourceProvider -> 0
+        provider.providerId == "youtube_music" -> 2
+        else -> 1
+    }
+
+    suspend fun resolveStream(providerId: String, trackId: String, timeoutMs: Long = 10000L): ResolvedStream? {
+        val provider = providers.find { it.providerId == providerId } ?: return null
+        Log.d("VANTA_PLAY_TRACK_REQUEST", "resolveStream provider=$providerId trackId=$trackId timeoutMs=$timeoutMs")
+        return try {
+            val resolved = withTimeout(timeoutMs) { provider.resolveStream(trackId) }
+            if (resolved != null) {
+                Log.d("VANTA_SEARCH", "SourceRegistry resolveStream success for ${provider.providerId}:$trackId")
+            } else {
+                Log.d("VANTA_SEARCH", "SourceRegistry resolveStream failure (null) for ${provider.providerId}:$trackId")
+            }
+            resolved
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolveStream TIMEOUT for ${provider.providerId}:$trackId (${timeoutMs}ms exceeded)")
+            null
+        } catch (e: Exception) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolveStream error for ${provider.providerId}:$trackId", e)
+            null
+        }
+    }
+
+    /**
+     * Resolve stream using priority-based fallback.
+     * Attempts providers in order, skipping those that fail or time out.
+     */
+    suspend fun resolveStreamWithFallback(trackId: String, providerIds: List<String>, timeoutMs: Long = 10000L): ResolvedStream? {
+        for (providerId in providerIds) {
+            val provider = providers.find { it.providerId == providerId } ?: continue
+            try {
+                val resolved = withTimeout(timeoutMs) { provider.resolveStream(trackId) }
+                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                    Log.d("VANTA_SEARCH", "SourceRegistry fallback success for ${provider.providerId}:$trackId")
+                    return resolved
+                }
+            } catch (e: Exception) {
+                Log.w("VANTA_SEARCH", "SourceRegistry fallback failed for ${provider.providerId}:$trackId")
+            }
+        }
+        return null
+    }
+
+    /**
+     * Race all [providerIds] in parallel and return the highest-bitrate stream.
+     * Tie-breaks by provider order in [providerIds].
+     */
+    suspend fun resolveStreamParallelBest(
+        trackId: String,
+        providerIds: List<String>,
+        timeoutMs: Long = 12_000L
+    ): Pair<String, ResolvedStream>? = coroutineScope {
+        val enabled = providerIds.mapNotNull { id -> providers.find { it.providerId == id } }
+        if (enabled.isEmpty()) return@coroutineScope null
+
+        val results = enabled.map { provider ->
+            async {
+                runCatching {
+                    withTimeout(timeoutMs) {
+                        provider.providerId to provider.resolveStream(trackId)
+                    }
+                }.getOrNull()
+            }
+        }
+
+        val successes = results.mapNotNull { deferred ->
+            val pair = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
+            val (providerId, stream) = pair
+            if (stream != null && stream.streamUrl.isNotBlank()) providerId to stream else null
+        }
+
+        if (successes.isEmpty()) return@coroutineScope null
+
+        val best = successes.maxWithOrNull(
+            compareByDescending<Pair<String, ResolvedStream>> { it.second.bitrateKbps }
+                .thenBy { providerIds.indexOf(it.first).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+        )
+        best?.let {
+            Log.d(
+                "VANTA_PLAY_TRACK_REQUEST",
+                "parallel_best provider=${it.first} trackId=$trackId bitrate=${it.second.bitrateKbps}"
+            )
+        }
+        best
+    }
+
+    /**
+     * Search a single provider with a custom timeout.
+     * Used by debug broadcasts for provider-specific testing.
+     */
+    suspend fun searchSingle(providerId: String, query: String, timeoutMs: Long = 10000L): List<SourceSearchResult> {
+        val provider = providers.find { it.providerId == providerId }
+        if (provider == null) {
+            Log.e("VANTA_SEARCH", "searchSingle: provider '$providerId' not found in registry (available=${providers.map { it.providerId }})")
+            return emptyList()
+        }
+        val startMs = System.currentTimeMillis()
+        return try {
+            val results = withTimeout(timeoutMs) { provider.search(query) }
+                .filter { result ->
+                    ContentPurityFilter.isAllowed(
+                        title = result.title,
+                        artist = result.artist,
+                        album = result.album,
+                        durationMs = result.durationMs,
+                        source = result.providerId,
+                        userQuery = query
+                    )
+                }
+            val durationMs = System.currentTimeMillis() - startMs
+            Log.d("VANTA_SEARCH_PERF", "query='$query' providerId=$providerId resultCount=${results.size} durationMs=$durationMs timeout=false")
+            results
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            val durationMs = System.currentTimeMillis() - startMs
+            Log.w("VANTA_SEARCH_PERF", "query='$query' providerId=$providerId durationMs=$durationMs timeout=true")
+            emptyList()
+        } catch (e: Exception) {
+            val durationMs = System.currentTimeMillis() - startMs
+            Log.e("VANTA_SEARCH_PERF", "query='$query' providerId=$providerId error='${e.message}' durationMs=$durationMs")
+            emptyList()
+        }
+    }
+
+    fun getProviderIds(): List<String> = providers.map { it.providerId }
+
+    companion object {
+        /**
+         * Extract explicit expiry timestamp from common signed-URL query parameters.
+         * Works with Akamai, CloudFront, and generic signed URLs.
+         */
+        fun extractExpiryFromUrl(url: String): Long? {
+            return try {
+                val query = java.net.URI(url).query ?: return null
+                val params = query.split('&').associate {
+                    val parts = it.split('=', limit = 2)
+                    parts[0] to (parts.getOrNull(1) ?: "")
+                }
+                // Try common parameter names for expiry timestamps
+                params["expires"]?.toLongOrNull()
+                    ?: params["Expires"]?.toLongOrNull()
+                    ?: params["etsp"]?.toLongOrNull()
+                    ?: params["exp"]?.toLongOrNull()
+                    ?: params["e"]?.toLongOrNull()
+                    // Akamai: hdnts=exp=1234567890~acl=/...~hmac=...
+                    ?: params["hdnts"]?.let { hdnts ->
+                        hdnts.split('~').firstOrNull { it.startsWith("exp=") }
+                            ?.removePrefix("exp=")?.toLongOrNull()
+                    }
+            } catch (_: Exception) { null }
+        }
+
+        /**
+         * Infer a reasonable TTL (milliseconds) based on CDN host for URLs
+         * without an explicit expiry parameter.
+         */
+        fun inferTtlFromHost(url: String): Long? {
+            val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return null
+            return when {
+                host.contains("qobuz", ignoreCase = true) ||
+                host.contains("akamai", ignoreCase = true) ||
+                host.contains("akamaized", ignoreCase = true) -> 120_000L // Qobuz/Akamai: ~2 min
+                host.contains("cloudfront", ignoreCase = true) ||
+                host.contains("aws", ignoreCase = true) -> 300_000L // CloudFront: ~5 min
+                host.contains("tidal", ignoreCase = true) -> 300_000L // Tidal: ~5 min
+                host.contains("deezer", ignoreCase = true) -> 300_000L
+                host.contains("spotify", ignoreCase = true) ||
+                host.contains("scdn", ignoreCase = true) -> 180_000L // Spotify: ~3 min
+                else -> null // Unknown host; no inference
+            }
+        }
+
+        /**
+         * Returns the best-guess expiry timestamp (epoch ms) for a stream URL.
+         * Priority: explicit query param > host-based TTL inference > no expiry.
+         */
+        fun resolveExpiryMs(url: String, resolvedExpiresAt: Long? = null): Long? {
+            // 1. Use explicitly provided expiry (convert seconds to ms if needed)
+            if (resolvedExpiresAt != null && resolvedExpiresAt > 0L) {
+                // Providers may return Unix epoch in seconds (< 10T) vs milliseconds (> 10T)
+                return if (resolvedExpiresAt < 100_000_000_000L) resolvedExpiresAt * 1000L else resolvedExpiresAt
+            }
+            // 2. Extract from URL query parameters (convert seconds to ms if needed)
+            val fromParams = extractExpiryFromUrl(url)
+            if (fromParams != null && fromParams > 0L) {
+                return if (fromParams < 100_000_000_000L) fromParams * 1000L else fromParams
+            }
+            // 3. Infer from host + current time
+            val ttl = inferTtlFromHost(url) ?: return null
+            return System.currentTimeMillis() + ttl
+        }
+
+        /**
+         * Returns the MINIMUM expiry (epoch ms) across all available sources:
+         * provider-reported expiry, URL param expiry, and host-inferred TTL.
+         *
+         * For known temporary CDN hosts (Akamai 120s), this caps the effective TTL
+         * even if the provider reports a far-future expiry (e.g. 28 min).
+         */
+        fun resolveMinExpiryMs(url: String, resolvedExpiresAt: Long? = null, providerId: String? = null): Long? {
+            val now = System.currentTimeMillis()
+            val host = runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown"
+
+            // 1. Provider-reported expiry as absolute epoch ms
+            val providerExpiry = if (resolvedExpiresAt != null && resolvedExpiresAt > 0L) {
+                if (resolvedExpiresAt < 100_000_000_000L) resolvedExpiresAt * 1000L else resolvedExpiresAt
+            } else null
+
+            // 2. URL query-param expiry as absolute epoch ms
+            val paramExpiry = extractExpiryFromUrl(url)?.let {
+                if (it < 100_000_000_000L) it * 1000L else it
+            }
+
+            // 3. Host-inferred TTL as absolute epoch ms
+            val hostExpiry = inferTtlFromHost(url)?.let { now + it }
+
+            // Return the minimum non-null value (most conservative = earliest expiry)
+            val candidates = listOfNotNull(providerExpiry, paramExpiry, hostExpiry)
+            val normalized = candidates.minOrNull()
+            Log.d(
+                "VANTA_SOURCE_EXPIRY",
+                "providerId=${providerId ?: "unknown"} raw=${resolvedExpiresAt ?: "null"} " +
+                    "providerMs=${providerExpiry ?: "null"} paramMs=${paramExpiry ?: "null"} " +
+                    "hostMs=${hostExpiry ?: "null"} normalizedMs=${normalized ?: "null"} host=$host"
+            )
+            return normalized
+        }
+    }
+}

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+    <!--
+    TODO: Add certificate pinning for production domains.
+    Generate SHA-256 hashes with:
+      openssl s_client -connect vanta-music-gateway.16drewk.workers.dev:443 -showcerts </dev/null 2>/dev/null | openssl x509 -outform PEM | openssl x509 -noout -pubkey | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64
+    Example (replace with real hashes):
+    <domain-config>
+        <domain includeSubdomains="true">vanta-music-gateway.16drewk.workers.dev</domain>
+        <pin-set expiration="2027-12-31">
+            <pin digest="SHA-256">AAAA0000AAAA0000AAAA0000AAAA0000AAAA0000AAAA0000AAAA0000AAAA=</pin>
+            <pin digest="SHA-256">BBBB0000BBBB0000BBBB0000BBBB0000BBBB0000BBBB0000BBBB0000BBBB=</pin>
+        </pin-set>
+    </domain-config>
+    -->
+</network-security-config>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Premium VANTA V mark, kept inside the adaptive-icon safe zone. -->
+    <path
+        android:fillColor="#E8D5C4"
+        android:pathData="M25,25 L39,25 L55,68 L48,84 Z" />
+    <path
+        android:fillColor="#E8D5C4"
+        android:pathData="M70,25 L84,25 L60,84 L48,84 Z" />
+    <path
+        android:fillColor="#C9935A"
+        android:pathData="M49,20 L59,20 L59,25 L49,25 Z" />
+</vector>
