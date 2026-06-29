@@ -29,9 +29,9 @@ data class ArtworkGradientColors(
 )
 
 private val fallbackPalette = listOf(
-    Color(0xFF1DB954), Color(0xFFE1332D), Color(0xFF6B3FA0),
-    Color(0xFFF59B23), Color(0xFFE8115B), Color(0xFFC4B08A),
-    Color(0xFFB87740), Color(0xFFD840B8)
+    Color(0xFFE0A050), Color(0xFFC47A46), Color(0xFFB85C64),
+    Color(0xFFD0B47C), Color(0xFF8F4D3F), Color(0xFFC4B08A),
+    Color(0xFFB87740), Color(0xFF9B6A4A)
 )
 
 fun artworkColorFromSeed(seed: String?): Color {
@@ -55,9 +55,33 @@ private fun clampSwatchColor(rgb: Int): Color {
         AndroidColor.blue(rgb),
         hsl
     )
+    normalizeLuxuryHue(hsl)
     hsl[1] = hsl[1].coerceIn(0.28f, 0.72f)
     hsl[2] = hsl[2].coerceIn(0.14f, 0.42f)
     return Color(ColorUtils.HSLToColor(hsl))
+}
+
+private fun luxuryAccentColor(color: Color): Color {
+    val hsl = FloatArray(3)
+    ColorUtils.RGBToHSL(
+        (color.red * 255).toInt().coerceIn(0, 255),
+        (color.green * 255).toInt().coerceIn(0, 255),
+        (color.blue * 255).toInt().coerceIn(0, 255),
+        hsl
+    )
+    normalizeLuxuryHue(hsl)
+    hsl[1] = hsl[1].coerceIn(0.30f, 0.68f)
+    hsl[2] = hsl[2].coerceIn(0.32f, 0.62f)
+    return Color(ColorUtils.HSLToColor(hsl))
+}
+
+private fun normalizeLuxuryHue(hsl: FloatArray) {
+    hsl[0] = when (hsl[0]) {
+        in 70f..170f -> 38f
+        in 170f..270f -> 32f
+        in 270f..335f -> 350f
+        else -> hsl[0]
+    }
 }
 
 private fun extractAppleMusicPalette(bitmap: Bitmap): ArtworkGradientColors? {
@@ -71,8 +95,8 @@ private fun extractAppleMusicPalette(bitmap: Bitmap): ArtworkGradientColors? {
         ?: palette.dominantSwatch
 
     val accent = when {
-        vibrant != null -> Color(vibrant.rgb)
-        muted != null -> Color(muted.rgb)
+        vibrant != null -> luxuryAccentColor(Color(vibrant.rgb))
+        muted != null -> luxuryAccentColor(Color(muted.rgb))
         else -> return null
     }
     val darkVibrant = palette.darkVibrantSwatch

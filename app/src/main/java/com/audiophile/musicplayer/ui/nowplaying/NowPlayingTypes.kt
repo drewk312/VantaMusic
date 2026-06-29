@@ -23,7 +23,8 @@ data class NowPlayingDisplaySnapshot(
     val queueIndex: Int,
     val source: String,
     val lyricsTrackId: String?,
-    val canDisplayLyrics: Boolean
+    val canDisplayLyrics: Boolean,
+    val featuredArtists: List<String> = emptyList()
 )
 
 fun resolveNowPlayingDisplaySnapshot(
@@ -67,7 +68,8 @@ fun resolveNowPlayingDisplaySnapshot(
         queueIndex = nowPlayingState.queuePosition,
         source = source,
         lyricsTrackId = lyricsTrackId,
-        canDisplayLyrics = lyricsTrackId != null && lyricsTrackId == nowPlayingState.trackId
+        canDisplayLyrics = lyricsTrackId != null && lyricsTrackId == nowPlayingState.trackId,
+        featuredArtists = nowPlayingState.featuredArtists
     )
 }
 

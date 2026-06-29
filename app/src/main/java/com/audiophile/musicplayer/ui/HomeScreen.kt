@@ -120,6 +120,7 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
+            .padding(top = appTopContentPadding())
             .padding(bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
@@ -130,7 +131,7 @@ fun HomeScreen(
                 .padding(
                     start = VantaSpacing.screenHorizontal,
                     end = VantaSpacing.screenHorizontal,
-                    top = 20.dp
+                    top = 0.dp
                 ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -152,7 +153,7 @@ fun HomeScreen(
             Spacer(Modifier.width(12.dp))
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(AppSurfaceRaised)
                     .border(0.5.dp, AppOutline, CircleShape)
@@ -163,18 +164,26 @@ fun HomeScreen(
                     Icons.Filled.Person,
                     contentDescription = if (isSignedIn) "Profile" else "Sign In",
                     tint = AppTextSecondary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = AppTextSecondary,
+            Spacer(Modifier.width(6.dp))
+            Box(
                 modifier = Modifier
-                    .size(24.dp)
-                    .clickable(onClick = onOpenSettings)
-            )
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(AppSurfaceRaised)
+                    .border(0.5.dp, AppOutline, CircleShape)
+                    .clickable(onClick = onOpenSettings),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = AppTextSecondary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
 
         Spacer(Modifier.height(20.dp))

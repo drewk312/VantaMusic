@@ -135,6 +135,7 @@ fun NowPlayingScreen(
     val displayTitle = displaySnapshot.title
     val displayArtist = displaySnapshot.artist
     val displayAlbum = displaySnapshot.album
+    val displayFeaturedArtists = displaySnapshot.featuredArtists
     val mediaId = displaySnapshot.mediaId
 
     var previousLoggedMediaId by remember { mutableStateOf<String?>(null) }
@@ -260,7 +261,7 @@ fun NowPlayingScreen(
         }
 
         NowPlayingStatusSignal(message = visibleStatusMessage, accentColor = screenAccent,
-            modifier = Modifier.align(Alignment.TopCenter).padding(start = 24.dp, end = 24.dp, top = if (isWide) 24.dp else 86.dp).zIndex(100f))
+            modifier = Modifier.align(Alignment.TopCenter).padding(start = 24.dp, end = 24.dp, top = appTopContentPadding(if (isWide) 8.dp else 68.dp)).zIndex(100f))
 
         val qualityInfo = nowPlayingState.qualityInfo
         if (showQualityDetails && qualityInfo != null) {
@@ -310,10 +311,11 @@ private fun WideNowPlayingContent(
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
     val effectiveLyricsData = lyricsData?.takeIf { displaySnapshot.canDisplayLyrics }
+    val topInsetDp = with(LocalDensity.current) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     val bottomInsetDp = with(LocalDensity.current) { WindowInsets.systemBars.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
 
     Row(
-        modifier = Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = 24.dp, bottom = bottomInsetDp + 18.dp).zIndex(10f),
+        modifier = Modifier.fillMaxSize().padding(start = 18.dp, end = 18.dp, top = topInsetDp + 16.dp, bottom = bottomInsetDp + 18.dp).zIndex(10f),
         horizontalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Box(modifier = Modifier.weight(0.62f).fillMaxHeight(), contentAlignment = Alignment.Center) {
@@ -358,8 +360,18 @@ private fun WideNowPlayingContent(
                 Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = 24.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(displayArtist, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.7f)), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(displayArtist, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.7f)), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
+                        if (displaySnapshot.featuredArtists.isNotEmpty()) {
+                            Text(
+                                "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
+                                style = VantaType.caption.copy(color = Color.White.copy(alpha = 0.4f)),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                     val albumText = (displayAlbum ?: enhancedMetadata?.album)?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
                     if (albumText != null) {
                         Spacer(Modifier.width(8.dp))
@@ -413,10 +425,11 @@ private fun PortraitNowPlayingContent(
         val screenMaxHeight = maxHeight; val compact = screenMaxHeight < 720.dp
         val horizontalPadding = if (compact) 18.dp else 24.dp
         val stageTopPadding = if (compact) 0.dp else 4.dp
+        val topInsetDp = with(LocalDensity.current) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
         val bottomInsetDp = with(LocalDensity.current) { WindowInsets.systemBars.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
         val artSize = minOf(maxWidth - horizontalPadding * 2, 380.dp, screenMaxHeight * 0.42f)
 
-        Column(modifier = Modifier.fillMaxSize().padding(top = if (compact) 0.dp else 4.dp, bottom = bottomInsetDp + 12.dp).zIndex(10f)) {
+        Column(modifier = Modifier.fillMaxSize().padding(top = topInsetDp + if (compact) 8.dp else 12.dp, bottom = bottomInsetDp + 12.dp).zIndex(10f)) {
             VantaSceneHeaderRow(centerLabel = "NOW PLAYING", titleForMenu = displaySnapshot.title,
                 onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet,
                 onOpenCast = onOpenCast,
@@ -471,8 +484,18 @@ private fun PortraitNowPlayingContent(
                 Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 24.sp else 30.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(displayArtist, style = VantaType.sectionTitle.copy(color = Color.White.copy(alpha = 0.75f), fontSize = if (compact) 15.sp else 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(displayArtist, style = VantaType.sectionTitle.copy(color = Color.White.copy(alpha = 0.75f), fontSize = if (compact) 15.sp else 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
+                        if (displaySnapshot.featuredArtists.isNotEmpty()) {
+                            Text(
+                                "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
+                                style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.45f), fontSize = if (compact) 12.sp else 14.sp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                     val albumText = (displayAlbum ?: enhancedMetadata?.album)?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
                     if (albumText != null) {
                         Spacer(Modifier.width(8.dp))
@@ -501,17 +524,17 @@ private fun PortraitNowPlayingContent(
 
 @Composable
 private fun VantaSceneHeaderRow(centerLabel: String, titleForMenu: String, onBack: () -> Unit, onOpenEqualizer: () -> Unit, onOpenTrackSheet: () -> Unit, modifier: Modifier = Modifier, onOpenCast: () -> Unit = {}) {
-    Row(modifier = modifier.fillMaxWidth().height(50.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back", tint = AppText,
-            modifier = Modifier.size(40.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_back' result='tap'"); onBack() }.padding(8.dp))
+            modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_back' result='tap'"); onBack() }.padding(12.dp))
         Text(centerLabel, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Tune, contentDescription = "Equalizer", tint = AppAccent.copy(alpha = 0.85f),
-                modifier = Modifier.size(40.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_equalizer' result='tap'"); onOpenEqualizer() }.padding(8.dp))
+                modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_equalizer' result='tap'"); onOpenEqualizer() }.padding(12.dp))
             Icon(Icons.Filled.Cast, contentDescription = "Cast", tint = AppAccent.copy(alpha = 0.7f),
-                modifier = Modifier.size(40.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_cast' result='tap'"); onOpenCast() }.padding(8.dp))
+                modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_cast' result='tap'"); onOpenCast() }.padding(12.dp))
             Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = AppText,
-                modifier = Modifier.size(40.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_more' result='tap'"); Log.d("VANTA_ACTION_MENU", "opened track='${titleForMenu}'"); onOpenTrackSheet() }.padding(8.dp))
+                modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_more' result='tap'"); Log.d("VANTA_ACTION_MENU", "opened track='${titleForMenu}'"); onOpenTrackSheet() }.padding(12.dp))
         }
     }
 }

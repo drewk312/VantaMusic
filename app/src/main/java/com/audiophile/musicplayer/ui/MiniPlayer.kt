@@ -79,7 +79,13 @@ fun MiniPlayer(
     val displayTitle = DisplayMetadataCleaner.cleanMiniBarTitle(
         cleaned.title.ifBlank { rawTitle ?: "Unknown Title" }
     )
-    val displayArtist = cleaned.artist.ifBlank { rawArtist ?: "Unknown Artist" }
+    val displayArtist = buildString {
+        append(cleaned.artist.ifBlank { rawArtist ?: "Unknown Artist" })
+        if (nowPlayingState.featuredArtists.isNotEmpty()) {
+            append(" feat. ")
+            append(nowPlayingState.featuredArtists.joinToString(", "))
+        }
+    }
     if (displayTitle == "Unknown Title" || displayArtist == "Unknown Artist") {
         android.util.Log.d(
             "VANTA_METADATA_FALLBACK",

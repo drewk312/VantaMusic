@@ -14,7 +14,7 @@ data class RecordingFingerprint(
 )
 
 object RecordingFingerprintFactory {
-    fun fromCanonicalTrack(track: CanonicalTrack, featuredArtists: List<String> = emptyList()): RecordingFingerprint =
+    fun fromCanonicalTrack(track: CanonicalTrack, featuredArtists: List<String> = track.featuredArtists): RecordingFingerprint =
         RecordingFingerprint(
             normalizedTitle = normalize(track.title),
             normalizedPrimaryArtist = normalize(track.artist),

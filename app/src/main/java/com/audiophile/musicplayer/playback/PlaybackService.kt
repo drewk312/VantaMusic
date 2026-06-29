@@ -335,6 +335,12 @@ class PlaybackService : MediaLibraryService() {
             .build()
         audioSessionId = exoPlayer.audioSessionId
         Log.d("VANTA_AURA", "audioSessionId=$audioSessionId")
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                PlaybackService.audioSessionId = audioSessionId
+                Log.d("VANTA_AURA", "audioSessionIdChanged=$audioSessionId")
+            }
+        })
 
         player = QueueAwarePlayer(
             exoPlayer = exoPlayer,

@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -68,6 +68,13 @@ import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import androidx.core.content.edit
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.clipToBounds
 
 @Composable
 fun SearchScreen(
@@ -129,10 +136,12 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .imePadding()
             .padding(horizontal = 24.dp)
-            .padding(top = 16.dp, bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)),
+            .padding(
+                top = appTopContentPadding(),
+                bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)
+            ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Search", color = AppText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -362,11 +371,13 @@ fun SearchScreen(
                 uiState.visibleTracks.isEmpty() &&
                 uiState.matchedStations.isEmpty() &&
                 activeBrowseCategory == null -> {
-                VantaEmptyState(
-                    title = "Searching...",
-                    description = "Querying your connected sources for results.",
-                    icon = Icons.Filled.Search
-                )
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    SearchSectionLabel("Searching Sources")
+                    SearchShimmer()
+                }
             }
             activeBrowseCategory != null -> {
                 Column(
@@ -1368,7 +1379,7 @@ private fun RichArtistCard(
         }
         if (topTracks.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            Divider(color = AppOutline, thickness = 0.5.dp)
+            HorizontalDivider(color = AppOutline, thickness = 0.5.dp)
             Spacer(Modifier.height(8.dp))
             topTracks.forEachIndexed { i, track ->
                 val display = remember(track.track) { TrackDisplayResolver.resolve(track.track) }
@@ -1749,5 +1760,36 @@ private fun CategoryCard(
                 )
             )
         )
+    }
+}
+
+@Composable
+private fun SearchShimmer(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shimmerAlpha"
+    )
+    val shimmerColor = Color.White.copy(alpha = shimmerAlpha)
+    val shape = RoundedCornerShape(12.dp)
+    Column(modifier = modifier.padding(horizontal = 0.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        repeat(5) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(modifier = Modifier.size(48.dp).clip(shape).background(shimmerColor))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                    Box(modifier = Modifier.fillMaxWidth(0.7f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(shimmerColor))
+                    Box(modifier = Modifier.fillMaxWidth(0.4f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(shimmerColor))
+                }
+            }
+        }
     }
 }

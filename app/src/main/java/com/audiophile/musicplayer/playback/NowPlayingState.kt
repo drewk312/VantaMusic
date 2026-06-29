@@ -31,7 +31,8 @@ data class NowPlayingState(
     val liveStationName: String? = null,
     val preferredProviderId: String? = null,
     val preferredExternalTrackId: String? = null,
-    val userQuery: String? = null
+    val userQuery: String? = null,
+    val featuredArtists: List<String> = emptyList()
 ) {
     companion object {
         fun pendingPlayback(

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -181,6 +182,11 @@ fun appBottomContentPadding(isMiniPlayerVisible: Boolean): Dp {
     }
 
     return miniPlayerHeight + spacing + navBarHeight + systemBar
+}
+
+@Composable
+fun appTopContentPadding(extra: Dp = 16.dp): Dp {
+    return WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + extra
 }
 
 @Composable

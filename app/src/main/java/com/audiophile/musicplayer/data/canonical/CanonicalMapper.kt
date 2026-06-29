@@ -14,6 +14,7 @@ object CanonicalMapper {
         return CanonicalTrack(
             title = metadata?.title?.takeIf { it.isNotBlank() } ?: result.title,
             artist = metadata?.artist?.takeIf { it.isNotBlank() } ?: result.artist,
+            featuredArtists = result.featuredArtists,
             album = metadata?.album?.takeIf { it.isNotBlank() } ?: result.album,
             isrc = metadata?.isrc?.takeIf { it.isNotBlank() } ?: result.isrc,
             durationMs = metadata?.durationMs ?: result.durationMs,

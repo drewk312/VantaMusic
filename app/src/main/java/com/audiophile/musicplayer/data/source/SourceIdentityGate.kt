@@ -210,8 +210,17 @@ object SourceIdentityGate {
         val actual = normalizeArtist(candidateArtist)
         if (expected.isBlank() || actual.isBlank()) return false
         if (expected == actual) return true
-        return (actual.contains(expected) || expected.contains(actual)) &&
-            minOf(expected.length, actual.length).toFloat() / maxOf(expected.length, actual.length).coerceAtLeast(1) >= 0.72f
+        if (actual.contains(expected) || expected.contains(actual)) {
+            if (minOf(expected.length, actual.length).toFloat() / maxOf(expected.length, actual.length).coerceAtLeast(1) >= 0.72f) {
+                return true
+            }
+        }
+        // Feat awareness: strip "feat.*" from candidate before comparing
+        val cleanedActual = actual.replace(Regex("""\s*feat[^\w]*[\w\s]+"""), " ").trim()
+        if (cleanedActual.isNotBlank() && (cleanedActual == expected || cleanedActual.contains(expected) || expected.contains(cleanedActual))) {
+            return true
+        }
+        return tokenOverlap(expected, actual) >= 0.72f
     }
 
     private fun normalizeTitle(value: String, selectedArtist: String): String {
