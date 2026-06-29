@@ -82,4 +82,7 @@ object AppModule {
 
     @Provides
     fun providePersonalizedMixPlayback(container: AppContainer): PersonalizedMixPlayback = container.personalizedMixPlayback
+
+    @Provides
+    fun provideQueueManager(container: AppContainer): com.audiophile.musicplayer.playback.QueueManager = container.queueManager
 }

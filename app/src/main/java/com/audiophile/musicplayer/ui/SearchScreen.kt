@@ -1713,6 +1713,7 @@ private fun CategoryCard(
                             close()
                         }
                         drawPath(path = path, color = Color.White.copy(alpha = 0.15f))
+                      HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.White.copy(alpha = 0.1f))
                     }
                 }
                 else -> {
