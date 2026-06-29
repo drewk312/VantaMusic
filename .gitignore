@@ -76,3 +76,23 @@ venv/
 # Environment
 .env
 .env.local
+
+# VANTA temporary / generated artifacts
+.refs/
+androidx-temp/
+androidx/
+*.sqlite
+music_db.sqlite
+build_output.txt
+playback_logs.txt
+raw_logcat.txt
+scratch_test.kt
+run-desktop.ps1
+ui_*.xml
+window*.xml
+
+# Screenshots (keep repo clean; store design assets elsewhere)
+*.png
+*.jpg
+*.jpeg
+*.webp
