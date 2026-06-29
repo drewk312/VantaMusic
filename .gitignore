@@ -1,0 +1,78 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.gradle/
+.gradle-user-home/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# Android / Gradle
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+build/
+app/build/
+shared/build/
+desktopApp/build/
+
+# Kotlin
+.kotlin/
+
+# C++ build
+app/.cxx/
+cmake-build-*/
+
+# Node / JS
+node_modules/
+workers/*/node_modules/
+station-backend/node_modules/
+
+# Logs
+*.log
+*.log.*
+hs_err_*.log
+
+# Temp / misc
+.tmp/
+.sandbox-home/
+nul
+NUL
+*.bak
+
+# Agent instructions / config
+AGENTS.md
+.ai/
+.agents/
+.junie/
+.cursor/
+.codex-remote-attachments/
+.codex-server-logs/
+
+# Reference project artifacts
+.refs/*/build/
+.refs/*/.dart_tool/
+.refs/*/.packages
+.refs/*/.flutter-plugins
+.refs/*/ios/Pods/
+.refs/*/android/.gradle/
+
+# Screenshots (generated)
+screenshots/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Environment
+.env
+.env.local
