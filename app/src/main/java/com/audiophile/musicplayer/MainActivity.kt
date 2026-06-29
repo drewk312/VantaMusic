@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.audiophile.musicplayer.data.dj.AiDjViewModel
 import com.audiophile.musicplayer.data.dj.AiDjViewModelFactory
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
@@ -35,7 +36,6 @@ import com.audiophile.musicplayer.data.source.isUnavailable
 import com.audiophile.musicplayer.auto.AndroidAutoHelper
 import com.audiophile.musicplayer.ui.AppMainScreen
 import com.audiophile.musicplayer.ui.MainViewModel
-import com.audiophile.musicplayer.ui.MainViewModelFactory
 import com.audiophile.musicplayer.ui.PersonalizedMixViewModel
 import com.audiophile.musicplayer.ui.PersonalizedMixViewModelFactory
 import com.audiophile.musicplayer.ui.SharedImportPayload
@@ -392,9 +392,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val mainVm: MainViewModel = viewModel(
-                factory = MainViewModelFactory(applicationContext, container)
-            )
+            val mainVm: MainViewModel = hiltViewModel()
             val nowPlayingVm: NowPlayingViewModel = viewModel(
                 factory = NowPlayingViewModelFactory(
                     stateStore = container.nowPlayingStateStore,

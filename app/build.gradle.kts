@@ -94,6 +94,7 @@ dependencies {
     // Hilt
     implementation("com.google.dagger:hilt-android:2.55")
     ksp("com.google.dagger:hilt-compiler:2.55")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // Media3 (ExoPlayer)
     val media3_version = "1.8.1"

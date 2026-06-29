@@ -5,7 +5,9 @@ import android.app.DownloadManager
 import android.util.Log
 import android.net.Uri
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
 import com.audiophile.musicplayer.AppContainer
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
@@ -181,8 +183,9 @@ data class MainUiState(
 )
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
-class MainViewModel(
-    private val appContext: Context,
+@HiltViewModel
+class MainViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val container: AppContainer
 ) : ViewModel() {
 
@@ -4014,17 +4017,5 @@ class MainViewModel(
                 }
             }
         }
-    }
-}
-class MainViewModelFactory(
-    private val appContext: Context,
-    private val container: AppContainer
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return MainViewModel(appContext, container) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }
