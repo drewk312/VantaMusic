@@ -1,0 +1,51 @@
+name = "vanta-music-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Deploy:  cd workers/music-gateway && npm install && npx wrangler deploy
+# Then set SpotiFlacEndpoints.DEFAULT_GATEWAY_BASE_URL to the printed workers.dev URL.
+
+[vars]
+GATEWAY_ID = "com.audiophile.music-gateway"
+GATEWAY_NAME = "VANTA Music Gateway"
+GATEWAY_VERSION = "2.5.0"
+GATEWAY_DESCRIPTION = "Max zero-config lossless — community auth, MusicDL, GDStudio mirrors, parallel racing"
+# Search: deezer + qobuz (auto-scraped creds) + apple (iTunes metadata)
+ENABLED_SEARCH_PROVIDERS = "deezer,qobuz,apple"
+# Stream fallback order (highest fidelity first)
+ENABLED_STREAM_PROVIDERS = "qobuz,tidal,deezer,amazon,pandora"
+DEFAULT_STREAM_QUALITY = "24"
+ENRICH_SEARCH_RESULTS = "true"
+SEARCH_ENRICH_LIMIT = "12"
+# Built-in zero-config stream fallbacks (no secrets required)
+DEFAULT_COMMUNITY_GATEWAY = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
+FALLBACK_COMMUNITY_GATEWAYS = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
+GDSTUDIO_API_URL = "https://music.gdstudio.xyz/api.php"
+
+# Optional KV cache (wrangler kv namespace create CACHE)
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# ── Secrets: npx wrangler secret put <NAME> ──────────────────────────────────
+# GATEWAY_API_KEY          Lock gateway to your app (send X-Api-Key header)
+#
+# ── Qobuz (direct search + stream, best option) ─────────────────────────────
+# QOBUZ_APP_ID             Qobuz application id
+# QOBUZ_AUTH_TOKEN         Qobuz user auth token (from logged-in session)
+#
+# ── Stream relays (use any combination) ─────────────────────────────────────
+# QOBUZ_STREAM_UPSTREAM    Custom Qobuz relay base URL
+# TIDAL_STREAM_UPSTREAM    Custom Tidal relay base URL
+# TIDAL_API_URL            Tidal manifest API base (community tidal-go relay)
+# DEEZER_STREAM_UPSTREAM   Deezer FLAC relay base URL
+# AMAZON_STREAM_UPSTREAM   Amazon Music relay base URL
+# PANDORA_STREAM_UPSTREAM  Pandora relay base URL
+#
+# ── MusicDL-style unified API (Qobuz + Deezer + Tidal + Amazon) ─────────────
+# MUSICDL_BASE_URL         e.g. https://www.musicdl.me
+# MUSICDL_API_KEY          API key if required
+#
+# ── Optional ────────────────────────────────────────────────────────────────
+# DEEZER_ARL               Deezer account ARL (for future direct Deezer module)
+# ZARZ_RESOLVE_URL         Spotify resolve proxy (default: api.zarz.moe)
