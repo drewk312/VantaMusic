@@ -3,7 +3,9 @@ package com.audiophile.musicplayer
 import android.app.Application
 import android.util.Log
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
+import dagger.hilt.android.HiltAndroidApp
 
+@HiltAndroidApp
 class AudiophileApp : Application() {
     override fun onCreate() {
         super.onCreate()

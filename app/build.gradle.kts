@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
 }
 
@@ -90,9 +91,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Media3 (ExoPlayer). The FFmpeg decoder module is not published as a normal
-    // Google Maven artifact; when the locally-built Media3 FFmpeg module is present,
-    // PlaybackService's extension renderer mode will prefer it automatically.
+    // Hilt
+    implementation("com.google.dagger:hilt-android:2.55")
+    ksp("com.google.dagger:hilt-compiler:2.55")
+
+    // Media3 (ExoPlayer)
     val media3_version = "1.8.1"
     implementation("androidx.media3:media3-exoplayer:$media3_version")
     implementation("androidx.media3:media3-session:$media3_version")
@@ -126,6 +129,4 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
 }
-

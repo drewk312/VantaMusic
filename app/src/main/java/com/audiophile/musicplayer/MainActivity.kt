@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.MotionEvent
 import com.audiophile.musicplayer.BuildConfig
 import androidx.activity.ComponentActivity
+import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -50,6 +51,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
