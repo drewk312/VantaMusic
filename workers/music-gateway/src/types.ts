@@ -27,6 +27,9 @@ export interface Env {
   GDSTUDIO_API_URL?: string;
   RATE_LIMIT_WINDOW_SECONDS?: string;
   RATE_LIMIT_MAX_REQUESTS?: string;
+  SEARCH_CACHE_TTL_SECONDS?: string;
+  SEARCH_CACHE_EMPTY_TTL_SECONDS?: string;
+  HEALTH_CACHE_TTL_SECONDS?: string;
   CACHE?: KVNamespace;
 }
 
@@ -109,4 +112,5 @@ export function enrichLimit(env: Env): number {
 export function qobuzFormatId(quality: string): string {
   return quality === "16" ? "6" : "27";
 }
+
 

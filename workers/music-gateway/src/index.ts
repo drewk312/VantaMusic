@@ -12,6 +12,7 @@ import {
   unauthorized,
 } from "./http";
 import { checkRateLimit } from "./lib/rate-limit";
+import { checkProviderHealth } from "./lib/health";
 import { searchAll } from "./providers/search";
 import { resolveTrack } from "./providers/resolve";
 import { streamWithFallback } from "./providers/stream";
@@ -27,6 +28,25 @@ function isAuthorized(request: Request, env: Env): boolean {
 
 function requestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+interface StructuredError {
+  error: string;
+  message: string;
+  retryable: boolean;
+  requestId: string;
+}
+
+function errorResponse(
+  code: string,
+  message: string,
+  status: number,
+  requestId: string,
+  retryable = false,
+  extraHeaders: Record<string, string> = {}
+): Response {
+  const body: StructuredError = { error: code, message, retryable, requestId };
+  return json(body, status, extraHeaders);
 }
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -46,9 +66,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   };
 
   if (!rate.allowed) {
-    return json(
-      { error: "rate_limited", message: "Too many requests. Slow down or upgrade your plan." },
+    return errorResponse(
+      "rate_limited",
+      "Too many requests. Slow down or upgrade your plan.",
       429,
+      id,
+      true,
       rateHeaders
     );
   }
@@ -61,10 +84,22 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   };
 
   if (pathname === "/" || pathname === "/health") {
-    return json({ ok: true, gateway: env.GATEWAY_NAME, version: env.GATEWAY_VERSION }, 200, rateHeaders);
+    const health = await checkProviderHealth(env);
+    return json(
+      {
+        ok: true,
+        gateway: env.GATEWAY_NAME,
+        version: env.GATEWAY_VERSION,
+        health: health.filter((h) => h.healthy).length === health.length ? "ok" : "degraded",
+        providers: health,
+      },
+      200,
+      rateHeaders
+    );
   }
 
   if (pathname === "/status") {
+    const health = await checkProviderHealth(env);
     return json(
       {
         gateway: env.GATEWAY_NAME,
@@ -72,6 +107,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
         searchProviders: parseProviderList(env.ENABLED_SEARCH_PROVIDERS),
         streamProviders: parseProviderList(env.ENABLED_STREAM_PROVIDERS),
         providers: providerStatus(env),
+        health,
       },
       200,
       rateHeaders
@@ -93,8 +129,18 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const targetUrl = url.searchParams.get("url");
     const trackId = url.searchParams.get("id") ?? url.searchParams.get("trackId");
     const provider = url.searchParams.get("provider") ?? undefined;
+    if (!targetUrl?.trim() && !trackId?.trim()) {
+      return errorResponse(
+        "missing_parameters",
+        "Provide either url or id/trackId to resolve.",
+        400,
+        id,
+        false,
+        rateHeaders
+      );
+    }
     console.log(
-      "VANTA_PLAY_TRACK_REQUEST",
+      "VANTA_RESOLVE_REQUEST",
       JSON.stringify({ ...logBase, id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null })
     );
     try {
@@ -106,8 +152,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       });
       return json(result, 200, rateHeaders);
     } catch (error) {
-      return withHeaders(
-        badRequest(error instanceof Error ? error.message : "resolve_failed"),
+      const message = error instanceof Error ? error.message : "resolve_failed";
+      return errorResponse(
+        "resolve_failed",
+        message,
+        400,
+        id,
+        false,
         rateHeaders
       );
     }
@@ -123,15 +174,68 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     );
     const stream = await streamWithFallback(env, streamId, quality, provider, { provider });
     if (!stream) {
-      return withHeaders(
-        serviceUnavailable(
-          provider ?? "auto",
-          "No stream source succeeded. Set QOBUZ_APP_ID+QOBUZ_AUTH_TOKEN, TIDAL_STREAM_UPSTREAM, MUSICDL_BASE_URL, or other upstream secrets. Check GET /status."
-        ),
+      return errorResponse(
+        "no_stream_source",
+        "No stream source succeeded. Set QOBUZ_APP_ID+QOBUZ_AUTH_TOKEN, TIDAL_STREAM_UPSTREAM, MUSICDL_BASE_URL, or other upstream secrets. Check GET /status.",
+        503,
+        id,
+        true,
         rateHeaders
       );
     }
     return json(stream, 200, rateHeaders);
+  }
+
+  if (pathname === "/play" || pathname === "/api/play") {
+    const targetUrl = url.searchParams.get("url");
+    const trackId = url.searchParams.get("id") ?? url.searchParams.get("trackId");
+    const provider = providerFromQuery(url);
+    const quality = normalizeQuality(url.searchParams.get("quality"), env.DEFAULT_STREAM_QUALITY);
+    if (!targetUrl?.trim() && !trackId?.trim()) {
+      return errorResponse(
+        "missing_parameters",
+        "Provide either url or id/trackId to play.",
+        400,
+        id,
+        false,
+        rateHeaders
+      );
+    }
+    console.log(
+      "VANTA_PLAY_REDIRECT_REQUEST",
+      JSON.stringify({ ...logBase, id: trackId ?? null, provider: provider ?? null, url: targetUrl ?? null, quality })
+    );
+    const idToStream = targetUrl?.trim()
+      ? await resolveAndExtractId(targetUrl.trim(), provider, env)
+      : trackId!.trim();
+    if (!idToStream) {
+      return errorResponse(
+        "resolve_failed",
+        "Could not extract a playable track id from the provided URL.",
+        400,
+        id,
+        false,
+        rateHeaders
+      );
+    }
+    const stream = await streamWithFallback(env, idToStream, quality, provider, { provider });
+    if (!stream?.url) {
+      return errorResponse(
+        "no_stream_source",
+        "No stream source succeeded for /play. Check GET /status.",
+        503,
+        id,
+        true,
+        rateHeaders
+      );
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: stream.url,
+        ...rateHeaders,
+      },
+    });
   }
 
   if (pathname === "/api/dl" && request.method === "POST") {
@@ -145,8 +249,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     );
     const stream = await streamWithFallback(env, body.id.trim(), quality, provider, { provider });
     if (!stream) {
-      return withHeaders(
-        serviceUnavailable(provider ?? "auto", "No stream source succeeded for /api/dl. Check GET /status."),
+      return errorResponse(
+        "no_stream_source",
+        "No stream source succeeded for /api/dl. Check GET /status.",
+        503,
+        id,
+        true,
         rateHeaders
       );
     }
@@ -161,6 +269,26 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   }
 
   return withHeaders(notFound(), rateHeaders);
+}
+
+async function resolveAndExtractId(
+  targetUrl: string,
+  provider: string | undefined,
+  env: Env
+): Promise<string | null> {
+  try {
+    const resolved = await resolveTrack({ url: targetUrl, provider, env });
+    return (
+      resolved.tidal_id ??
+      resolved.qobuz_id ??
+      resolved.deezer_id ??
+      resolved.amazon_id ??
+      resolved.apple_id ??
+      null
+    );
+  } catch {
+    return null;
+  }
 }
 
 function withHeaders(response: Response, headers: Record<string, string>): Response {

@@ -3,6 +3,7 @@ import { filterTracks } from "../lib/content-purity";
 import { extractArtistsAndAlbums, rankTracks } from "../lib/search-rank";
 import { searchQobuzPublic } from "./qobuz-api";
 import { fetchJson } from "./shared";
+import { searchCacheTtl } from "../lib/cache";
 
 export async function searchDeezer(query: string, limit = 25): Promise<GatewayTrack[]> {
   const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=${limit}`;
@@ -200,7 +201,7 @@ export async function searchAll(
   const payload = { tracks, albums, artists, playlists: [] as unknown[] };
 
   if (env.CACHE) {
-    await env.CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: 300 });
+    await env.CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: searchCacheTtl(env, payload.tracks.length) });
   }
 
   return payload;
