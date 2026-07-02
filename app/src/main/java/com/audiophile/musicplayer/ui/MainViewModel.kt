@@ -1989,6 +1989,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun seekTo(positionMs: Long) {
+        android.util.Log.d("VANTA_SEEK_CHAIN", "MainViewModel.seekTo positionMs=$positionMs")
         container.playerController.seekTo(positionMs)
     }
 

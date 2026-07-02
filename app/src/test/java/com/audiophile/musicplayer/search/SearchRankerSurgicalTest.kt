@@ -25,9 +25,9 @@ class SearchRankerSurgicalTest {
 
         val response = UnifiedSearchEngine.process("Denver", results)
 
-        // SSS Rule: If no result is explicitly an artist (duration=null or id hint),
-        // we shouldn't guess artists unless it's a strong match.
-        assertTrue("Artists section should be empty for track-only results", response.artists.isEmpty())
+        // Artists should include all unique artists from search results
+        assertEquals("Artists should include Jack Harlow", "Jack Harlow", response.artists[0].name)
+        assertEquals("Artists should include Willie Nelson", "Willie Nelson", response.artists[1].name)
         assertEquals("Songs section should have tracks", 3, response.songs.size)
     }
 

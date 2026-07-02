@@ -72,37 +72,34 @@ object UnifiedSearchEngine {
         val seenSongKeys = mutableSetOf<String>()
 
         for ((track, evaluation) in scoredTracks) {
-            // Only derive artist/album pages from explicitly typed results, not from every track row
-            val category = detectCategory(track, normalizedQuery)
-            if (category == Category.ARTIST) {
-                val artistName = track.artist.ifBlank { track.title }.trim()
-                val artistKey = normalize(artistName)
-                if (artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
-                    artists[artistKey] = CanonicalArtist(
-                        name = artistName,
-                        id = track.externalTrackId ?: "resolved:artist:$artistKey",
-                        genre = track.genre,
-                        artworkUrl = track.artworkUrl
-                    )
-                }
-            } else if (category == Category.ALBUM) {
-                val albumTitle = track.album?.trim().orEmpty().ifBlank { track.title.trim() }
-                val albumArtistName = track.artist.trim()
-                val albumKey = normalize("$albumTitle|$albumArtistName")
-                if (albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
-                    albums[albumKey] = CanonicalAlbum(
-                        title = albumTitle,
-                        artist = albumArtistName,
-                        id = track.externalTrackId ?: "resolved:album:$albumKey",
-                        artworkUrl = track.artworkUrl,
-                        releaseYear = track.releaseYear,
-                        genre = track.genre,
-                        trackCount = null
-                    )
-                }
+            // Always collect unique artists and albums from every track
+            val artistName = track.artist.ifBlank { track.title }.trim()
+            val artistKey = normalize(artistName)
+            if (artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
+                artists[artistKey] = CanonicalArtist(
+                    name = artistName,
+                    id = track.externalTrackId ?: "resolved:artist:$artistKey",
+                    genre = track.genre,
+                    artworkUrl = track.artworkUrl
+                )
+            }
+            val albumTitle = track.album?.trim().orEmpty().ifBlank { track.title.trim() }
+            val albumArtistName = track.artist.trim()
+            val albumKey = normalize("$albumTitle|$albumArtistName")
+            if (albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
+                albums[albumKey] = CanonicalAlbum(
+                    title = albumTitle,
+                    artist = albumArtistName,
+                    id = track.externalTrackId ?: "resolved:album:$albumKey",
+                    artworkUrl = track.artworkUrl,
+                    releaseYear = track.releaseYear,
+                    genre = track.genre,
+                    trackCount = null
+                )
             }
 
             // Then categorize for song inclusion
+            val category = detectCategory(track, normalizedQuery)
             if (category == Category.SONG) {
                 if (track.isLikelyMusicTrack() || track.sourceStatus == SearchItemStatus.METADATA_ONLY) {
                     val key = "${normalize(track.title)}|${normalize(track.artist)}"
@@ -498,7 +495,194 @@ object UnifiedSearchEngine {
             "down" to ("Jay Sean" to 212_000L),
             "victory lap five" to ("Fred Again" to 237_000L),
             "victory lap 5" to ("Fred Again" to 237_000L),
-            "desert rose" to ("Sting" to 287_000L)
+            "desert rose" to ("Sting" to 287_000L),
+            "all of the lights" to ("Kanye West" to 310_000L),
+            "stronger" to ("Kanye West" to 311_000L),
+            "gold digger" to ("Kanye West" to 208_000L),
+            "heartless" to ("Kanye West" to 211_000L),
+            "runaway" to ("Kanye West" to 453_000L),
+            "power" to ("Kanye West" to 292_000L),
+            "jesus walks" to ("Kanye West" to 203_000L),
+            "touch the sky" to ("Kanye West" to 236_000L),
+            "ultralight beam" to ("Kanye West" to 320_000L),
+            "famous" to ("Kanye West" to 196_000L),
+            "no church in the wild" to ("Jay-Z" to 276_000L),
+            "ni**as in paris" to ("Jay-Z" to 215_000L),
+            "empire state of mind" to ("Jay-Z" to 276_000L),
+            "99 problems" to ("Jay-Z" to 213_000L),
+            "big pimpin" to ("Jay-Z" to 284_000L),
+            "dead presidents ii" to ("Jay-Z" to 262_000L),
+            "sicko mode" to ("Travis Scott" to 313_000L),
+            "goosebumps" to ("Travis Scott" to 243_000L),
+            "highest in the room" to ("Travis Scott" to 175_000L),
+            "antidote" to ("Travis Scott" to 266_000L),
+            "buttefly effect" to ("Travis Scott" to 199_000L),
+            "stargazing" to ("Travis Scott" to 270_000L),
+            "m.a.a.d city" to ("Kendrick Lamar" to 352_000L),
+            "humble" to ("Kendrick Lamar" to 177_000L),
+            "dna" to ("Kendrick Lamar" to 185_000L),
+            "alright" to ("Kendrick Lamar" to 219_000L),
+            "swimming pools" to ("Kendrick Lamar" to 259_000L),
+            "money trees" to ("Kendrick Lamar" to 421_000L),
+            "king kunta" to ("Kendrick Lamar" to 234_000L),
+            "LOYALTY." to ("Kendrick Lamar" to 206_000L),
+            "element" to ("Kendrick Lamar" to 207_000L),
+            "rude boy" to ("Rihanna" to 222_000L),
+            "umbrella" to ("Rihanna" to 276_000L),
+            "diamonds" to ("Rihanna" to 225_000L),
+            "work" to ("Rihanna" to 219_000L),
+            "needed me" to ("Rihanna" to 191_000L),
+            "love on the brain" to ("Rihanna" to 224_000L),
+            "stay" to ("Rihanna" to 247_000L),
+            "we found love" to ("Rihanna" to 235_000L),
+            "fourfiveseconds" to ("Rihanna" to 187_000L),
+            "single ladies" to ("Beyonce" to 199_000L),
+            "crazy in love" to ("Beyonce" to 235_000L),
+            "halo" to ("Beyonce" to 261_000L),
+            "irreplaceable" to ("Beyonce" to 274_000L),
+            "love on top" to ("Beyonce" to 267_000L),
+            "formation" to ("Beyonce" to 219_000L),
+            "drunk in love" to ("Beyonce" to 233_000L),
+            "sorry" to ("Beyonce" to 232_000L),
+            "if i were a boy" to ("Beyonce" to 250_000L),
+            "hello" to ("Adele" to 295_000L),
+            "someone like you" to ("Adele" to 285_000L),
+            "rolling in the deep" to ("Adele" to 228_000L),
+            "set fire to the rain" to ("Adele" to 242_000L),
+            "easy on me" to ("Adele" to 224_000L),
+            "send my love" to ("Adele" to 224_000L),
+            "royals" to ("Lorde" to 190_000L),
+            "team" to ("Lorde" to 196_000L),
+            "green light" to ("Lorde" to 234_000L),
+            "yellow flicker beat" to ("Lorde" to 232_000L),
+            "riders on the storm" to ("The Doors" to 266_000L),
+            "light my fire" to ("The Doors" to 428_000L),
+            "break on through" to ("The Doors" to 146_000L),
+            "people are strange" to ("The Doors" to 130_000L),
+            "california love" to ("2Pac" to 285_000L),
+            "dear mama" to ("2Pac" to 280_000L),
+            "changes" to ("2Pac" to 270_000L),
+            "hit em up" to ("2Pac" to 272_000L),
+            "juicy" to ("The Notorious B.I.G." to 300_000L),
+            "big poppa" to ("The Notorious B.I.G." to 247_000L),
+            "mo money mo problems" to ("The Notorious B.I.G." to 271_000L),
+            "hypnotize" to ("The Notorious B.I.G." to 230_000L),
+            "nuthin but a g thang" to ("Dr. Dre" to 249_000L),
+            "still dre" to ("Dr. Dre" to 270_000L),
+            "the next episode" to ("Dr. Dre" to 161_000L),
+            "forget about dre" to ("Dr. Dre" to 222_000L),
+            "in da club" to ("50 Cent" to 233_000L),
+            "candy shop" to ("50 Cent" to 209_000L),
+            "many men" to ("50 Cent" to 256_000L),
+            "window shopper" to ("50 Cent" to 180_000L),
+            "lose yourself" to ("Eminem" to 326_000L),
+            "stan" to ("Eminem" to 404_000L),
+            "without me" to ("Eminem" to 290_000L),
+            "the real slim shady" to ("Eminem" to 284_000L),
+            "not afraid" to ("Eminem" to 248_000L),
+            "rap god" to ("Eminem" to 363_000L),
+            "till i collapse" to ("Eminem" to 298_000L),
+            "mockingbird" to ("Eminem" to 251_000L),
+            "love the way you lie" to ("Eminem" to 263_000L),
+            "godzilla" to ("Eminem" to 210_000L),
+            "the box" to ("Roddy Ricch" to 198_000L),
+            "rockstar" to ("Post Malone" to 218_000L),
+            "circles" to ("Post Malone" to 215_000L),
+            "sunflower" to ("Post Malone" to 158_000L),
+            "congratulations" to ("Post Malone" to 224_000L),
+            "better now" to ("Post Malone" to 223_000L),
+            "psycho" to ("Post Malone" to 221_000L),
+            "wow" to ("Post Malone" to 165_000L),
+            "white iverson" to ("Post Malone" to 249_000L),
+            "as it was" to ("Harry Styles" to 167_000L),
+            "watermelon sugar" to ("Harry Styles" to 174_000L),
+            "sign of the times" to ("Harry Styles" to 340_000L),
+            "adore you" to ("Harry Styles" to 207_000L),
+            "golden" to ("Harry Styles" to 209_000L),
+            "levitating" to ("Dua Lipa" to 203_000L),
+            "dont start now" to ("Dua Lipa" to 183_000L),
+            "new rules" to ("Dua Lipa" to 209_000L),
+            "one kiss" to ("Dua Lipa" to 196_000L),
+            "physical" to ("Dua Lipa" to 193_000L),
+            "break my heart" to ("Dua Lipa" to 221_000L),
+            "savage love" to ("Jason Derulo" to 171_000L),
+            "wap" to ("Cardi B" to 187_000L),
+            "bodak yellow" to ("Cardi B" to 224_000L),
+            "i like it" to ("Cardi B" to 253_000L),
+            "money" to ("Cardi B" to 183_000L),
+            "up" to ("Cardi B" to 166_000L),
+            "truth hurts" to ("Lizzo" to 173_000L),
+            "good as hell" to ("Lizzo" to 159_000L),
+            "about damn time" to ("Lizzo" to 191_000L),
+            "say my name" to ("Destiny's Child" to 257_000L),
+            "survivor" to ("Destiny's Child" to 242_000L),
+            "bootylicious" to ("Destiny's Child" to 216_000L),
+            "cater 2 u" to ("Destiny's Child" to 260_000L),
+            "independent women" to ("Destiny's Child" to 222_000L),
+            "no scrubs" to ("TLC" to 206_000L),
+            "waterfalls" to ("TLC" to 268_000L),
+            "creep" to ("TLC" to 223_000L),
+            "unpretty" to ("TLC" to 257_000L),
+            "lemme borrow that top" to ("Kesha" to 183_000L),
+            "tik tok" to ("Kesha" to 200_000L),
+            "we r who we r" to ("Kesha" to 215_000L),
+            "take it off" to ("Kesha" to 216_000L),
+            "your love is my drug" to ("Kesha" to 189_000L),
+            "party in the usa" to ("Miley Cyrus" to 202_000L),
+            "wrecking ball" to ("Miley Cyrus" to 221_000L),
+            "we cant stop" to ("Miley Cyrus" to 231_000L),
+            "the climb" to ("Miley Cyrus" to 234_000L),
+            "seven rings" to ("Ariana Grande" to 179_000L),
+            "thank u next" to ("Ariana Grande" to 207_000L),
+            "positions" to ("Ariana Grande" to 172_000L),
+            "34+35" to ("Ariana Grande" to 173_000L),
+            "into you" to ("Ariana Grande" to 244_000L),
+            "dangerous woman" to ("Ariana Grande" to 235_000L),
+            "god is a woman" to ("Ariana Grande" to 196_000L),
+            "no tears left to cry" to ("Ariana Grande" to 205_000L),
+            "breathin" to ("Ariana Grande" to 198_000L),
+            "side to side" to ("Ariana Grande" to 226_000L),
+            "problem" to ("Ariana Grande" to 193_000L),
+            "bang bang" to ("Ariana Grande" to 199_000L),
+            "toxic" to ("Britney Spears" to 199_000L),
+            "oops i did it again" to ("Britney Spears" to 211_000L),
+            "...baby one more time" to ("Britney Spears" to 211_000L),
+            "gimme more" to ("Britney Spears" to 250_000L),
+            "womanizer" to ("Britney Spears" to 224_000L),
+            "circus" to ("Britney Spears" to 192_000L),
+            "slave 4 u" to ("Britney Spears" to 206_000L),
+            "till the world ends" to ("Britney Spears" to 237_000L),
+            "poker face" to ("Lady Gaga" to 237_000L),
+            "bad romance" to ("Lady Gaga" to 294_000L),
+            "just dance" to ("Lady Gaga" to 242_000L),
+            "born this way" to ("Lady Gaga" to 260_000L),
+            "shallow" to ("Lady Gaga" to 215_000L),
+            "telephone" to ("Lady Gaga" to 218_000L),
+            "paparazzi" to ("Lady Gaga" to 207_000L),
+            "applause" to ("Lady Gaga" to 212_000L),
+            "million reasons" to ("Lady Gaga" to 205_000L),
+            "hotline bling" to ("Drake" to 267_000L),
+            "gods plan" to ("Drake" to 198_000L),
+            "one dance" to ("Drake" to 174_000L),
+            "passionfruit" to ("Drake" to 269_000L),
+            "started from the bottom" to ("Drake" to 280_000L),
+            "take care" to ("Drake" to 276_000L),
+            "hold on were going home" to ("Drake" to 227_000L),
+            "too good" to ("Drake" to 263_000L),
+            "nice for what" to ("Drake" to 210_000L),
+            "controlla" to ("Drake" to 245_000L),
+            "life is good" to ("Drake" to 238_000L),
+            "laugh now cry later" to ("Drake" to 261_000L),
+            "back to back" to ("Drake" to 198_000L),
+            "the motto" to ("Drake" to 186_000L),
+            "despacito" to ("Luis Fonsi" to 229_000L),
+            "havana" to ("Camila Cabello" to 217_000L),
+            "señorita" to ("Shawn Mendes" to 191_000L),
+            "treat you better" to ("Shawn Mendes" to 187_000L),
+            "stitches" to ("Shawn Mendes" to 207_000L),
+            "theres nothing holdin me back" to ("Shawn Mendes" to 202_000L),
+            "in my blood" to ("Shawn Mendes" to 211_000L),
+            "wonder" to ("Shawn Mendes" to 171_000L)
         )
 
         fun resolve(normalizedQuery: String): ResolvedSong? {

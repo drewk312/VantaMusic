@@ -391,7 +391,7 @@ fun AppNavGraph(
         activeTrackId = uiState.activeTrackId
     )
     val latchedPlayback = rememberPlaybackChromeLatch(hasPlayableCurrentItem)
-    val miniPlayerVisible = ChromeVisibilityPolicy.shouldShowMiniPlayer(route, latchedPlayback)
+    val miniPlayerVisible = ChromeVisibilityPolicy.shouldShowMiniPlayer(route, latchedPlayback, isKeyboardVisible)
     val chromeRouteLabel = ChromeVisibilityPolicy.routeLabel(
         route = route,
         hasDetailOverlay = detailRoute != null,
@@ -726,7 +726,8 @@ fun AppNavGraph(
                     onImportEclipsePlaylist = mainViewModel::importEclipsePlaylist,
 
                     miniPlayerVisible = miniPlayerVisible,
-                    bottomNavVisible = showBottomNav
+                    bottomNavVisible = showBottomNav,
+                    isKeyboardVisible = isKeyboardVisible
                 )
                 AppRoute.Drive -> DriveModeScreen(
                     nowPlayingState = nowPlayingState,

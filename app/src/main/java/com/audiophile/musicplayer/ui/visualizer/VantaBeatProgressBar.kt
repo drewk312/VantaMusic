@@ -21,8 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -65,6 +65,7 @@ fun VantaBeatProgressBar(
     mini: Boolean = false
 ) {
     val seekable = durationMs > 0L
+    val haptic = LocalHapticFeedback.current
 
     val bucketCount = if (mini) 24 else 48
     val touchTargetHeight = 44.dp
@@ -126,10 +127,12 @@ fun VantaBeatProgressBar(
                     onValueChange = {
                         isDragging = true
                         dragFraction = it
+                        Log.d(TAG, "drag fraction=$it")
                     },
                     onValueChangeFinished = {
                         isDragging = false
                         val targetMs = seekTargetMs(durationMs, dragFraction)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSeek(targetMs)
                         Log.d(TAG, "seek positionMs=$targetMs durationMs=$durationMs result=seek_to")
                     },
@@ -146,23 +149,6 @@ fun VantaBeatProgressBar(
                 )
             }
         }
-        // Transparent tap overlay on top so taps always seek even if the Slider does not
-        // consume them. Drag gestures are ignored here and fall through to the Slider.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(touchTargetHeight)
-                .pointerInput(seekable, durationMs) {
-                    if (seekable) {
-                        detectTapGestures { offset ->
-                            val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                            val targetMs = seekTargetMs(durationMs, fraction)
-                            onSeek(targetMs)
-                            Log.d(TAG, "tap_seek positionMs=$targetMs durationMs=$durationMs fraction=$fraction")
-                        }
-                    }
-                }
-        )
 
         if (!mini) {
             Box(

@@ -164,20 +164,37 @@ fun LyricsView(
         val initialMs = if (seekGeneration > 0) seekTargetMs else latestPositionMs.coerceAtLeast(0L)
         var extrapolateFromMs = initialMs
         var extrapolateFromWall = System.currentTimeMillis()
+        // After a tap-to-seek, the player briefly keeps reporting the pre-seek
+        // position. Ignore reported positions during this window so the lyrics
+        // don't bounce back to the old line before the seek lands.
+        val seekSettleUntilMs =
+            if (seekGeneration > 0) System.currentTimeMillis() + 1_800L else 0L
         livePositionMs = extrapolateFromMs
         while (true) {
-            if (!latestIsPlaying) {
+            val settling = System.currentTimeMillis() < seekSettleUntilMs
+            if (!latestIsPlaying && !settling) {
                 livePositionMs = latestPositionMs.coerceAtLeast(0L)
                 extrapolateFromMs = livePositionMs
                 extrapolateFromWall = System.currentTimeMillis()
             } else {
                 val reported = latestPositionMs.coerceAtLeast(0L)
                 val predicted = extrapolateFromMs + (System.currentTimeMillis() - extrapolateFromWall)
-                if (kotlin.math.abs(reported - predicted) > 500L) {
+                val drift = kotlin.math.abs(reported - predicted)
+                val shouldReanchor = if (settling) {
+                    // Only accept the reported position once it agrees with the seek.
+                    drift > 500L && kotlin.math.abs(reported - seekTargetMs) < 1_500L
+                } else {
+                    drift > 500L
+                }
+                if (shouldReanchor) {
                     extrapolateFromMs = reported
                     extrapolateFromWall = System.currentTimeMillis()
                 }
-                livePositionMs = extrapolateFromMs + (System.currentTimeMillis() - extrapolateFromWall)
+                livePositionMs = if (latestIsPlaying) {
+                    extrapolateFromMs + (System.currentTimeMillis() - extrapolateFromWall)
+                } else {
+                    extrapolateFromMs
+                }
             }
             kotlinx.coroutines.delay(50)
         }

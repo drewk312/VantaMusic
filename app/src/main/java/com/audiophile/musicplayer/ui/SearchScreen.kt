@@ -7,8 +7,10 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -95,7 +97,8 @@ fun SearchScreen(
     onImportEclipsePlaylist: (String) -> Unit = {},
 
     miniPlayerVisible: Boolean = false,
-    bottomNavVisible: Boolean = false
+    bottomNavVisible: Boolean = false,
+    isKeyboardVisible: Boolean = false
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember(context) {
@@ -143,7 +146,8 @@ fun SearchScreen(
             .padding(horizontal = 24.dp)
             .padding(
                 top = appTopContentPadding(),
-                bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible, isBottomNavVisible = bottomNavVisible)
+                bottom = if (isKeyboardVisible) 0.dp
+                else appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible, isBottomNavVisible = bottomNavVisible)
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -428,12 +432,17 @@ fun SearchScreen(
                     selectedSearchTab = "All"
                 }
 
-                Column(
+                val searchListState = rememberLazyListState()
+
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(bottom = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 28.dp)
                 ) {
                     if (trimmedQuery.isNotEmpty() && (songs.isNotEmpty() || artists.isNotEmpty() || albums.isNotEmpty())) {
                         androidx.compose.material3.ScrollableTabRow(
@@ -462,23 +471,26 @@ fun SearchScreen(
                         }
                     }
 
-                    Column(
+                    LazyColumn(
+                        state = searchListState,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
                     // Search Suggestions
                     if (selectedSearchTab == "All" && uiState.searchSuggestions.isNotEmpty()) {
-                        Text(
-                            "Suggestions",
-                            color = AppTextSecondary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                            uiState.searchSuggestions.forEach { suggestion ->
+                        item {
+                            Text(
+                                "Suggestions",
+                                color = AppTextSecondary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                        uiState.searchSuggestions.forEach { suggestion ->
+                            item(key = "suggestion_$suggestion") {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -499,7 +511,6 @@ fun SearchScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
                     }
 
                     // Intent badge
@@ -513,71 +524,75 @@ fun SearchScreen(
                         else -> null
                     }
                     if (intentLabel != null) {
-                        VantaStatusBadge(intentLabel, AppAccent)
+                        item { VantaStatusBadge(intentLabel, AppAccent) }
                     }
 
                     // AI Radio Prompt Card
                     if (selectedSearchTab == "All" && trimmedQuery.isNotBlank()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SearchSectionLabel("AI Radio")
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .searchResultSurface(featured = true)
-                                    .clickable { onStartStation(trimmedQuery) }
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
+                        item(key = "ai_radio") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("AI Radio")
+                                Row(
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(AppAccent.copy(alpha = 0.15f)),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth()
+                                        .searchResultSurface(featured = true)
+                                        .clickable { onStartStation(trimmedQuery) }
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(AppAccent.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
+                                            contentDescription = null,
+                                            tint = AppAccent,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Start Station: $trimmedQuery",
+                                            color = AppText,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "Stream music from your connected sources",
+                                            color = AppTextSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
                                     Icon(
-                                        ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
+                                        Icons.Filled.PlayArrow,
                                         contentDescription = null,
                                         tint = AppAccent,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        "Start Station: $trimmedQuery",
-                                        color = AppText,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        "Stream music from your connected sources",
-                                        color = AppTextSecondary,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                                Icon(
-                                    Icons.Filled.PlayArrow,
-                                    contentDescription = null,
-                                    tint = AppAccent,
-                                    modifier = Modifier.size(20.dp)
-                                )
                             }
                         }
                     }
 
                     if (selectedSearchTab == "All" && matchedStations.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SearchSectionLabel("Stations")
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                matchedStations.forEach { station ->
-                                    RadioStationSearchCard(
-                                        station = station,
-                                        onOpen = { onNavigateToStation(station.id) },
-                                        onStart = { onStartStation(station.id) }
-                                    )
+                        item(key = "stations") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Stations")
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    matchedStations.forEach { station ->
+                                        RadioStationSearchCard(
+                                            station = station,
+                                            onOpen = { onNavigateToStation(station.id) },
+                                            onStart = { onStartStation(station.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -586,41 +601,45 @@ fun SearchScreen(
                     // Top result — first catalog hit, same order the API returned
                     val topResult = uiState.searchTopResult
                     if (selectedSearchTab == "All" && topResult != null) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SearchSectionLabel("Top Result")
-                            TopResultCard(
-                                track = topResult,
-                                onPlay = onPlaySourceResult,
-                                onSave = onSaveSourceResult,
-                                onNavigateToArtist = onNavigateToArtist,
-                                onNavigateToAlbum = onNavigateToAlbum,
-                                onStartStation = { onStartStation("${topResult.title} by ${topResult.artist}") }
-                            )
+                        item(key = "top_result") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Top Result")
+                                TopResultCard(
+                                    track = topResult,
+                                    onPlay = onPlaySourceResult,
+                                    onSave = onSaveSourceResult,
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    onNavigateToAlbum = onNavigateToAlbum,
+                                    onStartStation = { onStartStation("${topResult.title} by ${topResult.artist}") }
+                                )
+                            }
                         }
                     }
 
                     // Artists
                     if ((selectedSearchTab == "All" || selectedSearchTab == "Artists") && artists.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SearchSectionLabel("Artists")
-                            if (searchIntent == SearchIntent.ARTIST) {
-                                artists.take(3).forEach { artist ->
-                                    RichArtistCard(
-                                        artist = artist,
-                                        library = uiState.library,
-                                        onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
-                                        onStartStation = { onStartStation(artist.name) }
-                                    )
-                                    Spacer(Modifier.height(12.dp))
-                                }
-                            } else {
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    items(artists.take(10)) { artist ->
-                                        SearchArtistCard(
+                        item(key = "artists") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Artists")
+                                if (searchIntent == SearchIntent.ARTIST) {
+                                    artists.take(3).forEach { artist ->
+                                        RichArtistCard(
                                             artist = artist,
+                                            library = uiState.library,
                                             onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
                                             onStartStation = { onStartStation(artist.name) }
                                         )
+                                        Spacer(Modifier.height(12.dp))
+                                    }
+                                } else {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        items(artists.take(10)) { artist ->
+                                            SearchArtistCard(
+                                                artist = artist,
+                                                onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
+                                                onStartStation = { onStartStation(artist.name) }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -629,15 +648,17 @@ fun SearchScreen(
 
                     // Albums
                     if ((selectedSearchTab == "All" || selectedSearchTab == "Albums") && albums.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SearchSectionLabel("Albums")
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(albums.take(10)) { album ->
-                                    SearchAlbumCard(
-                                        album = album,
-                                        onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
-                                        onStartStation = { onStartStation("${album.title} by ${album.artist}") }
-                                    )
+                        item(key = "albums") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Albums")
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(albums.take(10)) { album ->
+                                        SearchAlbumCard(
+                                            album = album,
+                                            onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
+                                            onStartStation = { onStartStation("${album.title} by ${album.artist}") }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -645,45 +666,44 @@ fun SearchScreen(
 
                     // Songs — catalog order
                     if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && songs.isNotEmpty() && searchIntent != SearchIntent.ARTIST) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item(key = "songs_label") {
                             SearchSectionLabel("Songs")
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                songs.take(20).forEach { track ->
-                                    SearchSongRow(
-                                        track = track,
-                                        onPlay = onPlaySourceResult,
-                                        onSave = onSaveSourceResult,
-                                        onNavigateToArtist = onNavigateToArtist,
-                                        onNavigateToAlbum = onNavigateToAlbum,
-                                        onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
-                                        onStartStation = { onStartStation("${track.title} by ${track.artist}") }
-                                    )
-                                }
+                        }
+                        songs.take(20).forEachIndexed { idx, track ->
+                            item(key = "song_$idx") {
+                                SearchSongRow(
+                                    track = track,
+                                    onPlay = onPlaySourceResult,
+                                    onSave = onSaveSourceResult,
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    onNavigateToAlbum = onNavigateToAlbum,
+                                    onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
+                                    onStartStation = { onStartStation("${track.title} by ${track.artist}") }
+                                )
                             }
                         }
                     }
 
                     // Library Matches
                     if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && localTracks.isNotEmpty() && searchIntent != SearchIntent.ARTIST) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item(key = "library_label") {
                             SearchSectionLabel("Library")
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                localTracks.take(5).forEach { track ->
-                                    LibrarySongRow(
-                                        track = track,
-                                        onPlay = { onPlay(track) },
-                                        onNavigateToArtist = onNavigateToArtist,
-                                        onNavigateToAlbum = onNavigateToAlbum,
-                                        onStartStation = { onStartStation("${track.track.title} by ${track.track.artist}") }
-                                    )
-                                }
+                        }
+                        localTracks.take(5).forEachIndexed { idx, track ->
+                            item(key = "library_$idx") {
+                                LibrarySongRow(
+                                    track = track,
+                                    onPlay = { onPlay(track) },
+                                    onNavigateToArtist = onNavigateToArtist,
+                                    onNavigateToAlbum = onNavigateToAlbum,
+                                    onStartStation = { onStartStation("${track.track.title} by ${track.track.artist}") }
+                                )
                             }
                         }
                     }
-
-                    Spacer(Modifier.height(24.dp))
                     }
                 }
+            }
             }
         }
     }

@@ -124,11 +124,16 @@ class MediaSessionTrustPolicy(
         sessionCommandsBuilder.add(SessionCommand(AndroidAutoController.ACTION_LYRICS, android.os.Bundle()))
         val sessionCommands = sessionCommandsBuilder.build()
 
+        // SELF/TRUSTED_LIBRARY must receive the FULL command grant, not a snapshot of
+        // player.availableCommands. The in-app controller connects while the player is
+        // still idle (no media item), when seek commands are unavailable — and Media3
+        // freezes the connect-time grant for the whole connection. A snapshot therefore
+        // permanently strips COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM from the UI controller,
+        // silently dropping every seekTo() (seekbar snap-back, lyric tap bounce).
+        // Media3 still intersects the grant with the player's live commands per call.
         val playerCommands = when (level) {
-            TrustLevel.SELF -> player?.availableCommands
-                ?: Player.Commands.Builder().addAllCommands().build()
-            TrustLevel.TRUSTED_LIBRARY -> player?.availableCommands
-                ?: Player.Commands.Builder().addAllCommands().build()
+            TrustLevel.SELF,
+            TrustLevel.TRUSTED_LIBRARY -> Player.Commands.Builder().addAllCommands().build()
             TrustLevel.TRUSTED_TRANSPORT,
             TrustLevel.LIMITED -> transportPlayerCommands()
             TrustLevel.REJECTED -> error("Rejected controllers cannot receive player commands")

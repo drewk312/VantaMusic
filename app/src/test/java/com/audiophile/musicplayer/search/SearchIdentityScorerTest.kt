@@ -146,4 +146,17 @@ class SearchIdentityScorerTest {
         )
         assertTrue("Too many duplicate Sting results: ${response.songs.size}", response.songs.size <= 2)
     }
+
+    @Test
+    fun allOfTheLights_kanyeWestWins() {
+        val intent = UnifiedSearchEngine.parse("all of the lights kanye west")
+        val correct = track("All of the Lights", "Kanye West")
+        val cover = track("All of the Lights", "Piano Tribute Players")
+        val seo = track("All of the Lights (Lyrics)", "Lyrics World")
+
+        val results = UnifiedSearchEngine.rank(intent, listOf(seo, cover, correct))
+        val top = results.firstOrNull { it.second.eligibleForTop }?.first ?: results.first().first
+        assertEquals("Kanye West", top.artist)
+        assertEquals("All of the Lights", top.title)
+    }
 }

@@ -46,6 +46,11 @@ class PlayerController(
     private val playbackMutex = Mutex()
     private var pollingJob: Job? = null
 
+    // While a seek is in flight the real player briefly reports the old position;
+    // pin the UI to the seek target until the player lands (or the window expires).
+    @Volatile private var pendingSeekTargetMs: Long = -1L
+    @Volatile private var pendingSeekDeadlineMs: Long = 0L
+
     init {
         val sessionToken = SessionToken(appContext, android.content.ComponentName(appContext, PlaybackService::class.java))
         val future = MediaController.Builder(appContext, sessionToken).buildAsync()
@@ -143,6 +148,18 @@ class PlayerController(
 
         if (isTransientZeroDuringBuffering) return
 
+        val pendingSeek = pendingSeekTargetMs
+        if (pendingSeek >= 0L) {
+            if (System.currentTimeMillis() > pendingSeekDeadlineMs ||
+                kotlin.math.abs(newPosition - pendingSeek) <= 1_500L
+            ) {
+                pendingSeekTargetMs = -1L
+            } else {
+                // Player hasn't landed on the seek target yet — keep UI pinned.
+                return
+            }
+        }
+
         val buffered = mc.bufferedPosition.coerceAtLeast(0L)
         val duration = mc.duration.coerceAtLeast(0L)
         val bufferedPct = if (duration > 0) (buffered * 100 / duration).toInt() else 0
@@ -231,16 +248,27 @@ class PlayerController(
     fun seekTo(positionMs: Long) {
         val clamped = positionMs.coerceAtLeast(0L)
         val mc = mediaController
-        if (mc != null) {
-            mc.seekTo(clamped)
-            queueManager.markPlaybackPosition(clamped)
+        val seekableController = mc?.takeIf {
+            it.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        }
+        android.util.Log.d(
+            "VANTA_SEEK_CHAIN",
+            "PlayerController.seekTo clamped=$clamped mc=${mc != null} canSeekViaController=${seekableController != null}"
+        )
+        pendingSeekTargetMs = clamped
+        pendingSeekDeadlineMs = System.currentTimeMillis() + 2_000L
+        if (seekableController != null) {
+            seekableController.seekTo(clamped)
         } else {
+            // Controller missing or its command grant lacks seek — route through the
+            // service, which calls player.seekTo() directly and cannot be dropped.
             appContext.startService(
                 Intent(appContext, PlaybackService::class.java)
                     .setAction(PlaybackService.ACTION_SEEK_TO)
                     .putExtra(PlaybackService.EXTRA_POSITION_MS, clamped)
             )
         }
+        queueManager.markPlaybackPosition(clamped)
         playbackState.update { copy(positionMs = clamped) }
     }
 

@@ -33,8 +33,13 @@ object ChromeVisibilityPolicy {
         return false
     }
 
-    fun shouldShowMiniPlayer(route: AppRoute, latchedPlayback: Boolean): Boolean {
+    fun shouldShowMiniPlayer(
+        route: AppRoute,
+        latchedPlayback: Boolean,
+        isKeyboardVisible: Boolean = false
+    ): Boolean {
         if (route == AppRoute.NowPlaying) return false
+        if (isKeyboardVisible) return false
         return latchedPlayback
     }
 
