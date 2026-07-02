@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -75,6 +76,7 @@ fun HomeScreen(
     vantaSocialManager: VantaSocialManager? = null,
 
     onOpenAccount: (() -> Unit)? = null,
+    onPlayFriendTrack: (title: String, artist: String) -> Unit = { _, _ -> },
     miniPlayerVisible: Boolean = false
 ) {
     val libraryTracks = uiState.library
@@ -300,7 +302,9 @@ fun HomeScreen(
             VantaSectionHeader("Friends Are Listening", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
             Spacer(Modifier.height(12.dp))
             FriendsListeningRow(
-                onPlayFirstPlayable = onPlayFirstPlayable,
+                feed = friendFeed,
+                onAddFriends = { onOpenAccount?.invoke() },
+                onPlayFriendTrack = onPlayFriendTrack,
                 modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal)
             )
             Spacer(Modifier.height(32.dp))
@@ -655,50 +659,125 @@ private fun EditorialCard(
 
 @Composable
 private fun FriendsListeningRow(
-    onPlayFirstPlayable: () -> Unit,
+    feed: FriendFeed,
+    onAddFriends: () -> Unit,
+    onPlayFriendTrack: (title: String, artist: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val friends = listOf(
-        "Alex" to emptyList<UnifiedTrackWithSources>(),
-        "Jordan" to emptyList(),
-        "Sam" to emptyList(),
-        "Riley" to emptyList(),
-        "Casey" to emptyList()
-    )
+    if (feed.friends.isEmpty()) {
+        // Warm empty state that invites, instead of fake avatars.
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(AppSurface)
+                .border(0.5.dp, AppAccent.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+                .clickable(onClick = onAddFriends)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                "Listen together",
+                color = AppText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Share your friend code and add friends to see what they're playing, live.",
+                style = VantaType.caption,
+                color = AppTextMuted
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Add friends →",
+                color = AppAccent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        return
+    }
+
+    val latestByFriend = feed.events
+        .sortedByDescending { it.startedAtMs }
+        .distinctBy { it.friendId }
+        .associateBy { it.friendId }
+
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        friends.take(4).forEach { (name, _) ->
+        feed.friends.forEach { friend ->
+            val event = latestByFriend[friend.id]
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable(onClick = onPlayFirstPlayable)
+                modifier = Modifier
+                    .width(84.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(enabled = event != null) {
+                        event?.let { onPlayFriendTrack(it.title, it.artist) }
+                    }
+                    .padding(vertical = 4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(AppSurfaceRaised)
-                        .border(1.dp, AppAccent.copy(alpha = 0.2f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        name.first().toString(),
-                        color = AppAccent,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(AppSurfaceRaised)
+                            .border(
+                                width = if (event != null) 1.5.dp else 1.dp,
+                                color = if (event != null) AppAccent.copy(alpha = 0.65f)
+                                else AppAccent.copy(alpha = 0.2f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            friend.avatarSeed.take(2).uppercase(),
+                            color = AppAccent,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    if (event != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .background(AppAccent)
+                                .border(2.dp, AppBackgroundTop, CircleShape)
+                        )
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    name,
+                    friend.displayName,
                     style = VantaType.caption,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (event != null) {
+                    Text(
+                        event.title,
+                        style = VantaType.caption.copy(fontSize = 10.sp),
+                        color = AppTextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
-        if (friends.size > 4) {
+        // Trailing add chip keeps the row inviting.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .width(84.dp)
+                .clickable(onClick = onAddFriends)
+                .padding(vertical = 4.dp)
+        ) {
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -707,13 +786,10 @@ private fun FriendsListeningRow(
                     .border(0.5.dp, AppOutline, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    "+${friends.size - 4}",
-                    color = AppTextMuted,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Text("+", color = AppTextMuted, fontSize = 22.sp, fontWeight = FontWeight.Medium)
             }
+            Spacer(Modifier.height(6.dp))
+            Text("Add", style = VantaType.caption, color = AppTextMuted)
         }
     }
 }

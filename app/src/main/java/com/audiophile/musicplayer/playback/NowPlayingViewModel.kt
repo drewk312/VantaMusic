@@ -205,9 +205,18 @@ class NowPlayingViewModel @Inject constructor(
 
     private fun fetchLyrics(state: NowPlayingState) {
         val repo = lyricsRepository ?: return
-        val title = state.title ?: return
-        val artist = state.artist ?: return
+        val rawTitle = state.title ?: return
+        val rawArtist = state.artist ?: return
         val trackId = state.trackId ?: return
+        // Query with the same cleaned identity the UI shows. Raw titles carry
+        // "(feat. …)" clauses and uploader junk that skew LRCLib toward wrong matches.
+        val cleaned = com.audiophile.musicplayer.data.display.DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = rawTitle,
+            rawArtist = rawArtist,
+            rawAlbum = state.album
+        )
+        val title = cleaned.title.ifBlank { rawTitle }
+        val artist = cleaned.artist.substringBefore(" feat.").trim().ifBlank { rawArtist }
         val generation = ++lyricsFetchGeneration
         viewModelScope.launch {
             _lyrics.value = null

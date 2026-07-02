@@ -40,13 +40,24 @@ data class VantaEqualizerConfig(
 enum class VantaEqualizerPreset(val label: String, val gains: List<Float>) {
     FLAT("Flat", List(31) { 0f }),
     BASS_BOOST("Bass Boost", listOf(6f,6f,6f,6f,5f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    DEEP_BASS("Deep Bass", listOf(8f,8f,7f,7f,6f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     TREBLE_BOOST("Treble Boost", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,6f,6f,6f,6f,6f,6f)),
     STUDIO("Studio", listOf(0f,0f,0f,0f,0f,0f,0f,2f,2f,3f,3f,2f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    CONCERT_HALL("Concert Hall", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    CONCERT_HALL("Concert Hall", listOf(2f,2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,1f,2f,2f,2f,2f,2f,2f)),
     CINEMA("Cinema", listOf(2f,2f,2f,2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f)),
     INTIMATE("Intimate", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     VOCAL("Intimate Vocal", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     ELECTRONIC("Electronic Pulse", listOf(4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,-1f,-1f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,2f,1f,1f,0f,0f)),
+    HIP_HOP("Hip-Hop", listOf(5f,5f,5f,4f,4f,3f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,2f,2f,2f,2f,1f,1f,0f,0f,0f,0f,0f)),
+    ROCK("Rock", listOf(4f,4f,4f,3f,3f,2f,2f,1f,0f,0f,-1f,-1f,-1f,0f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,3f,3f,3f,2f,2f,2f,2f)),
+    JAZZ("Jazz Lounge", listOf(2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,1f,1f,2f,2f,2f,2f,1f,1f,0f,0f,0f,0f,0f,1f,1f,2f,2f,2f,1f,1f)),
+    CLASSICAL("Classical", listOf(3f,3f,3f,2f,2f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,3f,2f,2f)),
+    RNB("Velvet R&B", listOf(4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,0f,0f,1f,1f,2f,2f,2f,1f,1f,0f,0f,0f,1f,1f,1f,1f,1f,1f,0f,0f,0f)),
+    ACOUSTIC("Acoustic", listOf(2f,2f,2f,2f,1f,1f,1f,1f,0f,0f,0f,0f,1f,1f,1f,1f,2f,2f,2f,1f,1f,1f,2f,2f,2f,2f,2f,1f,1f,1f,1f)),
+    PODCAST("Podcast Voice", listOf(-4f,-4f,-4f,-3f,-3f,-2f,-2f,-1f,0f,0f,1f,2f,3f,4f,4f,4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,0f,-1f,-1f,-2f,-2f,-3f)),
+    LOFI("Lo-Fi Cozy", listOf(3f,3f,3f,3f,2f,2f,2f,1f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,-2f,-2f,-3f,-3f,-4f,-4f,-5f,-5f,-6f,-7f,-8f)),
+    WARM("Warm Analog", listOf(3f,3f,3f,2f,2f,2f,1f,1f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-2f,-2f)),
+    LOUDNESS("Loudness", listOf(6f,6f,5f,5f,4f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,4f,4f,5f,5f,5f)),
 }
 
 object VantaEqualizerHolder {

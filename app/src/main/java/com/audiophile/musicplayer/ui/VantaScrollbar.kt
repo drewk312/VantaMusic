@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,37 +33,39 @@ fun VantaScrollbar(
     trackWidth: Dp = 4.dp,
     touchWidth: Dp = 20.dp
 ) {
-    val layoutInfo = listState.layoutInfo
-    val totalItems = layoutInfo.totalItemsCount
-    val viewportHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).coerceAtLeast(1)
-    val visibleItems = layoutInfo.visibleItemsInfo
-
-    if (totalItems <= 0 || visibleItems.isEmpty() || viewportHeight <= 0) return
-
-    val first = visibleItems.first()
-    val last = visibleItems.last()
-    val spanIndices = (last.index - first.index + 1).coerceAtLeast(1)
-    val spanPixels = (last.offset + last.size - first.offset).coerceAtLeast(1)
-    val avgItemHeight = spanPixels.toFloat() / spanIndices
-
-    val totalContentHeight = avgItemHeight * totalItems
-    val scrollRange = (totalContentHeight - viewportHeight).coerceAtLeast(1f)
-    val scrollPos = (first.index * avgItemHeight) + first.offset
-
-    val fraction = (scrollPos / scrollRange).coerceIn(0f, 1f)
-    val thumbHeight = ((viewportHeight / totalContentHeight) * viewportHeight).coerceIn(40f, viewportHeight.toFloat())
-    val thumbOffset = fraction * (viewportHeight - thumbHeight)
+    // Geometry is derived so scrolling only invalidates the draw pass, never
+    // the whole composition (avoids per-frame recomposition of the parent).
+    val thumbGeometry by remember(listState) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val viewportHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset).coerceAtLeast(1)
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (totalItems <= 0 || visibleItems.isEmpty() || viewportHeight <= 0) return@derivedStateOf null
+            val first = visibleItems.first()
+            val last = visibleItems.last()
+            val spanIndices = (last.index - first.index + 1).coerceAtLeast(1)
+            val spanPixels = (last.offset + last.size - first.offset).coerceAtLeast(1)
+            val avgItemHeight = spanPixels.toFloat() / spanIndices
+            val totalContentHeight = avgItemHeight * totalItems
+            val scrollRange = (totalContentHeight - viewportHeight).coerceAtLeast(1f)
+            val scrollPos = (first.index * avgItemHeight) + first.offset
+            val fraction = (scrollPos / scrollRange).coerceIn(0f, 1f)
+            val thumbHeight = ((viewportHeight / totalContentHeight) * viewportHeight)
+                .coerceIn(40f, viewportHeight.toFloat())
+            val thumbOffset = fraction * (viewportHeight - thumbHeight)
+            thumbOffset to thumbHeight
+        }
+    }
 
     val scope = rememberCoroutineScope()
 
     Box(
         modifier = modifier
             .width(touchWidth)
-            .pointerInput(totalItems, listState) {
-                android.util.Log.d("VANTA_SCROLLBAR", "gesture setup totalItems=$totalItems visibleItems=${visibleItems.size}")
+            .pointerInput(listState) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    android.util.Log.d("VANTA_SCROLLBAR", "down at y=${down.position.y}")
                     var lastTarget = -1
                     val total = listState.layoutInfo.totalItemsCount
                     if (total <= 0) return@awaitEachGesture
@@ -68,11 +73,9 @@ fun VantaScrollbar(
                         val h = size.height.toFloat().coerceAtLeast(1f)
                         val frac = (y / h).coerceIn(0f, 1f)
                         val idx = (frac * total).toInt().coerceIn(0, total - 1)
-                        android.util.Log.d("VANTA_SCROLLBAR", "scrollTo y=$y h=$h frac=$frac idx=$idx")
                         if (idx != lastTarget) {
                             lastTarget = idx
                             scope.launch {
-                                android.util.Log.d("VANTA_SCROLLBAR", "scrollToItem idx=$idx")
                                 listState.scrollToItem(idx)
                             }
                         }
@@ -86,7 +89,6 @@ fun VantaScrollbar(
                             change.consume()
                         }
                     } while (change.pressed)
-                    android.util.Log.d("VANTA_SCROLLBAR", "gesture end")
                 }
             }
     ) {
@@ -96,6 +98,8 @@ fun VantaScrollbar(
                 .width(trackWidth)
                 .align(Alignment.Center)
         ) {
+            val geometry = thumbGeometry ?: return@Canvas
+            val (thumbOffset, thumbHeight) = geometry
             val w = size.width
             val r = CornerRadius(w / 2)
             drawRoundRect(color = trackColor, topLeft = Offset.Zero, size = Size(w, size.height), cornerRadius = r)

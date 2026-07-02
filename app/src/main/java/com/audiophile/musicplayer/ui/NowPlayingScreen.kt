@@ -195,7 +195,9 @@ fun NowPlayingScreen(
             androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
         ) { isGranted ->
             if (isGranted) {
-                // If granted, we can restart the visualizer polling or analyzer attachment.
+                // Permission arrived mid-session: re-attach so the platform Visualizer
+                // replaces the synthetic fallback with live audio frames.
+                visualizerViewModel?.reattach()
                 visualizerViewModel?.setPlaying(nowPlayingState.isPlaying)
             }
         }

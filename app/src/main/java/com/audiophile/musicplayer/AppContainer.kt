@@ -219,15 +219,16 @@ class AppContainer(
         localSource = friendActivityLocalSource,
         accountManager = accountManager
     )
-    val vantaSocialManager = VantaSocialManager(
-        context = appContext,
-        accountManager = accountManager,
-        repository = friendActivityRepository
-    )
     val vantaSyncManager = VantaSyncManager(
         context = appContext,
         accountManager = accountManager,
         trackRepository = trackRepository
+    )
+    val vantaSocialManager = VantaSocialManager(
+        context = appContext,
+        accountManager = accountManager,
+        repository = friendActivityRepository,
+        syncManager = vantaSyncManager
     )
 
     val downloadManager = AndroidTrackDownloadManager(appContext)

@@ -95,12 +95,37 @@ class VantaSyncManager(
     suspend fun fetchFriendActivity(): List<FriendListeningEvent> = withContext(Dispatchers.IO) {
         val api = gatewayApi ?: return@withContext emptyList()
         val identity = ensureIdentity()
-        val response = api.getActivityFeed(identity.vantaUserId)
+        val response = runCatching { api.getActivityFeed(identity.vantaUserId) }.getOrNull()
+            ?: return@withContext emptyList()
         if (response.isSuccessful) {
             response.body()?.events?.map { it.toFriendListeningEvent() } ?: emptyList()
         } else {
             emptyList()
         }
+    }
+
+    /**
+     * Post the current user's listening activity to the gateway so friends can see it.
+     * Fire-and-forget: failures are swallowed, sync must never affect playback.
+     */
+    suspend fun postOwnActivity(event: FriendListeningEvent): Boolean = withContext(Dispatchers.IO) {
+        val api = gatewayApi ?: return@withContext false
+        val identity = ensureIdentity()
+        val dto = ActivityEventDto(
+            userId = identity.vantaUserId,
+            displayName = identity.displayName,
+            trackId = event.trackId,
+            title = event.title,
+            artist = event.artist,
+            album = event.album,
+            artworkUrl = event.artworkUrl,
+            sourceLabel = event.sourceLabel,
+            startedAtMs = event.startedAtMs,
+            positionMs = event.positionMs,
+            durationMs = event.durationMs
+        )
+        runCatching { api.postActivity(identity.vantaUserId, dto).isSuccessful }
+            .getOrDefault(false)
     }
 
     private fun deviceName(): String = runCatching {

@@ -6,6 +6,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.audiophile.musicplayer.audio.visualizer.AuraMode
@@ -54,21 +55,53 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
     private var spectrumPollJob: Job? = null
     private var attachedSessionId: Int? = null
 
+    private val visualPrefs =
+        application.getSharedPreferences("vanta_settings", Application.MODE_PRIVATE)
+
+    init {
+        // Restore persisted aura preferences so Settings choices survive restarts.
+        visualPrefs.getString("aura_mode", null)?.let { saved ->
+            runCatching { AuraMode.valueOf(saved) }.getOrNull()?.let { engine.setMode(it) }
+        }
+        engine.setAudioReactive(visualPrefs.getBoolean("aura_audio_reactive", true))
+        engine.setReduceMotionInCar(visualPrefs.getBoolean("aura_reduce_motion_car", true))
+    }
+
     fun attachToSession(sessionId: Int) {
         if (sessionId <= 0) {
             Log.w(TAG, "Ignoring invalid sessionId=$sessionId")
             return
         }
 
-        if (attachedSessionId == sessionId && spectrumPollJob?.isActive == true) {
+        // Skip only when we're already attached AND producing live audio frames.
+        // If the first attach happened before RECORD_AUDIO was granted, the analyzer
+        // is running on the synthetic fallback — re-attach so it can go live.
+        val producingLiveFrames = analyzer.audioFrame.value.isLiveAudio
+        if (attachedSessionId == sessionId &&
+            spectrumPollJob?.isActive == true &&
+            (producingLiveFrames || !hasRecordAudioPermission())
+        ) {
             return
         }
 
         attachedSessionId = sessionId
-        Log.d(TAG, "attach sessionId=$sessionId")
+        Log.d(TAG, "attach sessionId=$sessionId live=$producingLiveFrames")
 
         analyzer.attach(sessionId)
         startSpectrumPolling()
+    }
+
+    /**
+     * Force a fresh analyzer attach on the last known session. Used after the
+     * RECORD_AUDIO permission is granted mid-session so the platform Visualizer
+     * can replace the synthetic fallback.
+     */
+    fun reattach() {
+        val sessionId = attachedSessionId ?: return
+        Log.d(TAG, "reattach sessionId=$sessionId")
+        analyzer.release()
+        attachedSessionId = null
+        attachToSession(sessionId)
     }
 
     fun releaseAnalyzer() {
@@ -80,6 +113,7 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
 
     fun setMode(mode: AuraMode) {
         engine.setMode(mode)
+        visualPrefs.edit { putString("aura_mode", mode.name) }
     }
 
     fun setPlaying(isPlaying: Boolean) {
@@ -96,10 +130,12 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
 
     fun setAudioReactive(enabled: Boolean) {
         engine.setAudioReactive(enabled)
+        visualPrefs.edit { putBoolean("aura_audio_reactive", enabled) }
     }
 
     fun setReduceMotionInCar(reduce: Boolean) {
         engine.setReduceMotionInCar(reduce)
+        visualPrefs.edit { putBoolean("aura_reduce_motion_car", reduce) }
     }
 
     fun hasRecordAudioPermission(): Boolean {

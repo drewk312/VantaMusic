@@ -166,24 +166,55 @@ fun SettingsScreen(
         )
 
         // 3. Playback
+        var streamQuality by remember {
+            mutableStateOf(sharedPrefs.getString("stream_quality", "24") ?: "24")
+        }
         PremiumSettingsGroup(title = "Playback") {
             PremiumSettingsClickItem(
                 title = "Crossfade",
-                subtitle = "${autoMixConfig.mode.label} · ${autoMixConfig.transitionSeconds}s",
+                subtitle = autoMixConfig.mode.label,
                 onClick = { saveAutoMix(autoMixConfig.copy(mode = autoMixConfig.mode.next())) },
-                showDivider = false
+                showDivider = autoMixConfig.mode != AutoMixMode.OFF
             )
+            if (autoMixConfig.mode != AutoMixMode.OFF) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Transition ${autoMixConfig.transitionSeconds}s",
+                        color = AppTextSecondary,
+                        fontSize = 12.sp
+                    )
+                    androidx.compose.material3.Slider(
+                        value = autoMixConfig.transitionSeconds.toFloat(),
+                        onValueChange = {
+                            saveAutoMix(autoMixConfig.copy(transitionSeconds = it.toInt().coerceIn(2, 12)))
+                        },
+                        valueRange = 2f..12f,
+                        steps = 9,
+                        colors = androidx.compose.material3.SliderDefaults.colors(
+                            thumbColor = AppAccent,
+                            activeTrackColor = AppAccent,
+                            inactiveTrackColor = AppAccent.copy(alpha = 0.2f)
+                        )
+                    )
+                }
+            }
         }
 
         // 4. Audio
         PremiumSettingsGroup(title = "Audio") {
-            PremiumSettingsInfoItem(
+            PremiumSettingsClickItem(
                 title = "Stream Quality",
-                value = "Hi-Res 24-bit FLAC"
+                subtitle = if (streamQuality == "24") "Hi-Res 24-bit FLAC" else "CD Quality 16-bit FLAC",
+                onClick = {
+                    val next = if (streamQuality == "24") "16" else "24"
+                    streamQuality = next
+                    sharedPrefs.edit { putString("stream_quality", next) }
+                    com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY = next
+                }
             )
             PremiumSettingsClickItem(
                 title = "Equalizer",
-                subtitle = "Parametric 5-band EQ",
+                subtitle = "31-band parametric EQ · 3D spatial · studio filters",
                 onClick = onOpenEqualizer
             )
             PremiumSettingsClickItem(
@@ -198,7 +229,7 @@ fun SettingsScreen(
         PremiumSettingsGroup(title = "Appearance") {
             PremiumSettingsClickItem(
                 title = "Aura Mode",
-                subtitle = auraMode.name.lowercase().replaceFirstChar { it.uppercase() },
+                subtitle = auraMode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
                 onClick = { 
                     val next = when (auraMode) {
                         AuraMode.AMBIENT -> AuraMode.SILK_WAVE
@@ -210,6 +241,16 @@ fun SettingsScreen(
                     }
                     onAuraModeChange(next)
                 }
+            )
+            PremiumSettingsClickItem(
+                title = "Audio-Reactive Aura",
+                subtitle = if (auraAudioReactive) "Visuals move with the music" else "Off",
+                onClick = { onAuraAudioReactiveChange(!auraAudioReactive) }
+            )
+            PremiumSettingsClickItem(
+                title = "Reduce Motion in Car",
+                subtitle = if (auraReduceMotionCar) "Calmer visuals while driving" else "Off",
+                onClick = { onAuraReduceMotionCarChange(!auraReduceMotionCar) }
             )
             PremiumSettingsClickItem(
                 title = "Animated Artwork",
@@ -320,7 +361,8 @@ private fun ConnectedLibrariesSettingsGroup(
 ) {
     val prefs = remember(context) { context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
-    var appleSyncLikes by remember { mutableStateOf(prefs.getBoolean("apple_sync_likes", false)) }
+    // Keys must match ConnectedLibraryManager.isSyncLikesEnabled().
+    var appleSyncLikes by remember { mutableStateOf(prefs.getBoolean("apple_music_sync_likes", false)) }
     var spotifySyncLikes by remember { mutableStateOf(prefs.getBoolean("spotify_sync_likes", false)) }
     var appleLastImport by remember { mutableStateOf(prefs.getString("apple_last_import", "Never") ?: "Never") }
     var spotifyLastImport by remember { mutableStateOf(prefs.getString("spotify_last_import", "Never") ?: "Never") }
@@ -502,7 +544,7 @@ private fun ConnectedLibrariesSettingsGroup(
                 onImport = { onImport(ConnectedLibraryProvider.APPLE_MUSIC) },
                 onSyncLikesChange = {
                     appleSyncLikes = it
-                    saveBoolean("apple_sync_likes", it)
+                    saveBoolean("apple_music_sync_likes", it)
                 },
                 onDeleteImportedData = {
                     appleLastImport = "Never"

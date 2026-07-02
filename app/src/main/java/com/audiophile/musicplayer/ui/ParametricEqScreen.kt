@@ -160,6 +160,20 @@ fun ParametricEqScreen(
         eqEnabled = true
         bandGains.clear()
         bandGains.addAll(preset.gains)
+        // Room-style presets are defined by their space, not just their EQ curve —
+        // bring the matching spatial processing with them.
+        when (preset) {
+            VantaEqualizerPreset.CONCERT_HALL,
+            VantaEqualizerPreset.CINEMA -> {
+                spatialEnabled = true
+                reverbEnabled = true
+            }
+            VantaEqualizerPreset.JAZZ,
+            VantaEqualizerPreset.LOFI -> {
+                spatialEnabled = true
+            }
+            else -> Unit
+        }
         pushConfig()
         uiTick++
     }

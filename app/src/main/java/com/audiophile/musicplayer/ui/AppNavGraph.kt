@@ -670,7 +670,15 @@ fun AppNavGraph(
                     accountManager = accountManager,
                     vantaSocialManager = vantaSocialManager,
 
-                    onOpenAccount = { route = AppRoute.Account }
+                    onOpenAccount = { route = AppRoute.Account },
+                    onPlayFriendTrack = { title, artist ->
+                        mainViewModel.playSourceResult(
+                            com.audiophile.musicplayer.data.canonical.CanonicalTrack(
+                                title = title,
+                                artist = artist
+                            )
+                        )
+                    }
                 )
                 AppRoute.Library -> LibraryScreen(
                     uiState = uiState,
@@ -756,6 +764,7 @@ fun AppNavGraph(
                 AppRoute.Account -> AccountScreen(
                     accountManager = accountManager,
                     mainViewModel = mainViewModel,
+                    vantaSocialManager = vantaSocialManager,
                     onBack = { route = AppRoute.Home }
                 )
                 AppRoute.Settings -> SettingsScreen(

@@ -42,10 +42,17 @@ fun resolveNowPlayingDisplaySnapshot(
         .ifBlank { nowPlayingState.title.orEmpty() }
         .ifBlank { enhancedMetadata?.title.orEmpty() }
         .ifBlank { "Unknown Track" }
+    // Now Playing renders featured artists as their own "feat." line, so the main
+    // artist line must be primary-only — otherwise "feat. X" shows twice.
+    val featured = cleaned.featuredArtists.takeIf { it.isNotEmpty() } ?: nowPlayingState.featuredArtists
     val artist = cleaned.artist
         .ifBlank { nowPlayingState.artist.orEmpty() }
         .ifBlank { enhancedMetadata?.artist.orEmpty() }
         .ifBlank { "Unknown Artist" }
+        .let { full ->
+            if (featured.isEmpty()) full
+            else full.replace(Regex("""\s+(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "").trim().ifBlank { full }
+        }
     val album = nowPlayingState.album?.takeIf { it.isNotBlank() }
         ?: enhancedMetadata?.album?.takeIf { it.isNotBlank() }
     val source = when {
@@ -69,7 +76,7 @@ fun resolveNowPlayingDisplaySnapshot(
         source = source,
         lyricsTrackId = lyricsTrackId,
         canDisplayLyrics = lyricsTrackId != null && lyricsTrackId == nowPlayingState.trackId,
-        featuredArtists = cleaned.featuredArtists.takeIf { it.isNotEmpty() } ?: nowPlayingState.featuredArtists
+        featuredArtists = featured
     )
 }
 

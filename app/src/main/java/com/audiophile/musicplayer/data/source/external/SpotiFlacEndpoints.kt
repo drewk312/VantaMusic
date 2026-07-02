@@ -22,8 +22,12 @@ object SpotiFlacEndpoints {
         "https://music-api.gdstudio.org/api.php"
     )
 
-    /** Preferred stream quality sent to gateway relays: 24 = hi-res lossless, 16 = CD FLAC. */
-    const val PREFERRED_STREAM_QUALITY = "24"
+    /**
+     * Preferred stream quality sent to gateway relays: 24 = hi-res lossless, 16 = CD FLAC.
+     * Mutable so the Settings screen can change it at runtime; loaded from prefs at startup.
+     */
+    @Volatile
+    var PREFERRED_STREAM_QUALITY: String = "24"
 
     const val COMMUNITY_DOWNLOAD_PATH = "/api/dl"
 

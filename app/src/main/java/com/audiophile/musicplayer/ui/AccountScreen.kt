@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -68,7 +70,8 @@ fun AccountScreen(
     accountManager: AccountManager,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    mainViewModel: MainViewModel? = null
+    mainViewModel: MainViewModel? = null,
+    vantaSocialManager: com.audiophile.musicplayer.social.VantaSocialManager? = null
 ) {
     val profile by accountManager.profile.collectAsState()
 
@@ -104,6 +107,7 @@ fun AccountScreen(
             // Signed-in profile view
             SignedInProfile(
                 profile = profile,
+                vantaSocialManager = vantaSocialManager,
                 onSignOut = {
                     accountManager.signOut()
                     showSignedInView = false
@@ -215,6 +219,7 @@ private fun OnboardingView(
 @Composable
 private fun SignedInProfile(
     profile: AccountManager.UserProfile,
+    vantaSocialManager: com.audiophile.musicplayer.social.VantaSocialManager?,
     onSignOut: () -> Unit,
     onToggleSourceSync: (Boolean) -> Unit,
     onToggleHistorySync: (Boolean) -> Unit,
@@ -228,7 +233,9 @@ private fun SignedInProfile(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -336,6 +343,14 @@ private fun SignedInProfile(
             isLast = true
         )
 
+        if (vantaSocialManager != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            FriendsSection(
+                profile = profile,
+                socialManager = vantaSocialManager
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
@@ -348,6 +363,153 @@ private fun SignedInProfile(
                 .clickable(onClick = onSignOut)
                 .padding(horizontal = 24.dp, vertical = 12.dp)
         )
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun FriendsSection(
+    profile: AccountManager.UserProfile,
+    socialManager: com.audiophile.musicplayer.social.VantaSocialManager
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val feed by socialManager.feed.collectAsState(initial = com.audiophile.musicplayer.social.FriendFeed())
+    val friendCode = remember { socialManager.friendCode() }
+    var friendCodeInput by remember { mutableStateOf("") }
+    var copied by remember { mutableStateOf(false) }
+
+    Text(
+        text = "Friends",
+        color = AppTextSecondary,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    // Friend code card — tap to copy.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AppSurface)
+            .clickable {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                    as android.content.ClipboardManager
+                clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("VANTA Friend Code", friendCode)
+                )
+                copied = true
+            }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.Person, contentDescription = null, tint = AppAccentSoft, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Your Friend Code", color = AppText, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(friendCode, color = AppTextMuted, fontSize = 12.sp)
+        }
+        Text(
+            text = if (copied) "Copied" else "Copy",
+            color = AppAccent,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+
+    SyncToggle(
+        title = "Share Listening Activity",
+        subtitle = "Let friends see what you're playing",
+        checked = profile.shareListeningActivity,
+        onCheckedChange = { socialManager.setShareListeningActivity(it) }
+    )
+
+    // Add friend by code
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = friendCodeInput,
+            onValueChange = { friendCodeInput = it },
+            label = { Text("Friend code", color = AppTextMuted, fontSize = 12.sp) },
+            placeholder = { Text("vanta_…", color = AppTextMuted.copy(alpha = 0.5f)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                if (friendCodeInput.isNotBlank()) {
+                    socialManager.addFriendByHandle(friendCodeInput)
+                    friendCodeInput = ""
+                }
+            }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = AppText,
+                unfocusedTextColor = AppText,
+                cursorColor = AppAccent,
+                focusedBorderColor = AppAccent,
+                unfocusedBorderColor = AppSurfaceRaised,
+                focusedContainerColor = AppSurface,
+                unfocusedContainerColor = AppSurface
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        Button(
+            onClick = {
+                if (friendCodeInput.isNotBlank()) {
+                    socialManager.addFriendByHandle(friendCodeInput)
+                    friendCodeInput = ""
+                }
+            },
+            enabled = friendCodeInput.isNotBlank(),
+            colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.height(48.dp)
+        ) {
+            Text("Add", fontWeight = FontWeight.SemiBold)
+        }
+    }
+
+    // Friends list
+    feed.friends.forEach { friend ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(AppSurface)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(AppSurfaceRaised)
+                    .border(1.dp, AppAccent.copy(alpha = 0.25f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    friend.avatarSeed.take(2).uppercase(),
+                    color = AppAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(friend.displayName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(friend.id, color = AppTextMuted, fontSize = 11.sp, maxLines = 1)
+            }
+            Text(
+                text = "Remove",
+                color = AppDestructive.copy(alpha = 0.85f),
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { socialManager.removeFriend(friend.id) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
     }
 }
 

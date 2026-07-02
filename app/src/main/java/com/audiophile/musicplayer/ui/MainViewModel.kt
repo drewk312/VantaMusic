@@ -271,6 +271,7 @@ class MainViewModel @Inject constructor(
 
         // Reactively sync queue snapshot when track changes
         viewModelScope.launch {
+            var lastPublishedTrackId: String? = null
             container.playbackStateHolder.state.collect { state: com.audiophile.musicplayer.playback.NowPlayingState ->
                 if (state.trackId != _uiState.value.activeTrackId) {
                     val qs = container.queueManager.snapshot()
@@ -280,9 +281,21 @@ class MainViewModel @Inject constructor(
                         activeTrackEnhancedMetadata = null
                     ) }
                 }
+                if (state.trackId != null && state.trackId != lastPublishedTrackId) {
+                    lastPublishedTrackId = state.trackId
+                    container.vantaSocialManager.publishOwnActivity(state)
+                }
                 if (!state.errorMessage.isNullOrBlank()) {
                     _uiState.update { it.copy(statusMessage = state.errorMessage) }
                 }
+            }
+        }
+
+        // Keep the friends feed fresh while the app is open (gateway best-effort).
+        viewModelScope.launch {
+            while (true) {
+                container.vantaSocialManager.refreshFriendFeed()
+                delay(60_000L)
             }
         }
 

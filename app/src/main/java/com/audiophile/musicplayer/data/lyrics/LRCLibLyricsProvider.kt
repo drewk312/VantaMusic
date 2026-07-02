@@ -247,6 +247,9 @@ class LRCLibLyricsProvider : LyricsProvider {
     private fun cleanQueryText(value: String?): String =
         value.orEmpty()
             .replace(Regex("""\s*[\[(].*?(official|audio|video|lyrics?|remaster(?:ed)?|radio edit).*?[\])]""", RegexOption.IGNORE_CASE), "")
+            // Feat clauses skew LRCLib search toward wrong or generic matches.
+            .replace(Regex("""\s*[\[(]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^\])]*[\])]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s+\b(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
 
@@ -255,12 +258,20 @@ class LRCLibLyricsProvider : LyricsProvider {
             .replace(Regex("""\s+"""), " ")
             .trim()
 
+    private val numberWords = mapOf(
+        "one" to "1", "two" to "2", "three" to "3", "four" to "4", "five" to "5",
+        "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9", "ten" to "10"
+    )
+
     private fun normalizeForMatch(value: String): String =
         cleanQueryText(value)
             .lowercase()
             .replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
+            // "Victory Lap Five" and "Victory Lap 5" must compare equal.
+            .split(" ")
+            .joinToString(" ") { numberWords[it] ?: it }
 
     private fun encode(value: String): String =
         java.net.URLEncoder.encode(value, "UTF-8")

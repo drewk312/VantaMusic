@@ -108,6 +108,15 @@ class LyricsRepository(
     private fun buildTitleVariants(title: String): List<String> {
         val variants = mutableListOf<String>()
         val t = title.trim()
+        // Feat-stripped variant first — the most common cause of missed matches.
+        val featStripped = t
+            .replace(Regex("""\s*[\[(]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^\])]*[\])]""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s+\b(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        if (featStripped.isNotBlank() && featStripped != t) {
+            variants.add(featStripped)
+        }
         // Number-to-word: "5" -> "Five", "5" -> "V"
         val numberMappings = mapOf(
             "5" to listOf("Five", "V"),

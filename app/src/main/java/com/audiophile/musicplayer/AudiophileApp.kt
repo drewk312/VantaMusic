@@ -11,6 +11,11 @@ class AudiophileApp : Application() {
         super.onCreate()
         com.audiophile.musicplayer.debug.DebugSessionLogger.init(this)
         StartupSafeguard.onApplicationCreate(this)
+        // Restore user stream-quality preference before any source resolution happens.
+        getSharedPreferences("vanta_settings", MODE_PRIVATE)
+            .getString("stream_quality", null)
+            ?.takeIf { it == "16" || it == "24" }
+            ?.let { com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY = it }
         Log.d("VANTA_BUILD", "tag='radio-gate-runtime-proof' versionCode=${BuildConfig.VERSION_CODE} timestamp='2026-06-14'")
     }
 
