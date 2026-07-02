@@ -1,6 +1,9 @@
 package com.audiophile.musicplayer.di
 
 import android.app.Application
+import com.audiophile.musicplayer.data.importer.EclipsePlaylistImporter
+import com.audiophile.musicplayer.social.VantaSocialManager
+import com.audiophile.musicplayer.sync.VantaSyncManager
 import com.audiophile.musicplayer.AppContainer
 import com.audiophile.musicplayer.appContainer
 import com.audiophile.musicplayer.account.AccountManager
@@ -95,3 +98,7 @@ object AppModule {
     @Provides
     fun provideSourceRegistry(container: AppContainer): com.audiophile.musicplayer.data.source.SourceRegistry = container.sourceRegistry
 }
+
+
+
+

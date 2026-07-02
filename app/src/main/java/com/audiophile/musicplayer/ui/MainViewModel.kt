@@ -3153,6 +3153,35 @@ class MainViewModel @Inject constructor(
         }
     }
 
+
+    fun importEclipsePlaylist(url: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Importing Eclipse playlist…", isSearching = true) }
+            val result = withContext(Dispatchers.IO) {
+                container.eclipsePlaylistImporter.import(url)
+            }
+            result.onSuccess { importResult ->
+                val counts = withContext(Dispatchers.IO) { container.localLibraryRepository.libraryCountsSnapshot() }
+                _uiState.update {
+                    it.copy(
+                        localLibraryCounts = counts,
+                        statusMessage = "Imported ${importResult.playlistName}: ${importResult.matched} matched, ${importResult.unmatched} to resolve",
+                        isSearching = false
+                    )
+                }
+                refreshAll()
+            }.onFailure { error ->
+                Log.e("VANTA_ECLIPSE_IMPORT", "Import failed", error)
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "Could not import playlist: ${error.localizedMessage ?: error.javaClass.simpleName}",
+                        isSearching = false
+                    )
+                }
+            }
+        }
+    }
+
     fun saveAllImportMetadata() {
         viewModelScope.launch {
             val batchId = _uiState.value.activeImportBatchId ?: run {

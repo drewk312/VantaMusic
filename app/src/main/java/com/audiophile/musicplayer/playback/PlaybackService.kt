@@ -463,8 +463,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Update existing mediaSession with the proper bitmap loader from autoController
         // (created earlier to allow early controller connections; now enriched)
-        player.refreshQueueTimeline()
+        // Virtual queue timeline removed; ExoPlayer drives MediaSession timeline now.
 
+        applyVantaEqualizer()
         serviceScope.launch {
             appContainer.registerConfiguredProviders()
         }
@@ -779,7 +780,7 @@ class PlaybackService : MediaLibraryService() {
             }
             ACTION_REFRESH_QUEUE_TIMELINE -> {
                 Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_REFRESH_QUEUE_TIMELINE")
-                player.refreshQueueTimeline()
+                // Virtual queue timeline removed; ExoPlayer drives MediaSession timeline now.
             }
         }
         return START_NOT_STICKY
@@ -819,7 +820,7 @@ class PlaybackService : MediaLibraryService() {
     private fun promoteToForegroundEarly() {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText("Preparing playbackâ€¦")
+            .setContentText("Preparing playback...")
             .setSmallIcon(R.drawable.ic_radio)
             .setOngoing(true)
             .setSilent(true)
@@ -1266,8 +1267,13 @@ class PlaybackService : MediaLibraryService() {
             val config = com.audiophile.musicplayer.playback.dsp.VantaEqualizerPreferences(this).load()
             if (::vantaEqualizer.isInitialized) {
                 vantaEqualizer.config = config
+                // Force the new config into the native engine immediately. When playback is
+                // paused the audio pipeline may not call queueInput for a while, so relying on
+                // configDirty alone means the change is silent until the next buffer arrives.
+                vantaEqualizer.flushAndApplyConfig()
             }
-            Log.d("VANTA_DSP", "equalizer_pushed eq=${config.eqEnabled} spatial=${config.spatialEnabled}")
+            val holder = com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder.processor
+            Log.d("VANTA_DSP", "equalizer_pushed eq=${config.eqEnabled} spatial=${config.spatialEnabled} holder=${holder != null} nativeAvailable=${com.audiophile.musicplayer.playback.dsp.VantaEqualizerNative.isAvailable}")
         } catch (e: Exception) {
             Log.e("VANTA_DSP", "Equalizer apply failed", e)
         }
@@ -1345,7 +1351,7 @@ class PlaybackService : MediaLibraryService() {
         startPositionMs: Long = C.TIME_UNSET
     ): Boolean {
         if (!::exoPlayer.isInitialized) {
-            Log.w("VANTA_PLAYBACK", "applyPlaybackMediaItems skipped â€” player not available")
+            Log.w("VANTA_PLAYBACK", "applyPlaybackMediaItems skipped - player not available")
             return false
         }
         if (mediaItems.isEmpty()) {
@@ -1493,3 +1499,5 @@ class PlaybackService : MediaLibraryService() {
         private const val AUTO_LYRICS_ID = "vanta:lyrics"
     }
 }
+
+

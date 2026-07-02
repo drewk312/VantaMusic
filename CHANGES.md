@@ -1,3 +1,46 @@
+# VANTA Build Recovery & Timeline Debounce Fix
+
+## Summary
+
+Recovered the project from a broken build state and fixed the timeline refresh spam observed in device logs.
+
+## Verified Results
+
+- `.\gradlew.bat :app:compileDebugKotlin` - passes
+- `.\gradlew.bat :app:testDebugUnitTest` - passes
+- `.\gradlew.bat :app:lintDebug` - passes, **0 errors / 0 warnings**
+- `.\gradlew.bat :app:assembleDebug` - passes
+
+## What Was Fixed
+
+### 1. Broken build caused by merged/corrupted source lines
+
+- `AppContainer.kt`: `eclipsePlaylistImporter` was defined before `searchRepository` existed; moved the importer definition after `searchRepository` is initialized.
+- `di/AppModule.kt`: first import line was corrupted into `import android.app.import com.audiophile.musicplayer.data.importer.EclipsePlaylistImporter\nApplication`; restored to proper two-line imports.
+- `ui/MainViewModel.kt`: had a broken string literal, an extra closing brace, and malformed error message; repaired the import success message and brace structure.
+
+### 2. Eclipse playlist importer used non-existent repository method
+
+- `EclipsePlaylistImporter.kt` was constructed with `SearchRepository` and called `searchLibrary()`, which lives on `TrackRepository`.
+- Removed the `SearchRepository` dependency and switched the catalog lookup to `trackRepository.searchLibrary(...)`.
+- Replaced the broken template string with a real interpolated message showing playlist name, matched count, and unmatched count.
+
+### 3. Timeline refresh debounce gap
+
+- `QueueAwarePlayer.executeTimelineRefresh()` returned early on unchanged signature without updating `lastTimelineExecuteAtMs`.
+- This caused the 300 ms throttle to be bypassed, producing the rapid repeated `timeline_refresh` logs seen on device.
+- Now the early-return path also records the timestamp, so identical queue states are still throttled correctly.
+
+## Files Changed
+
+- `app/src/main/java/com/audiophile/musicplayer/AppContainer.kt`
+- `app/src/main/java/com/audiophile/musicplayer/di/AppModule.kt`
+- `app/src/main/java/com/audiophile/musicplayer/ui/MainViewModel.kt`
+- `app/src/main/java/com/audiophile/musicplayer/data/importer/EclipsePlaylistImporter.kt`
+- `app/src/main/java/com/audiophile/musicplayer/playback/QueueAwarePlayer.kt`
+
+---
+
 # VANTA Premium Polish — Orb, Colors, Search
 
 ## Summary

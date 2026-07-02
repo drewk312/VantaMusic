@@ -42,10 +42,14 @@ object ChromeVisibilityPolicy {
         route: AppRoute,
         hasDetailOverlay: Boolean = false,
         hasRadioStationOverlay: Boolean = false,
-        hasMixOverlay: Boolean = false
+        hasMixOverlay: Boolean = false,
+        isKeyboardVisible: Boolean = false
     ): Boolean {
         if (route == AppRoute.NowPlaying) return false
         if (route == AppRoute.Drive) return false
+        // Hide bottom nav while the keyboard is open so it never floats above the keyboard
+        // or fights for space with insets. Tabs remain reachable by closing the keyboard.
+        if (isKeyboardVisible) return false
         if (route in TAB_ROUTES) return true
         if (hasDetailOverlay || hasRadioStationOverlay || hasMixOverlay) return true
         if (route == AppRoute.Settings) return true

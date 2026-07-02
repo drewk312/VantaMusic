@@ -90,4 +90,60 @@ class SearchIdentityScorerTest {
         assertTrue(response.topResult?.featuredArtists.orEmpty().any { it.contains("lil wayne") })
         assertTrue(response.songs.first().featuredArtists.any { it.contains("lil wayne") })
     }
+
+    @Test
+    fun desertRose_stingBeatsJazzCoverAndUploader() {
+        val intent = UnifiedSearchEngine.parse("sting desert rose")
+        val correct = track("Desert Rose", "Sting")
+        val cover = track("Desert Rose", "The Jazz Quartet")
+        val uploader = track("Desert Rose (Official Audio)", "Lyrics Channel")
+
+        val results = UnifiedSearchEngine.rank(intent, listOf(uploader, cover, correct))
+        val top = results.firstOrNull { it.second.eligibleForTop }?.first ?: results.first().first
+        assertEquals("Sting", top.artist)
+        assertEquals("Desert Rose", top.title)
+    }
+
+    @Test
+    fun victoryLapFive_fredAgainBeatsWrongArtist() {
+        val intent = UnifiedSearchEngine.parse("victory lap five")
+        val correct = track("Victory Lap Five (feat. Skepta)", "Fred Again..")
+        val wrong = track("Victory Lap", "Some Rapper")
+        val cover = track("Victory Lap Five", "Cover Band")
+
+        val results = UnifiedSearchEngine.rank(intent, listOf(cover, wrong, correct))
+        val top = results.firstOrNull { it.second.eligibleForTop }?.first ?: results.first().first
+        assertEquals("Fred Again..", top.artist)
+    }
+
+    @Test
+    fun wrongArtistWithExactTitle_isRejected() {
+        val intent = UnifiedSearchEngine.parse("desert rose sting")
+        val evaluation = UnifiedSearchEngine.score(intent, track("Desert Rose", "Jazz Covers Weekly", album = "Smooth Jazz"))
+        assertFalse("Uploader with exact title should not be eligible", evaluation.eligibleForTop)
+    }
+
+    @Test
+    fun uploaderChannel_isHeavilyPenalized() {
+        val intent = UnifiedSearchEngine.parse("bad guy")
+        val seo = UnifiedSearchEngine.score(intent, track("bad guy", "Lyrics Channel"))
+        val studio = UnifiedSearchEngine.score(intent, track("bad guy", "Billie Eilish"))
+        assertTrue(studio.finalScore > seo.finalScore)
+        assertFalse("Uploader channel should not be eligible for top", seo.eligibleForTop)
+    }
+
+    @Test
+    fun processDeduplicatesIdenticalSongs() {
+        val response = UnifiedSearchEngine.process(
+            "sting desert rose",
+            listOf(
+                track("Desert Rose", "Sting"),
+                track("Desert Rose", "Sting"),
+                track("Desert Rose", "Sting"),
+                track("Desert Rose", "Sting", album = "Brand New Day"),
+                track("Desert Rose (Official Audio)", "Sting")
+            )
+        )
+        assertTrue("Too many duplicate Sting results: ${response.songs.size}", response.songs.size <= 2)
+    }
 }

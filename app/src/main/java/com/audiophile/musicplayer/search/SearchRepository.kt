@@ -10,6 +10,7 @@ import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.ContentPurityFilter
 import com.audiophile.musicplayer.playback.NowPlayingStateStore
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.canonical.CanonicalAlbum
 import com.audiophile.musicplayer.data.canonical.CanonicalArtist
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +75,7 @@ class SearchRepository(
         val sourceTracks = sourceResults.map { CanonicalMapper.mapToCanonicalTrack(it) }
         val mappedLocal = localMatches.map { CanonicalMapper.mapToCanonicalTrack(it) }
         // Catalog hits first (gateway order), then library — no local re-ranking.
-        val canonicalResults = sourceTracks + mappedLocal
+        val canonicalResults = (sourceTracks + mappedLocal).distinctBy { canonicalTrackKey(it) }
 
         val response = UnifiedSearchEngine.process(textQuery, canonicalResults)
         
@@ -91,4 +92,13 @@ class SearchRepository(
             )
         )
     }
+}
+
+private fun canonicalTrackKey(track: CanonicalTrack): String {
+    val (cleanTitle, cleanArtist) = DisplayMetadataCleaner.computeDisplayTitleArtist(track.title, track.artist)
+    val artistBase = cleanArtist
+        .replace(Regex("""\s*feat\.?\s+.*$""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s*\(feat\..*$""", RegexOption.IGNORE_CASE), "")
+        .trim()
+    return "${cleanTitle.lowercase()}|${artistBase.lowercase()}"
 }

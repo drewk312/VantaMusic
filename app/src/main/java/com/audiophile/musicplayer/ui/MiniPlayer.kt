@@ -81,9 +81,9 @@ fun MiniPlayer(
     )
     val displayArtist = buildString {
         append(cleaned.artist.ifBlank { rawArtist ?: "Unknown Artist" })
-        if (nowPlayingState.featuredArtists.isNotEmpty()) {
+        if (cleaned.featuredArtists.isNotEmpty()) {
             append(" feat. ")
-            append(nowPlayingState.featuredArtists.joinToString(", "))
+            append(cleaned.featuredArtists.joinToString(", "))
         }
     }
     if (displayTitle == "Unknown Title" || displayArtist == "Unknown Artist") {
@@ -294,3 +294,4 @@ private fun MiniPlayerWaveform(
         }
     }
 }
+

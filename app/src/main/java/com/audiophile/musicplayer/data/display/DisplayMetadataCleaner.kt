@@ -8,23 +8,25 @@ data class DisplayMetadata(
     val album: String?,
     val explicit: Boolean? = null,
     val reason: String,
-    val qualityInfo: VantaQualityInfo? = null
+    val qualityInfo: VantaQualityInfo? = null,
+    val featuredArtists: List<String> = emptyList()
 )
 
 data class PlaybackDisplay(
     val title: String,
     val artist: String,
     val versionLabel: String? = null,
-    val isAlternateVersion: Boolean = false
+    val isAlternateVersion: Boolean = false,
+    val featuredArtists: List<String> = emptyList()
 )
 
 object DisplayMetadataCleaner {
 
     fun cleanTitle(rawTitle: String): String {
-        val suffixCleanedTitle = stripSuffixes(rawTitle).let { it.ifBlank { rawTitle } }
+        val suffixCleanedTitle = stripSuffixes(replaceUnderscoresWithSpaces(rawTitle)).let { it.ifBlank { rawTitle } }
         val artistTitle = parseArtistTitle(suffixCleanedTitle)
         if (artistTitle != null) {
-            return stripSuffixes(artistTitle.second).let { it.ifBlank { suffixCleanedTitle } }
+            return replaceUnderscoresWithSpaces(stripSuffixes(artistTitle.second)).let { it.ifBlank { suffixCleanedTitle } }
         }
         return suffixCleanedTitle
     }
@@ -36,8 +38,9 @@ object DisplayMetadataCleaner {
 
     fun cleanArtistName(artist: String?): String? {
         if (artist == null || artist.isBlank()) return artist
-        if (!artist.any { it.isLetter() }) return artist
-        val trimmed = artist.trim()
+        val trimmed = replaceUnderscoresWithSpaces(artist)
+        if (!trimmed.any { it.isLetter() }) return trimmed
+
         if (trimmed.any { it.isLowerCase() }) {
             var cleaned = trimmed
             for (suffix in listOf(" - Topic", " - VEVO", "VEVO", "- Topic", " Topic", "Official", "Music")) {
@@ -45,7 +48,7 @@ object DisplayMetadataCleaner {
                     cleaned = cleaned.substring(0, cleaned.length - suffix.length).trim()
                 }
             }
-            cleaned = cleaned.trimEnd('-', ' ').trim()
+            cleaned = cleaned.trimEnd('-', ' ', '.').trim()
             return cleaned.ifBlank { trimmed }
         }
         val words = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -53,6 +56,10 @@ object DisplayMetadataCleaner {
         return result
     }
 
+
+    private fun replaceUnderscoresWithSpaces(text: String): String {
+        return text.replace('_', ' ').trim()
+    }
     private fun normalizeWord(word: String): String {
         val lower = word.lowercase().removeSurrounding("\"", "\"").removeSurrounding("'", "'")
         if (lower in setOf("mc", "dj", "dj'")) {
@@ -90,6 +97,28 @@ object DisplayMetadataCleaner {
         "SoundCloud", "Bandcamp", "TorBox", "Real-Debrid", "RealDebrid"
     )
 
+    private val featurePattern = Regex(
+        """(?i)\s*[\(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+([^\)\]]+)\s*[\)\]]|\s+\b(?:feat\.?|featuring|ft\.?|with)\s+(.+?)(?:\s*[\(\[]|$)"""
+    )
+
+    fun extractFeaturedArtists(rawTitle: String, rawArtist: String = ""): List<String> {
+        val candidates = mutableListOf<String>()
+        featurePattern.findAll("$rawTitle $rawArtist").forEach { match ->
+            val raw = (match.groups[1]?.value ?: match.groups[2]?.value ?: "").trim()
+            if (raw.isNotBlank()) {
+                // Split on common separators like &, and, vs, comma
+                raw.split(Regex("""(?i)\s*(?:,|\&|and|vs\.?|x)\s*"""))
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .forEach { candidates.add(it) }
+            }
+        }
+        return candidates
+            .map { cleanArtistName(it) ?: it }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
     fun cleanAlbumName(album: String?): String? {
         if (album.isNullOrBlank()) return null
         val trimmed = album.trim()
@@ -106,28 +135,61 @@ object DisplayMetadataCleaner {
         explicit: Boolean? = null,
         providerId: String? = null
     ): DisplayMetadata {
+        val featuredArtists = extractFeaturedArtists(rawTitle, rawArtist)
         val suffixCleanedTitle = stripSuffixes(rawTitle).let { it.ifBlank { rawTitle } }
         val artistTitle = parseArtistTitle(suffixCleanedTitle)
 
+        val enrichedArtist = enrichArtistWithFeatured(finalArtist = null, featuredArtists = featuredArtists)
+
         if (artistTitle != null) {
             val (parsedArtist, parsedSong) = artistTitle
-            val displayArtist = cleanChannelName(rawArtist, parsedArtist)
-            val displayTitle = stripSuffixes(parsedSong)
+            val displayArtistRaw = cleanChannelName(rawArtist, parsedArtist)
+            val displayArtist = enrichArtistWithFeatured(displayArtistRaw, featuredArtists)
+            val displayTitle = replaceUnderscoresWithSpaces(stripSuffixes(parsedSong))
             if (displayTitle.isNotBlank()) {
                 Log.d("VANTA_METADATA_CLEAN",
                     "rawTitle='${rawTitle}' rawArtist='${rawArtist}' displayTitle='${displayTitle}' displayArtist='${displayArtist}' surface='DisplayMetadataCleaner' reason='youtube_title_artist_parse'")
-                return DisplayMetadata(title = displayTitle, artist = displayArtist, album = cleanAlbumName(rawAlbum), explicit = explicit, reason = "youtube_title_artist_parse")
+                return DisplayMetadata(
+                    title = displayTitle,
+                    artist = displayArtist,
+                    album = cleanAlbumName(rawAlbum),
+                    explicit = explicit,
+                    reason = "youtube_title_artist_parse",
+                    featuredArtists = featuredArtists
+                )
             }
         }
 
-        val finalTitle = suffixCleanedTitle
-        val finalArtist = cleanChannelName(rawArtist, null)
+        val finalTitle = replaceUnderscoresWithSpaces(suffixCleanedTitle)
+        val finalArtist = enrichArtistWithFeatured(cleanChannelName(rawArtist, null), featuredArtists)
         val reason = if (finalTitle != rawTitle) "youtube_strip_suffixes" else "raw_provider"
 
         Log.d("VANTA_METADATA_CLEAN",
             "rawTitle='${rawTitle}' rawArtist='${rawArtist}' displayTitle='${finalTitle}' displayArtist='${finalArtist}' surface='DisplayMetadataCleaner' reason='${reason}'")
 
-        return DisplayMetadata(title = finalTitle, artist = finalArtist, album = cleanAlbumName(rawAlbum), explicit = explicit, reason = reason)
+        return DisplayMetadata(
+            title = finalTitle,
+            artist = finalArtist,
+            album = cleanAlbumName(rawAlbum),
+            explicit = explicit,
+            reason = reason,
+            featuredArtists = featuredArtists
+        )
+    }
+
+    private fun enrichArtistWithFeatured(finalArtist: String?, featuredArtists: List<String>): String {
+        val base = finalArtist?.ifBlank { null } ?: return featuredArtists.joinToString(", ")
+        val distinctFeatured = featuredArtists
+            .map { replaceUnderscoresWithSpaces(it).trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .filter { featured ->
+                !base.split(",").any { segment ->
+                    segment.trim().equals(featured, ignoreCase = true)
+                }
+            }
+        if (distinctFeatured.isEmpty()) return base
+        return "$base feat. ${distinctFeatured.joinToString(", ")}"
     }
 
     fun parseArtistTitle(title: String): Pair<String, String>? {
@@ -136,12 +198,21 @@ object DisplayMetadataCleaner {
             if (idx > 0 && idx < title.length - sep.length) {
                 val candidateArtist = title.substring(0, idx).trim()
                 val candidateTitle = title.substring(idx + sep.length).trim()
-                if (candidateArtist.isNotBlank() && candidateTitle.isNotBlank()) {
+                if (candidateArtist.isNotBlank() && candidateTitle.isNotBlank() && !looksLikeChannelName(candidateArtist)) {
                     return candidateArtist to candidateTitle
                 }
             }
         }
         return null
+    }
+
+    private fun looksLikeChannelName(artist: String): Boolean {
+        val lower = artist.lowercase()
+        if (platformNames.any { lower == it.lowercase() }) return true
+        if (channelSuffixes.any { lower.endsWith(it.lowercase()) }) return true
+        // reject generic aggregator names like "various artists" parsed from title
+        if (lower in setOf("various artists", "unknown artist", "music", "audio")) return true
+        return false
     }
 
     fun cleanMiniBarTitle(rawTitle: String): String {
@@ -154,14 +225,22 @@ object DisplayMetadataCleaner {
 
     fun stripSuffixes(text: String): String {
         var result = text.trim()
+        // Strip known platform/suffix labels
         for (suffix in titleSuffixes) {
             while (result.endsWith(suffix, ignoreCase = true)) {
                 result = result.substring(0, result.length - suffix.length).trim()
             }
         }
+        // Strip featured-artist suffixes after we have extracted them separately
         result = result.replace(
             Regex(
-                pattern = """(?i)\s*[-–—]\s*(with\s+)?(lyrics?|lyric\s+video|official\s+(audio|music\s+video|video)|audio|visualizer|hq|hd)[!?.\s]*$"""
+                """(?i)\s*[\(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^\)\]]+\s*[\)\]]"""
+            ),
+            ""
+        ).trim()
+        result = result.replace(
+            Regex(
+                pattern = """(?i)\s*[-–—]\s*(with\s+)?(lyrics?|lyric\s+video|official\s+(audio|music\s+video|video)|audio|visualizer|hq|hd)[!?\.\s]*$"""
             ),
             ""
         ).trim()
@@ -218,20 +297,22 @@ object DisplayMetadataCleaner {
             title = title,
             artist = display.artist,
             versionLabel = versionLabel,
-            isAlternateVersion = versionLabel != null
+            isAlternateVersion = versionLabel != null,
+            featuredArtists = display.featuredArtists
         )
     }
 
     fun cleanChannelName(rawArtist: String, parsedArtist: String?): String {
         if (parsedArtist != null && parsedArtist.isNotBlank()) {
-            return parsedArtist
+            return replaceUnderscoresWithSpaces(parsedArtist)
         }
-        var artist = rawArtist.trim()
+        var artist = replaceUnderscoresWithSpaces(rawArtist.trim())
         for (suffix in channelSuffixes) {
             if (artist.endsWith(suffix, ignoreCase = true)) {
                 artist = artist.substring(0, artist.length - suffix.length).trim()
             }
         }
-        return artist.ifBlank { rawArtist.trim() }
+        return artist.ifBlank { replaceUnderscoresWithSpaces(rawArtist.trim()) }
     }
 }
+

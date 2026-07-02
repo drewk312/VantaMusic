@@ -9,9 +9,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -23,10 +24,14 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -143,6 +148,7 @@ fun LyricsView(
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val syncPreferences = remember(context) { LyricsSyncPreferences(context) }
+    val haptic = LocalHapticFeedback.current
     val pipelineLeadMs = remember(context) { VantaEqualizerPreferences(context).lyricsPipelineLeadMs() }
 
     var livePositionMs by remember { mutableLongStateOf(positionMs.coerceAtLeast(0L)) }
@@ -167,7 +173,7 @@ fun LyricsView(
             } else {
                 val reported = latestPositionMs.coerceAtLeast(0L)
                 val predicted = extrapolateFromMs + (System.currentTimeMillis() - extrapolateFromWall)
-                if (kotlin.math.abs(reported - predicted) > 1_500L) {
+                if (kotlin.math.abs(reported - predicted) > 500L) {
                     extrapolateFromMs = reported
                     extrapolateFromWall = System.currentTimeMillis()
                 }
@@ -188,25 +194,39 @@ fun LyricsView(
     val seekToLine: (Long) -> Unit = { targetMs ->
         val maxMs = effectiveDurationMs.coerceAtLeast(1L)
         val rawPlaybackMs = (targetMs - offsetMs - pipelineLeadMs).coerceAtLeast(0L)
-        val clamped = rawPlaybackMs.coerceIn(0L, (maxMs - 1_000L).coerceAtLeast(0L))
+        val clamped = rawPlaybackMs.coerceIn(0L, maxMs.coerceAtLeast(0L))
+        android.util.Log.d("VANTA_LYRICS_SEEK", "seekToLine targetMs=$targetMs clamped=$clamped offset=$offsetMs lead=$pipelineLeadMs")
         livePositionMs = clamped
         seekTargetMs = clamped
         seekGeneration++
         userScrollHoldUntilMs = 0L
         onSeekTo(clamped)
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun lineSeekTargetMs(index: Int, line: com.audiophile.musicplayer.data.lyrics.LyricsLine): Long {
         line.startTimeMs?.takeIf { it >= 0L }?.let { return it }
         val lineCount = lyricsData.lines.size.coerceAtLeast(1)
         val fallbackDuration = effectiveDurationMs.coerceAtLeast(210_000L)
-        return ((index.toFloat() / lineCount.toFloat()) * fallbackDuration).toLong().coerceAtLeast(2_000L)
+        return ((index.toFloat() / lineCount.toFloat()) * fallbackDuration).toLong().coerceAtLeast(0L)
     }
 
     val hasTimings = lyricsData.lines?.any { (it.startTimeMs ?: 0L) > 0L } == true
-    val activeIndex = remember(lyricsData, adjustedPositionMs) {
+    val activeIndex = remember(lyricsData, adjustedPositionMs, livePositionMs) {
         if (lyricsData.lines.isNullOrEmpty()) return@remember -1
-        lyricsData.lines.indexOfLast { (it.startTimeMs ?: -1L) <= adjustedPositionMs }
+        val precise = lyricsData.lines.indexOfLast { line ->
+            val start = line.startTimeMs ?: -1L
+            val end = line.endTimeMs
+            start <= adjustedPositionMs && (end == null || adjustedPositionMs < end)
+        }
+        val idx = if (precise >= 0) precise
+        else lyricsData.lines.indexOfLast { (it.startTimeMs ?: -1L) <= adjustedPositionMs }
+        if (idx >= 0 && lyricsData.lines[idx].startTimeMs != null) {
+            val lineStart = lyricsData.lines[idx].startTimeMs ?: 0L
+            val offset = adjustedPositionMs - lineStart
+            android.util.Log.d("VANTA_LYRICS_TRUTH", "activeIndex=$idx lineStart=${lineStart}ms adjPos=${adjustedPositionMs}ms livePos=${livePositionMs}ms offset=${offset}ms")
+        }
+        idx
     }
 
     LaunchedEffect(listState) {
@@ -238,8 +258,6 @@ fun LyricsView(
     }
 
     Box(modifier = modifier) {
-        val focusTopPadding = 12.dp
-        val focusBottomPadding = if (showOffsetSlider) 120.dp else 48.dp
 
         LazyColumn(
             state = listState,
@@ -270,14 +288,16 @@ fun LyricsView(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 56.dp)
+                        .heightIn(min = 72.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .clickable(
-                            onClick = { seekToLine(lineSeekTargetMs(index, line)) },
-                            onClickLabel = "Seek to this lyric"
-                        )
                         .graphicsLayer(alpha = alpha, scaleX = scale, scaleY = scale, transformOrigin = TransformOrigin(0f, 0.5f))
-                        .padding(horizontal = 8.dp, vertical = 10.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures { _ ->
+                                seekToLine(lineSeekTargetMs(index, line))
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 16.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
                     Column {
                         val lineStart = line.startTimeMs
@@ -314,6 +334,13 @@ fun LyricsView(
             }
         }
 
+        LyricsSyncHeader(
+            offsetMs = offsetMs,
+            showOffsetSlider = showOffsetSlider,
+            onToggle = { showOffsetSlider = !showOffsetSlider },
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
+        )
+
         AnimatedVisibility(
             visible = showOffsetSlider,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -324,7 +351,7 @@ fun LyricsView(
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     text = "Lyrics sync  ${if (offsetSeconds >= 0) "+" else ""}${"%.1f".format(offsetSeconds)}s",
@@ -342,6 +369,29 @@ fun LyricsView(
                         colors = SliderDefaults.colors(thumbColor = AppAccent, activeTrackColor = AppAccent, inactiveTrackColor = AppAccent.copy(alpha = 0.25f))
                     )
                     Text("+10s", color = AppTextMuted, fontSize = 10.sp)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LyricsSyncChip(text = "−0.5s", onClick = {
+                        val newOffset = (offsetMs - 500L).coerceIn(-10_000L, 10_000L)
+                        offsetMs = newOffset
+                        syncPreferences.setOffsetMs(lyricsData.trackKey, newOffset)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    })
+                    LyricsSyncChip(text = "+0.5s", onClick = {
+                        val newOffset = (offsetMs + 500L).coerceIn(-10_000L, 10_000L)
+                        offsetMs = newOffset
+                        syncPreferences.setOffsetMs(lyricsData.trackKey, newOffset)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    })
+                    LyricsSyncChip(text = "RESET", isReset = true, onClick = {
+                        offsetMs = 0L
+                        syncPreferences.setOffsetMs(lyricsData.trackKey, 0L)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    })
                 }
             }
         }
@@ -416,22 +466,70 @@ private fun KaraokeLyricText(
 }
 
 @Composable
-private fun LyricsAtmosphereEdgeFades(showOffsetSlider: Boolean, modifier: Modifier = Modifier) {
-    Box(modifier = modifier) {
-        Box(
-            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().height(110.dp).drawBehind {
-                drawRect(brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(Color.Black.copy(alpha = 0.20f), Color.Transparent)
-                ))
-            }
-        )
-        Box(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .height(if (showOffsetSlider) 160.dp else 120.dp).drawBehind {
-                drawRect(brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f))
-                ))
-            }
+private fun LyricsSyncHeader(
+    offsetMs: Long,
+    showOffsetSlider: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val offsetSeconds = offsetMs / 1000f
+    val label = when {
+        offsetMs == 0L -> "SYNC"
+        offsetSeconds > 0 -> "+${"%.1f".format(offsetSeconds)}s"
+        else -> "${"%.1f".format(offsetSeconds)}s"
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (showOffsetSlider) AppAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.07f))
+            .border(0.5.dp, AppAccent.copy(alpha = if (showOffsetSlider) 0.45f else 0.18f), RoundedCornerShape(50))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Tune,
+                contentDescription = null,
+                tint = AppAccent,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = VantaType.caption.copy(
+                    fontSize = 11.sp,
+                    color = AppAccent,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.5.sp
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun LyricsSyncChip(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isReset: Boolean = false
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (isReset) AppAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f))
+            .border(0.5.dp, if (isReset) AppAccent.copy(alpha = 0.35f) else AppTextSecondary.copy(alpha = 0.2f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = text,
+            style = VantaType.caption.copy(
+                fontSize = 11.sp,
+                color = if (isReset) AppAccent else AppText,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp
+            )
         )
     }
 }

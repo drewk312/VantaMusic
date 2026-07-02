@@ -17,6 +17,8 @@ data class VantaEqualizerConfig(
     val tubeDrive: Float = 0.5f,
     val bassCannonEnabled: Boolean = false,
     val bassCannonAmount: Float = 0.5f,
+    val trebleEnabled: Boolean = false,
+    val trebleBoostAmount: Float = 0.5f,
     val autoEqEnabled: Boolean = false,
     val autoEqProfileName: String? = null,
     val limiterEnabled: Boolean = true,
@@ -37,11 +39,12 @@ data class VantaEqualizerConfig(
 
 enum class VantaEqualizerPreset(val label: String, val gains: List<Float>) {
     FLAT("Flat", List(31) { 0f }),
+    BASS_BOOST("Bass Boost", listOf(6f,6f,6f,6f,5f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    TREBLE_BOOST("Treble Boost", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,6f,6f,6f,6f,6f,6f)),
     STUDIO("Studio", listOf(0f,0f,0f,0f,0f,0f,0f,2f,2f,3f,3f,2f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     CONCERT_HALL("Concert Hall", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     CINEMA("Cinema", listOf(2f,2f,2f,2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f)),
     INTIMATE("Intimate", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    BASS_BOOST("Bass Cannon", listOf(6f,6f,6f,6f,5f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     VOCAL("Intimate Vocal", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
     ELECTRONIC("Electronic Pulse", listOf(4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,-1f,-1f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,2f,1f,1f,0f,0f)),
 }

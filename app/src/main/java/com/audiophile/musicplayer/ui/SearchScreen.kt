@@ -92,7 +92,10 @@ fun SearchScreen(
     onStartStation: (String) -> Unit = {},
     onOpenTrackSheet: ((CanonicalTrack) -> Unit)? = null,
     onQuickPlay: (String) -> Unit = {},
-    miniPlayerVisible: Boolean = false
+    onImportEclipsePlaylist: (String) -> Unit = {},
+
+    miniPlayerVisible: Boolean = false,
+    bottomNavVisible: Boolean = false
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember(context) {
@@ -140,7 +143,7 @@ fun SearchScreen(
             .padding(horizontal = 24.dp)
             .padding(
                 top = appTopContentPadding(),
-                bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible)
+                bottom = appBottomContentPadding(isMiniPlayerVisible = miniPlayerVisible, isBottomNavVisible = bottomNavVisible)
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -314,8 +317,8 @@ fun SearchScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
                             text = "Browse Categories",
-                            color = AppTextSecondary,
-                            fontSize = 18.sp,
+                            color = AppText,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
@@ -325,7 +328,7 @@ fun SearchScreen(
                                 SearchCategory("Pop", Color(0xFFE05275), Color(0xFFF78FA7)),
                                 SearchCategory("Country", Color(0xFFD37C44), Color(0xFFE89E6C)),
                                 SearchCategory("Hits", Color(0xFFE5B83B), Color(0xFFF7D565)),
-                                SearchCategory("Hip-Hop", Color(0xFF4C7CE5), Color(0xFF7AA2F7)),
+                                SearchCategory("Hip-Hop", Color(0xFFB87333), Color(0xFFD4A373)),
                                 SearchCategory("Dance", Color(0xFF2CB07B), Color(0xFF5ED8A5)),
                                 SearchCategory("Rock", Color(0xFFDF523E), Color(0xFFF58A78)),
                                 SearchCategory("Chill", Color(0xFF1E8D91), Color(0xFF4DB6AC)),
@@ -1829,3 +1832,4 @@ private fun SearchShimmer(modifier: Modifier = Modifier) {
         }
     }
 }
+

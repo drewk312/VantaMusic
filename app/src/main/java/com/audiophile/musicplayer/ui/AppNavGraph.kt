@@ -1,19 +1,19 @@
 package com.audiophile.musicplayer.ui
 
 import androidx.activity.compose.BackHandler
+import com.audiophile.musicplayer.social.VantaSocialManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +61,7 @@ import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import android.content.Intent
 import android.util.Log
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
@@ -143,6 +144,8 @@ fun AppNavGraph(
     personalizedMixViewModel: PersonalizedMixViewModel,
     visualizerViewModel: VantaVisualizerViewModel,
     accountManager: com.audiophile.musicplayer.account.AccountManager,
+    vantaSocialManager: VantaSocialManager,
+
     sharedImportPayload: SharedImportPayload? = null,
     onSharedImportConsumed: () -> Unit = {}
 ) {
@@ -270,11 +273,14 @@ fun AppNavGraph(
         }
     }
 
+    val density = LocalDensity.current
+    val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
     val showBottomNav = ChromeVisibilityPolicy.shouldShowBottomNav(
         route = route,
         hasDetailOverlay = detailRoute != null,
         hasRadioStationOverlay = radioStationId != null,
-        hasMixOverlay = mixRoute != null
+        hasMixOverlay = mixRoute != null,
+        isKeyboardVisible = isKeyboardVisible
     )
 
     var driveReturnRoute by rememberSaveable { mutableStateOf(AppRoute.Home) }
@@ -504,6 +510,7 @@ fun AppNavGraph(
                         albums = uiState.libraryAlbums,
                         catalog = uiState.artistCatalog?.takeIf { it.artist.name.equals(dr.name, ignoreCase = true) },
                         catalogLoading = uiState.artistCatalogLoading,
+                        searchTracks = uiState.sourceResults.filter { it.artist.equals(dr.name, ignoreCase = true) },
                         onBack = { closeDetail() },
                         onPlayArtistRadio = {
                             Log.d("VANTA_ACTION_TRUTH", "action='artist_radio' artist='${dr.name}'")
@@ -661,6 +668,8 @@ fun AppNavGraph(
                         openRootDetail(DetailRoute(DetailRoute.Type.Album, albumName, null, secondaryName = artistName, artworkUrl = artworkUrl))
                     },
                     accountManager = accountManager,
+                    vantaSocialManager = vantaSocialManager,
+
                     onOpenAccount = { route = AppRoute.Account }
                 )
                 AppRoute.Library -> LibraryScreen(
@@ -714,7 +723,10 @@ fun AppNavGraph(
                         }
                     },
                     onQuickPlay = mainViewModel::quickPlayFromUrl,
-                    miniPlayerVisible = miniPlayerVisible
+                    onImportEclipsePlaylist = mainViewModel::importEclipsePlaylist,
+
+                    miniPlayerVisible = miniPlayerVisible,
+                    bottomNavVisible = showBottomNav
                 )
                 AppRoute.Drive -> DriveModeScreen(
                     nowPlayingState = nowPlayingState,
@@ -947,19 +959,18 @@ fun AppNavGraph(
         }
         }
 
-        val navBarHeightDp = with(LocalDensity.current) {
-            WindowInsets.systemBars.only(WindowInsetsSides.Bottom).getBottom(this).toDp()
-        }
         if (miniPlayerVisible || showBottomNav) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(30f)
+                    .fillMaxWidth()
                     .padding(
                         start = VantaChrome.overlayHorizontal,
                         end = VantaChrome.overlayHorizontal,
-                        bottom = navBarHeightDp
-                    ),
+                        bottom = 0.dp
+                    )
+                    .safeDrawingPadding(),
                 verticalArrangement = Arrangement.spacedBy(VantaChrome.overlayGap)
             ) {
                 if (miniPlayerVisible) {
@@ -1180,3 +1191,6 @@ fun mapTrackToContext(
         isNowPlaying = isNowPlaying
     )
 }
+
+
+

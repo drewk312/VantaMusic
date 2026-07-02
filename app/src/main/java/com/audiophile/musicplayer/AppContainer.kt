@@ -24,6 +24,8 @@ import com.audiophile.musicplayer.data.lastfm.LastFmScrobbler
 import com.audiophile.musicplayer.radio.LiveRadioTrackLibrary
 import com.audiophile.musicplayer.data.llm.PulseAiBrain
 import com.audiophile.musicplayer.data.importer.LibraryImporter
+import com.audiophile.musicplayer.data.importer.EclipsePlaylistImporter
+import com.audiophile.musicplayer.data.remote.eclipse.EclipsePlaylistApi
 import com.audiophile.musicplayer.data.importer.PlatformLinkResolver
 import com.audiophile.musicplayer.data.catalog.CatalogBrowseRepository
 import com.audiophile.musicplayer.data.local.DeviceMediaMetadataReader
@@ -53,6 +55,11 @@ import com.audiophile.musicplayer.data.connectors.ConnectedLibraryManager
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryTokenStore
 import com.audiophile.musicplayer.data.connectors.apple.AppleMusicLibraryConnector
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
+import com.audiophile.musicplayer.social.FriendActivityLocalSource
+import com.audiophile.musicplayer.social.FriendActivityRepository
+import com.audiophile.musicplayer.social.VantaSocialManager
+import com.audiophile.musicplayer.sync.SyncIdentityStore
+import com.audiophile.musicplayer.sync.VantaSyncManager
 import com.audiophile.musicplayer.playback.UpnpCastingManager
 import com.audiophile.musicplayer.playback.PlaybackStateHolder
 import com.audiophile.musicplayer.playback.PlayerController
@@ -121,6 +128,8 @@ class AppContainer(
             localLibraryRepository = localLibraryRepository
         )
     }
+
+
     val libraryImporter = LibraryImporter(
         localLibraryRepository,
         metadataResolver = metadataResolver,
@@ -205,6 +214,21 @@ class AppContainer(
         com.audiophile.musicplayer.playback.UpnpCastingHolder.manager = it
     }
     val accountManager = AccountManager(appContext)
+    val friendActivityLocalSource = FriendActivityLocalSource(appContext)
+    val friendActivityRepository = FriendActivityRepository(
+        localSource = friendActivityLocalSource,
+        accountManager = accountManager
+    )
+    val vantaSocialManager = VantaSocialManager(
+        context = appContext,
+        accountManager = accountManager,
+        repository = friendActivityRepository
+    )
+    val vantaSyncManager = VantaSyncManager(
+        context = appContext,
+        accountManager = accountManager,
+        trackRepository = trackRepository
+    )
 
     val downloadManager = AndroidTrackDownloadManager(appContext)
     val localMediaImporter = LocalMediaImporter(appContext, trackRepository)
@@ -237,6 +261,16 @@ class AppContainer(
         metadataResolver = metadataResolver
     )
         private set
+
+    val eclipsePlaylistApi = EclipsePlaylistApi(
+        okHttpClient = okhttp3.OkHttpClient()
+    )
+    val eclipsePlaylistImporter = EclipsePlaylistImporter(
+        eclipseApi = eclipsePlaylistApi,
+        trackRepository = trackRepository,
+        localLibraryRepository = localLibraryRepository,
+    )
+
 
     val djPersonaMemory = DjPersonaMemory(appContext)
     val stationTasteMemory = StationTasteMemory(appContext)
@@ -651,5 +685,7 @@ class ResolverConfigStore(context: Context) {
         prefs.edit().putString("station_auth_token", token?.trim()).apply()
     }
 }
+
+
 
 

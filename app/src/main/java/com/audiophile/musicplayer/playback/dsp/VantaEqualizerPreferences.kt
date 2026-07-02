@@ -30,6 +30,8 @@ class VantaEqualizerPreferences(context: Context) {
             tubeDrive = prefs.getFloat(PREF_TUBE_DRIVE, 0.5f).coerceIn(0f, 1f),
             bassCannonEnabled = prefs.getBoolean(PREF_BASS_CANNON_ENABLED, false),
             bassCannonAmount = prefs.getFloat(PREF_BASS_CANNON_AMOUNT, 0.5f).coerceIn(0f, 1f),
+            trebleEnabled = prefs.getBoolean(PREF_TREBLE_ENABLED, false),
+            trebleBoostAmount = prefs.getFloat(PREF_TREBLE_AMOUNT, 0.5f).coerceIn(0f, 1f),
             autoEqEnabled = prefs.getBoolean(PREF_AUTO_EQ_ENABLED, false),
             autoEqProfileName = prefs.getString(PREF_AUTO_EQ_PROFILE, null),
             limiterEnabled = prefs.getBoolean(PREF_LIMITER_ENABLED, true),
@@ -52,6 +54,8 @@ class VantaEqualizerPreferences(context: Context) {
                 putFloat(PREF_TUBE_DRIVE, config.tubeDrive)
                 putBoolean(PREF_BASS_CANNON_ENABLED, config.bassCannonEnabled)
                 putFloat(PREF_BASS_CANNON_AMOUNT, config.bassCannonAmount)
+                putBoolean(PREF_TREBLE_ENABLED, config.trebleEnabled)
+                putFloat(PREF_TREBLE_AMOUNT, config.trebleBoostAmount)
                 putBoolean(PREF_AUTO_EQ_ENABLED, config.autoEqEnabled)
                 putString(PREF_AUTO_EQ_PROFILE, config.autoEqProfileName)
                 putBoolean(PREF_LIMITER_ENABLED, config.limiterEnabled)
@@ -142,6 +146,8 @@ class VantaEqualizerPreferences(context: Context) {
         private const val PREF_TUBE_DRIVE = "tube_drive"
         private const val PREF_BASS_CANNON_ENABLED = "bass_cannon_enabled"
         private const val PREF_BASS_CANNON_AMOUNT = "bass_cannon_amount"
+        private const val PREF_TREBLE_ENABLED = "treble_enabled"
+        private const val PREF_TREBLE_AMOUNT = "treble_amount"
         private const val PREF_AUTO_EQ_ENABLED = "auto_eq_enabled"
         private const val PREF_AUTO_EQ_PROFILE = "auto_eq_profile"
         private const val PREF_LIMITER_ENABLED = "limiter_enabled"

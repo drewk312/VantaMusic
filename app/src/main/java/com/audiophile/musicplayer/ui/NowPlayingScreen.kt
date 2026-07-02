@@ -170,6 +170,20 @@ fun NowPlayingScreen(
     val animatedMidColorForBg by animateColorAsState(targetValue = screenMidColor, animationSpec = tween(900), label = "ambientMidColor")
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Cover-art-reactive immersive background
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            animatedTopColorForBg,
+                            animatedMidColorForBg,
+                            AppBackgroundBottom
+                        )
+                    )
+                )
+        )
         val isWide = maxWidth > maxHeight
         val isCompact = maxHeight < 680.dp
 

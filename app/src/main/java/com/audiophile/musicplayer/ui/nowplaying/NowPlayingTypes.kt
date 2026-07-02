@@ -69,7 +69,7 @@ fun resolveNowPlayingDisplaySnapshot(
         source = source,
         lyricsTrackId = lyricsTrackId,
         canDisplayLyrics = lyricsTrackId != null && lyricsTrackId == nowPlayingState.trackId,
-        featuredArtists = nowPlayingState.featuredArtists
+        featuredArtists = cleaned.featuredArtists.takeIf { it.isNotEmpty() } ?: nowPlayingState.featuredArtists
     )
 }
 
@@ -88,3 +88,4 @@ fun formatDuration(valueMs: Long): String {
 fun qualityLabelFromState(state: NowPlayingState): String? {
     return state.qualityInfo?.bestQualityLabel()
 }
+

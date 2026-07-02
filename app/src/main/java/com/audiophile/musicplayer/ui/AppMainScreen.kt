@@ -8,7 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.audiophile.musicplayer.account.AccountManager
+import com.audiophile.musicplayer.account.AccountManagerimport com.audiophile.musicplayer.social.VantaSocialManager
+
 import com.audiophile.musicplayer.data.dj.AiDjViewModel
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
 import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
@@ -25,7 +26,8 @@ fun AppMainScreen(
     aiDjViewModel: AiDjViewModel,
     personalizedMixViewModel: PersonalizedMixViewModel,
     visualizerViewModel: VantaVisualizerViewModel,
-    accountManager: AccountManager,
+    accountManager: AccountManager,    vantaSocialManager: VantaSocialManager,
+
     sharedImportPayload: SharedImportPayload? = null,
     onSharedImportConsumed: () -> Unit = {}
 ) {
@@ -43,10 +45,12 @@ fun AppMainScreen(
                 aiDjViewModel = aiDjViewModel,
                 personalizedMixViewModel = personalizedMixViewModel,
                 visualizerViewModel = visualizerViewModel,
-                accountManager = accountManager,
+                accountManager = accountManager,                vantaSocialManager = vantaSocialManager,
+
                 sharedImportPayload = sharedImportPayload,
                 onSharedImportConsumed = onSharedImportConsumed
             )
         }
     }
 }
+

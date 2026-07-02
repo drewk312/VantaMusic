@@ -44,11 +44,13 @@ object ContentPurityFilter {
         val bannedArtists = listOf("lofi girl", "steezyasfuck", "chilledcow")
         if (bannedArtists.any { a.contains(it) }) return false
 
-        // BAN: Non-music channel patterns (news, weather, location names, podcasts)
+        // BAN: Non-music channel patterns (news, weather, location names, podcasts, SEO uploaders)
         val nonMusicArtists = listOf(
             "news", "weather", "traffic", "radio", "podcast", "episode",
             "daily", "morning show", "evening update", "live at", "coverage",
             "watch mojo", "watchmojo", "top 10", "facts about", "biography",
+            "lyrics", "lyric", "official video", "official audio", "official music video",
+            "explicit", "clean version", "audio library", "no copyright",
             "alabama", "alaska", "arizona", "arkansas", "california",
             "colorado", "connecticut", "delaware", "florida", "georgia",
             "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas",

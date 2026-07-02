@@ -410,6 +410,7 @@ class MainActivity : ComponentActivity() {
                         personalizedMixViewModel = personalizedMixViewModel,
                         visualizerViewModel = visualizerViewModel,
                         accountManager = container.accountManager,
+                        vantaSocialManager = container.vantaSocialManager,
                         sharedImportPayload = sharedImportPayload,
                         onSharedImportConsumed = { sharedImportPayload = null }
                     )
@@ -527,3 +528,4 @@ class MainActivity : ComponentActivity() {
         sharedImportPayload?.let { outState.putSerializable("shared_import_payload", it) }
     }
 }
+

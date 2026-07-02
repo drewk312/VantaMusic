@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -98,6 +100,7 @@ fun VantaBeatProgressBar(
     val hasLiveAudio = audioFrame?.isLiveAudio == true
 
     Box(modifier = modifier.fillMaxWidth()) {
+        // Visual + drag layer: the invisible Slider handles drag scrubbing.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -143,6 +146,23 @@ fun VantaBeatProgressBar(
                 )
             }
         }
+        // Transparent tap overlay on top so taps always seek even if the Slider does not
+        // consume them. Drag gestures are ignored here and fall through to the Slider.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(touchTargetHeight)
+                .pointerInput(seekable, durationMs) {
+                    if (seekable) {
+                        detectTapGestures { offset ->
+                            val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                            val targetMs = seekTargetMs(durationMs, fraction)
+                            onSeek(targetMs)
+                            Log.d(TAG, "tap_seek positionMs=$targetMs durationMs=$durationMs fraction=$fraction")
+                        }
+                    }
+                }
+        )
 
         if (!mini) {
             Box(

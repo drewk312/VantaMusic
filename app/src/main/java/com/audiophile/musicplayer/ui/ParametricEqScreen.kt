@@ -92,6 +92,8 @@ fun ParametricEqScreen(
     var tubeDrive by remember { mutableFloatStateOf(initialConfig.tubeDrive) }
     var bassCannonEnabled by remember { mutableStateOf(initialConfig.bassCannonEnabled) }
     var bassCannonAmount by remember { mutableFloatStateOf(initialConfig.bassCannonAmount) }
+    var trebleEnabled by remember { mutableStateOf(initialConfig.trebleEnabled) }
+    var trebleBoostAmount by remember { mutableFloatStateOf(initialConfig.trebleBoostAmount) }
     var convolverEnabled by remember { mutableStateOf(initialConfig.convolverEnabled) }
     var limiterEnabled by remember { mutableStateOf(initialConfig.limiterEnabled) }
     var crossfeedEnabled by remember { mutableStateOf(initialConfig.crossfeedEnabled) }
@@ -121,9 +123,17 @@ fun ParametricEqScreen(
 
     fun pushConfig() {
         val processor = VantaEqualizerHolder.processor ?: return
+        val appliedBands = bandGains.toMutableList()
+        if (trebleEnabled) {
+            val trebleCurve = listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,6f,6f,6f,6f,6f,6f)
+            for (i in trebleCurve.indices) {
+                appliedBands[i] = (appliedBands[i] + trebleCurve[i] * trebleBoostAmount)
+                    .coerceIn(-12f, 12f)
+            }
+        }
         val config = VantaEqualizerConfig(
             eqEnabled = eqEnabled,
-            eqBands = bandGains.toList(),
+            eqBands = appliedBands,
             spatialEnabled = spatialEnabled,
             stereoWidenLevel = if (spatialEnabled) 0.5f else 0f,
             crossfeedEnabled = crossfeedEnabled,
@@ -134,11 +144,14 @@ fun ParametricEqScreen(
             tubeDrive = tubeDrive,
             bassCannonEnabled = bassCannonEnabled,
             bassCannonAmount = bassCannonAmount,
+            trebleEnabled = trebleEnabled,
+            trebleBoostAmount = trebleBoostAmount,
             convolverEnabled = convolverEnabled,
             limiterEnabled = limiterEnabled,
             preset = currentPreset,
         )
         processor.config = config
+        processor.forceApply()
         eqPrefs.save(config)
     }
 
@@ -356,6 +369,22 @@ fun ParametricEqScreen(
                     Text("Intensity", color = AppTextSecondary, fontSize = 11.sp)
                     Slider(
                         value = bassCannonAmount, onValueChange = { bassCannonAmount = it; pushConfig() },
+                        valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Treble Boost", color = AppText, fontSize = 13.sp)
+                        Text("High-frequency enhancement", color = AppTextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(checked = trebleEnabled, onCheckedChange = { trebleEnabled = it; pushConfig() })
+                }
+                if (trebleEnabled) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Boost", color = AppTextSecondary, fontSize = 11.sp)
+                    Slider(
+                        value = trebleBoostAmount, onValueChange = { trebleBoostAmount = it; pushConfig() },
                         valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor)
                     )
                 }

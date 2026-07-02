@@ -72,43 +72,42 @@ object UnifiedSearchEngine {
         val seenSongKeys = mutableSetOf<String>()
 
         for ((track, evaluation) in scoredTracks) {
+            // Only derive artist/album pages from explicitly typed results, not from every track row
             val category = detectCategory(track, normalizedQuery)
-            
-            when (category) {
-                Category.ARTIST -> {
-                    val artistName = track.artist.ifBlank { track.title }.trim()
-                    val key = normalize(artistName)
-                    if (key.isNotBlank() && !artists.containsKey(key)) {
-                        artists[key] = CanonicalArtist(
-                            name = artistName,
-                            id = track.externalTrackId ?: "resolved:artist:$key",
-                            genre = track.genre,
-                            artworkUrl = track.artworkUrl
-                        )
-                    }
+            if (category == Category.ARTIST) {
+                val artistName = track.artist.ifBlank { track.title }.trim()
+                val artistKey = normalize(artistName)
+                if (artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
+                    artists[artistKey] = CanonicalArtist(
+                        name = artistName,
+                        id = track.externalTrackId ?: "resolved:artist:$artistKey",
+                        genre = track.genre,
+                        artworkUrl = track.artworkUrl
+                    )
                 }
-                Category.ALBUM -> {
-                    val albumTitle = track.album?.trim().orEmpty().ifBlank { track.title.trim() }
-                    val artistName = track.artist.trim()
-                    val key = normalize("$albumTitle|$artistName")
-                    if (albumTitle.isNotBlank() && !albums.containsKey(key)) {
-                        albums[key] = CanonicalAlbum(
-                            title = albumTitle,
-                            artist = artistName,
-                            id = track.externalTrackId ?: "resolved:album:$key",
-                            artworkUrl = track.artworkUrl,
-                            releaseYear = track.releaseYear,
-                            genre = track.genre,
-                            trackCount = null
-                        )
-                    }
+            } else if (category == Category.ALBUM) {
+                val albumTitle = track.album?.trim().orEmpty().ifBlank { track.title.trim() }
+                val albumArtistName = track.artist.trim()
+                val albumKey = normalize("$albumTitle|$albumArtistName")
+                if (albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
+                    albums[albumKey] = CanonicalAlbum(
+                        title = albumTitle,
+                        artist = albumArtistName,
+                        id = track.externalTrackId ?: "resolved:album:$albumKey",
+                        artworkUrl = track.artworkUrl,
+                        releaseYear = track.releaseYear,
+                        genre = track.genre,
+                        trackCount = null
+                    )
                 }
-                Category.SONG -> {
-                    if (track.isLikelyMusicTrack() || track.sourceStatus == SearchItemStatus.METADATA_ONLY) {
-                        val key = "${normalize(track.title)}|${normalize(track.artist)}"
-                        if (seenSongKeys.add(key)) {
-                            songs.add(track)
-                        }
+            }
+
+            // Then categorize for song inclusion
+            if (category == Category.SONG) {
+                if (track.isLikelyMusicTrack() || track.sourceStatus == SearchItemStatus.METADATA_ONLY) {
+                    val key = "${normalize(track.title)}|${normalize(track.artist)}"
+                    if (seenSongKeys.add(key)) {
+                        songs.add(track)
                     }
                 }
             }
@@ -169,14 +168,60 @@ object UnifiedSearchEngine {
             val parts = raw.split(Regex(" by ", RegexOption.IGNORE_CASE), limit = 2)
             return SearchQueryIntent(raw, parts[0].trim(), parts[1].trim(), featured)
         }
-        
+
         if (raw.contains(" - ")) {
             val parts = raw.split(" - ", limit = 2)
             // Artist - Title is very common
             return SearchQueryIntent(raw, parts[1].trim(), parts[0].trim(), featured)
         }
 
+        // Heuristic: "Title Artist" where the last 1-2 words look like an artist name.
+        // For 3-word queries like "sting desert rose" (Artist + 2-word title), try both
+        // [artist=1, title=2] and [artist=last-1, title=first-2], and prefer the split whose
+        // title matches a famous song or whose artist is the canonical artist for that title.
+        val rawWords = raw.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        if (rawWords.size >= 3) {
+            data class Split(val artist: String, val title: String, val score: Int)
+            val candidates = mutableListOf<Split>()
+            val attemptNs = if (rawWords.size == 3) listOf(1, 2) else listOf(1, 2)
+            for (n in attemptNs) {
+                if (n >= rawWords.size) continue
+                val lastArtist = rawWords.takeLast(n).joinToString(" ")
+                val lastTitle = rawWords.dropLast(n).joinToString(" ")
+                if (lastArtist.length > 1 && lastTitle.length > 1) {
+                    candidates.add(Split(lastArtist, lastTitle, splitQualityScore(lastArtist, lastTitle)))
+                }
+                val firstArtist = rawWords.take(n).joinToString(" ")
+                val firstTitle = rawWords.drop(n).joinToString(" ")
+                if (firstArtist.length > 1 && firstTitle.length > 1) {
+                    candidates.add(Split(firstArtist, firstTitle, splitQualityScore(firstArtist, firstTitle)))
+                }
+            }
+            val best = candidates.maxByOrNull { it.score }
+            if (best != null && best.score >= 0) {
+                return SearchQueryIntent(raw, best.title, best.artist, featured)
+            }
+        }
+
         return SearchQueryIntent(raw, queryForParsing, null, featured)
+    }
+
+    private fun splitQualityScore(artist: String, title: String): Int {
+        var score = 0
+        val normTitle = normalize(title)
+        val normArtist = normalize(artist)
+        // Prefer titles that match a famous song
+        FamousSongRegistry.getArtist(normTitle)?.let { canonicalArtist ->
+            score += 100
+            if (normalize(canonicalArtist) == normArtist || normArtist.contains(normalize(canonicalArtist))) {
+                score += 200
+            }
+        }
+        // Prefer artist on either end; slight preference for short artist names
+        score += 5 - (normArtist.length / 8).coerceAtMost(5)
+        // Penalize artist words that look like title words (numbers, common articles)
+        if (normArtist in setOf("the", "a", "an", "and")) score -= 50
+        return score
     }
 
     /**
@@ -186,10 +231,18 @@ object UnifiedSearchEngine {
     private fun extractTypedArtist(normalizedQuery: String, normalizedTitle: String): String? {
         val titleWords = normalizedTitle.split(" ").filter { it.isNotBlank() }
         val queryWords = normalizedQuery.split(" ").filter { it.isNotBlank() }
-        // Query must start with the title words and have at least one extra word for the artist.
-        if (queryWords.size <= titleWords.size) return null
-        if (!queryWords.take(titleWords.size).equals(titleWords)) return null
-        val artistWords = queryWords.drop(titleWords.size)
+        // Find where the title ends inside the query; anything after is typed artist.
+        var titleEnd = -1
+        var titleIdx = 0
+        for ((idx, word) in queryWords.withIndex()) {
+            if (titleIdx < titleWords.size && word == titleWords[titleIdx]) {
+                titleIdx++
+                titleEnd = idx
+                if (titleIdx == titleWords.size) break
+            }
+        }
+        if (titleIdx != titleWords.size) return null
+        val artistWords = queryWords.drop(titleEnd + 1)
         return artistWords.joinToString(" ").takeIf { it.isNotBlank() }
     }
 
@@ -206,7 +259,7 @@ object UnifiedSearchEngine {
         val expectedArtist = intent.primaryArtist?.let { normalize(it) }
 
         var score = 0
-        
+
         // Title Score
         score += when {
             expectedTitle != null && normTitle == expectedTitle -> 200
@@ -214,16 +267,42 @@ object UnifiedSearchEngine {
             else -> scoreText(intent.rawQuery, title) / 2
         }
 
-        // Artist Score
+        // Resolve requested variant early so title/penalty logic can use it
+        val requestedVariant = resolveRequestedVariant(intent.rawQuery)
+        val requestedAnyVariant = requestedVariant != VariantClassifier.VariantType.UNKNOWN
+        // If a requested variant word appears in the title, give a strong boost even before exact title matching
+        if (requestedAnyVariant) {
+            val requestedMarker = when (requestedVariant) {
+                VariantClassifier.VariantType.PIANO -> "piano"
+                VariantClassifier.VariantType.LIVE -> "live"
+                VariantClassifier.VariantType.ACOUSTIC -> "acoustic"
+                VariantClassifier.VariantType.REMIX -> "remix"
+                VariantClassifier.VariantType.COVER -> "cover"
+                VariantClassifier.VariantType.INSTRUMENTAL -> "instrumental"
+                VariantClassifier.VariantType.KARAOKE -> "karaoke"
+                else -> null
+            }
+            if (requestedMarker != null && requestedMarker in normTitle) score += 400
+        }
+
+        // Artist Score — artist identity is as important as title identity.
         val artistMatch = when {
             expectedArtist != null && (normArtist == expectedArtist || normArtist.contains(expectedArtist)) -> true
             expectedArtist != null && expectedArtist.contains(normArtist) && normArtist.length > 3 -> true
             else -> false
         }
+        val artistOverlap = artistTokenOverlap(expectedArtist, normArtist)
         score += when {
-            artistMatch -> 100
+            artistMatch -> 300
+            expectedArtist != null && artistOverlap >= 0.5 -> 150
             expectedArtist != null && expectedArtist.contains(normArtist) && normArtist.length > 3 -> 40
             else -> 0
+        }
+
+        // Wrong-artist penalty — when we know the artist and the candidate has no real overlap,
+        // crush uploaders / tribute / cover channels that happen to match the title.
+        if (expectedArtist != null && !artistMatch && artistOverlap < 0.25 && normArtist.isNotBlank()) {
+            score -= 500
         }
 
         // Famous Registry Bonus — only when the candidate artist is the canonical artist.
@@ -235,7 +314,7 @@ object UnifiedSearchEngine {
                 if (normArtist.isNotBlank() &&
                     (normFamousArtist == normArtist || normFamousArtist.contains(normArtist) || normArtist.contains(normFamousArtist))
                 ) {
-                    score += 500
+                    score += 1000
                 }
             }
         }
@@ -243,7 +322,6 @@ object UnifiedSearchEngine {
         // Variant handling: if the user explicitly asked for a variant, boost tracks that ARE
         // that variant so the right recording can beat the canonical studio version.
         val trackVariant = VariantClassifier.classify(title, artist, track.album, intent.rawQuery).variantType
-        val requestedVariant = resolveRequestedVariant(intent.rawQuery)
         if (requestedVariant != VariantClassifier.VariantType.STUDIO_VOCAL &&
             requestedVariant != VariantClassifier.VariantType.UNKNOWN &&
             trackVariant == requestedVariant
@@ -253,12 +331,33 @@ object UnifiedSearchEngine {
 
         // Variant Penalties
         val (rejected, _) = VariantClassifier.isRejectedForStudioIntent(title, artist, track.album, intent.rawQuery)
-        if (rejected) score -= 200
+        if (rejected) score -= 400
+
+        // Quality penalties — penalize SEO/uploader garbage in title
+        val titleGarbageMarkers = listOf(
+            "official video", "official audio", "official music video", "lyric video",
+            "audio", "4k", "hd", "visualizer", "lyrics", "explicit", "clean"
+        )
+        if (titleGarbageMarkers.any { it in normTitle }) score -= 260
+        if (normTitle.startsWith("the ") || normTitle.startsWith("a ")) score -= 5
+        val titleNegMarkers = listOf(
+            "tribute", "cover", "karaoke", "instrumental", "remix", "8d", "nightcore",
+            "speed up", "slowed", "reverb", "tiktok", "ringtone", "dj mix",
+            "acoustic version", "live at", "live from"
+        )
+        if (titleNegMarkers.any { it in normTitle }) {
+            score += if (requestedAnyVariant && trackVariant == requestedVariant) 1000 else -260
+        }
 
         // Professionalism Bonus (penalize uploaders masquerading as artists)
-        val uploaderMarkers = listOf("7clouds", "vevo", "topic", "records", "official audio", "lyrics")
-        if (uploaderMarkers.any { it in normArtist }) score -= 40
-        
+        val uploaderMarkers = listOf(
+            "7clouds", "topic", "lyrics", "lyric", "uploader", "channel", "archive",
+            "hq", "hd", "videos", "audio library", "no copyright", "ncs", "covers",
+            "instrumental", "karafun", "sing king", "8d tunes"
+        )
+        if (uploaderMarkers.any { it in normArtist }) score -= 400
+        if (normArtist.endsWith("vevo") || normArtist.endsWith("topic")) score -= 80
+
         // Duration Bonus
         expectedTitle?.let { FamousSongRegistry.getDuration(it) }?.let { expectedMs ->
             track.durationMs?.let { actualMs ->
@@ -279,9 +378,18 @@ object UnifiedSearchEngine {
         //  - artist matches the expected artist when one is known
         val eligible = !rejected &&
             (expectedTitle == null || normTitle.contains(expectedTitle)) &&
-            (expectedArtist == null || artistMatch || isFamousArtistMatch(expectedTitle, normArtist))
+            (expectedArtist == null || artistMatch || artistOverlap >= 0.5 || isFamousArtistMatch(expectedTitle, normArtist))
 
         return Evaluation(score, eligible)
+    }
+
+    private fun artistTokenOverlap(expectedArtist: String?, candidateArtist: String): Float {
+        if (expectedArtist.isNullOrBlank() || candidateArtist.isBlank()) return 0f
+        val expectedTokens = expectedArtist.split(" ").filter { it.length > 1 }.toSet()
+        val candidateTokens = candidateArtist.split(" ").filter { it.length > 1 }.toSet()
+        if (expectedTokens.isEmpty() || candidateTokens.isEmpty()) return 0f
+        val intersection = expectedTokens.intersect(candidateTokens)
+        return intersection.size.toFloat() / expectedTokens.size.toFloat()
     }
 
     private fun isFamousArtistMatch(expectedTitle: String?, normArtist: String): Boolean {
@@ -387,7 +495,10 @@ object UnifiedSearchEngine {
             "hotel california" to ("Eagles" to 390_000L),
             "billie jean" to ("Michael Jackson" to 294_000L),
             "piano man" to ("Billy Joel" to 336_000L),
-            "down" to ("Jay Sean" to 212_000L)
+            "down" to ("Jay Sean" to 212_000L),
+            "victory lap five" to ("Fred Again" to 237_000L),
+            "victory lap 5" to ("Fred Again" to 237_000L),
+            "desert rose" to ("Sting" to 287_000L)
         )
 
         fun resolve(normalizedQuery: String): ResolvedSong? {

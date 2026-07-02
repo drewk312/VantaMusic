@@ -1,5 +1,6 @@
 package com.audiophile.musicplayer.data.lyrics
 
+import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
 import com.google.gson.Gson
 import com.google.gson.JsonParser
@@ -22,18 +23,102 @@ class LRCLibLyricsProvider : LyricsProvider {
 
     override suspend fun getLyrics(track: UnifiedTrack, isrc: String?): LyricsData? = withContext(Dispatchers.IO) {
         for (url in buildExactUrls(track, isrc)) {
-            val lyrics = fetchSingle(url)?.toLyricsData(track)
+            val response = fetchSingle(url) ?: continue
+            if (!durationAcceptable(response, track)) {
+                Log.d("VANTA_LYRICS_TRUTH", "lrclib exact rejected duration url='$url' resultDuration=${response.duration} expectedMs=${track.durationMs}")
+                continue
+            }
+            if (!artistAcceptable(response, track)) {
+                Log.d("VANTA_LYRICS_TRUTH", "lrclib exact rejected artist url='$url' resultArtist='${response.artistName}' expected='${track.artist}'")
+                continue
+            }
+            if (!titleAcceptable(response, track)) {
+                Log.d("VANTA_LYRICS_TRUTH", "lrclib exact rejected title url='$url' resultTitle='${response.trackName}' expected='${track.title}'")
+                continue
+            }
+            val lyrics = response.toLyricsData(track)
             if (lyrics != null) return@withContext lyrics
         }
 
         for (url in buildSearchUrls(track)) {
-            val lyrics = fetchSearch(url)
-                .sortedByDescending { scoreResult(it, track) }
-                .firstNotNullOfOrNull { it.toLyricsData(track) }
-            if (lyrics != null) return@withContext lyrics
+            val scored = fetchSearch(url)
+                .filter { durationAcceptable(it, track) }
+                .filter { artistAcceptable(it, track) }
+                .filter { titleAcceptable(it, track) }
+                .map { it to scoreResult(it, track) }
+                .sortedByDescending { it.second }
+            for ((response, score) in scored) {
+                Log.d("VANTA_LYRICS_TRUTH", "lrclib search url='$url' title='${response.trackName}' artist='${response.artistName}' score=$score synced=${!response.syncedLyrics.isNullOrBlank()}")
+                val lyrics = response.toLyricsData(track)
+                if (lyrics != null) return@withContext lyrics
+            }
         }
 
         return@withContext null
+    }
+
+    private fun durationAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
+        if (response.duration == null || track.durationMs == null || track.durationMs <= 0L) return true
+        val diffSec = kotlin.math.abs(response.duration - track.durationMs / 1000.0)
+        return diffSec <= 10.0
+    }
+
+    private fun artistAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
+        val targetArtist = normalizeForMatch(track.artist)
+        val resultArtist = normalizeForMatch(response.artistName.orEmpty())
+        if (targetArtist.isBlank() || resultArtist.isBlank()) return true
+        val targetTokens = targetArtist.split(" ").filter { it.length > 1 }
+        val resultTokens = resultArtist.split(" ").filter { it.length > 1 }
+        if (targetTokens.isEmpty()) return true
+        val resultContainsTarget = resultArtist.contains(targetArtist)
+        val targetContainsResult = targetArtist.contains(resultArtist)
+        val overlapRatio = if (resultTokens.isNotEmpty()) {
+            val both = targetTokens.intersect(resultTokens.toSet()).size
+            both.toFloat() / maxOf(targetTokens.size, resultTokens.size)
+        } else 0f
+        // Strong: result contains target artist exactly (handles featured artists)
+        // Medium: >= 50% token overlap with at least one shared meaningful token
+        return resultContainsTarget || targetContainsResult ||
+            (overlapRatio >= 0.5f && targetTokens.any { it in resultArtist })
+    }
+
+    private fun titleAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
+        val targetTitle = normalizeForMatch(track.title)
+        val resultTitle = normalizeForMatch(response.trackName.orEmpty())
+        if (targetTitle.isBlank() || resultTitle.isBlank()) return true
+        val targetTokens = targetTitle.split(" ").filter { it.length > 1 }
+        val resultTokens = resultTitle.split(" ").filter { it.length > 1 }
+        if (targetTokens.isEmpty()) return true
+        val resultContainsTarget = resultTitle.contains(targetTitle)
+        val targetContainsResult = targetTitle.contains(resultTitle)
+        val overlapRatio = if (resultTokens.isNotEmpty()) {
+            val both = targetTokens.intersect(resultTokens.toSet()).size
+            both.toFloat() / maxOf(targetTokens.size, resultTokens.size)
+        } else 0f
+
+        // Strict prefix check: if the result is a shorter version of the target, it is only
+        // acceptable when the missing words are common suffixes (live, acoustic, remix, etc.)
+        // and not core distinguishing words like "five/5".
+        if (targetContainsResult && targetTokens.size > resultTokens.size) {
+            val missingWords = targetTokens.filter { it !in resultTokens }
+            val meaningfulMissing = missingWords.filter { !isCommonTitleSuffix(it) }
+            if (meaningfulMissing.isNotEmpty()) {
+                Log.d("VANTA_LYRICS_TRUTH", "lrclib rejected title prefix: target='$targetTitle' result='$resultTitle' missing=${meaningfulMissing}")
+                return false
+            }
+        }
+
+        return resultContainsTarget || targetContainsResult ||
+            (targetTokens.any { it in resultTitle } && overlapRatio >= 0.6f)
+    }
+
+    private fun isCommonTitleSuffix(word: String): Boolean {
+        val suffixes = setOf(
+            "live", "acoustic", "remix", "edit", "version", "radio", "extended",
+            "mix", "cover", "instrumental", "karaoke", "studio", "original",
+            "feat", "ft", "featuring"
+        )
+        return word in suffixes
     }
 
     private fun buildExactUrls(track: UnifiedTrack, isrc: String?): List<String> {
@@ -135,12 +220,23 @@ class LRCLibLyricsProvider : LyricsProvider {
         var score = 0
         if (resultTitle == targetTitle) score += 80
         else if (resultTitle.contains(targetTitle) || targetTitle.contains(resultTitle)) score += 45
-        val artistTokens = targetArtist.split(" ").filter { it.length > 2 }
-        score += artistTokens.count { it in resultArtist } * 8
+        else score -= 60
+        val targetArtistTokens = targetArtist.split(" ").filter { it.length > 2 }
+        val matchedTokens = targetArtistTokens.count { it in resultArtist }
+        score += matchedTokens * 12
+        val missedTokens = targetArtistTokens.size - matchedTokens
+        if (missedTokens > 0) score -= missedTokens * 25
+        if (resultArtist.isNotBlank() && targetArtist.isNotBlank()) {
+            val resultTokens = resultArtist.split(" ").filter { it.length > 2 }
+            val targetContainedInResult = targetArtistTokens.any { resultArtist.contains(it) }
+            val resultContainedInTarget = resultTokens.any { targetArtist.contains(it) }
+            if (!targetContainedInResult && !resultContainedInTarget && targetArtistTokens.isNotEmpty()) score -= 50
+        }
         val durationMs = response.duration?.times(1000)?.toLong()
         if (durationMs != null && track.durationMs != null) {
             val diff = kotlin.math.abs(durationMs - track.durationMs)
             if (diff < 2_000L) score += 25 else if (diff < 8_000L) score += 10
+            else if (diff > 30_000L) score -= 20
         }
         if (!response.syncedLyrics.isNullOrBlank()) score += 6
         if (!response.plainLyrics.isNullOrBlank()) score += 3

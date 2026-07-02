@@ -40,20 +40,40 @@ class LyricsRepository(
             }
         }
         
-        // 3. Fetch from providers in priority order
+        // 3. Build title variants to try (handles "Victory Lap" -> "Victory Lap Five", etc.)
+        val titleVariants = buildTitleVariants(track.title)
+        
+        // 4. Fetch from providers in priority order, trying title variants
         for (provider in providers) {
-            var lyrics = provider.getLyrics(track, isrc)
+            val lyrics = tryTitleVariants(provider, track, isrc, titleVariants)
+            if (lyrics != null) return@withContext lyrics
+        }
+        
+        return@withContext null
+    }
+
+    private suspend fun tryTitleVariants(
+        provider: LyricsProvider,
+        track: UnifiedTrack,
+        isrc: String?,
+        titleVariants: List<String>
+    ): LyricsData? {
+        val cacheKey = CanonicalIdentityResolver.generateCanonicalId(isrc, null, track.title, track.artist, track.albumName, track.durationMs)
+        val allTitles = (listOf(track.title) + titleVariants).distinct()
+        for (variantTitle in allTitles) {
+            val variantTrack = if (variantTitle == track.title) track else track.copy(title = variantTitle)
             
-            // Fallback: title + artist + album (strip duration)
-            if (lyrics == null && track.durationMs != null) {
-                val trackWithoutDuration = track.copy(durationMs = null)
-                lyrics = provider.getLyrics(trackWithoutDuration, isrc)
+            // Try exact match
+            var lyrics = provider.getLyrics(variantTrack, isrc)
+            
+            // Fallback strip duration
+            if (lyrics == null && variantTrack.durationMs != null) {
+                lyrics = provider.getLyrics(variantTrack.copy(durationMs = null), isrc)
             }
             
-            // Fallback: title + artist (strip album and duration)
-            if (lyrics == null && (!track.albumName.isNullOrBlank() || track.durationMs != null)) {
-                val simplifiedTrack = track.copy(albumName = null, durationMs = null)
-                lyrics = provider.getLyrics(simplifiedTrack, isrc)
+            // Fallback strip album
+            if (lyrics == null && (!variantTrack.albumName.isNullOrBlank() || variantTrack.durationMs != null)) {
+                lyrics = provider.getLyrics(variantTrack.copy(albumName = null, durationMs = null), isrc)
             }
 
             if (lyrics != null) {
@@ -69,7 +89,6 @@ class LyricsRepository(
                     lines = timedLines,
                     isSynced = lyrics.isSynced || hasTimings
                 )
-                // Save to cache
                 val entity = LyricsCacheEntity(
                     lyricsKey = cacheKey,
                     trackTitle = track.title,
@@ -80,11 +99,62 @@ class LyricsRepository(
                     isSynced = keyedLyrics.isSynced
                 )
                 lyricsCacheDao.insertLyrics(entity)
-                return@withContext keyedLyrics
+                return keyedLyrics
             }
         }
-        
-        return@withContext null
+        return null
+    }
+
+    private fun buildTitleVariants(title: String): List<String> {
+        val variants = mutableListOf<String>()
+        val t = title.trim()
+        // Number-to-word: "5" -> "Five", "5" -> "V"
+        val numberMappings = mapOf(
+            "5" to listOf("Five", "V"),
+            "4" to listOf("Four", "IV"),
+            "3" to listOf("Three", "III"),
+            "2" to listOf("Two", "II"),
+            "1" to listOf("One", "I"),
+            "0" to listOf("Zero"),
+            "6" to listOf("Six"),
+            "7" to listOf("Seven"),
+            "8" to listOf("Eight"),
+            "9" to listOf("Nine"),
+            "10" to listOf("Ten", "X")
+        )
+        // Word-to-number: "Five" -> "5", "Five" -> "5"
+        val wordMappings = mapOf(
+            "five" to listOf("5"),
+            "four" to listOf("4"),
+            "three" to listOf("3"),
+            "two" to listOf("2"),
+            "one" to listOf("1"),
+            "zero" to listOf("0"),
+            "six" to listOf("6"),
+            "seven" to listOf("7"),
+            "eight" to listOf("8"),
+            "nine" to listOf("9"),
+            "ten" to listOf("10")
+        )
+        // Try replacing number words with digits
+        val lower = t.lowercase()
+        for ((word, replacements) in wordMappings) {
+            if (lower.contains(word)) {
+                val regex = Regex(word, RegexOption.IGNORE_CASE)
+                for (repl in replacements) {
+                    variants.add(t.replace(regex, repl))
+                }
+            }
+        }
+        // Try replacing digits with number words
+        val digitPattern = Regex("""\b\d+""")
+        digitPattern.findAll(t).forEach { match ->
+            val digit = match.value
+            for (word in (numberMappings[digit] ?: emptyList())) {
+                variants.add(t.replaceRange(match.range, word))
+            }
+        }
+        return variants.distinct()
     }
     
     private fun deserialize(entity: LyricsCacheEntity, durationMs: Long? = null): LyricsData {

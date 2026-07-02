@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.data.display.TrackDisplayResolver
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.catalog.ArtistCatalog
 import com.audiophile.musicplayer.data.canonical.CanonicalTrack
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
@@ -84,6 +85,7 @@ fun ArtistDetailScreen(
     onNavigateToTrackSheet: (track: UnifiedTrackWithSources) -> Unit,
     onPlayCatalogTrack: (CanonicalTrack) -> Unit = {},
     onAddToQueue: (UnifiedTrackWithSources) -> Unit = {},
+    searchTracks: List<CanonicalTrack> = emptyList(),
     miniPlayerVisible: Boolean = false,
     bottomNavVisible: Boolean = false
 ) {
@@ -91,7 +93,10 @@ fun ArtistDetailScreen(
     val confirmedPlayableCount = confirmedPlayableTracks.size
     val albumNames = tracks.map { it.track.albumName }.filterNotNull().distinct().take(10)
     val catalogTracks = catalog?.tracks.orEmpty()
-    val hasKnownSongs = tracks.isNotEmpty() || catalogTracks.isNotEmpty()
+    val allCatalogTracks = remember(catalogTracks, searchTracks) {
+        (catalogTracks + searchTracks).distinctBy { it.title.trim().lowercase() }
+    }
+    val hasKnownSongs = tracks.isNotEmpty() || allCatalogTracks.isNotEmpty()
 
     val newestTrack = remember(tracks, albums) {
         if (tracks.isEmpty()) null
@@ -149,7 +154,8 @@ fun ArtistDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
+            .background(AppBackground)
+            .statusBarsPadding()
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -371,7 +377,7 @@ fun ArtistDetailScreen(
             }
 
             if (dedupedTopTracks.isNotEmpty()) {
-                if (catalogTracks.isEmpty()) {
+                if (allCatalogTracks.isEmpty()) {
                 item {
                     VantaSectionHeader("Top Songs", modifier = Modifier.padding(horizontal = 24.dp))
                 }
@@ -387,11 +393,11 @@ fun ArtistDetailScreen(
                 }
             }
 
-            if (catalogTracks.isNotEmpty()) {
+            if (allCatalogTracks.isNotEmpty()) {
                 item {
                     VantaSectionHeader("Songs", modifier = Modifier.padding(horizontal = 24.dp))
                 }
-                itemsIndexed(catalogTracks, key = { _, track -> track.isrc ?: "${track.title}|${track.album}" }) { i, track ->
+                itemsIndexed(allCatalogTracks, key = { _, track -> track.isrc ?: "${track.title}|${track.album}" }) { i, track ->
                     CatalogTrackRow(
                         track = track,
                         index = i + 1,
@@ -441,6 +447,9 @@ private fun CatalogTrackRow(
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val (displayTitle, displayArtist) = remember(track) {
+        DisplayMetadataCleaner.computeDisplayTitleArtist(track.title, track.artist)
+    }
     Row(
         modifier = modifier.fillMaxWidth().clickable(onClick = onTap).padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -449,23 +458,23 @@ private fun CatalogTrackRow(
         Text("$index", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(24.dp))
         NetworkArtwork(
             artworkUrl = track.artworkUrl,
-            seed = track.title,
+            seed = displayTitle,
             modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp))
         )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(track.title, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(displayTitle, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (track.explicit == true) VantaExplicitBadge()
             }
             Text(
-                listOfNotNull(track.album, track.releaseYear?.toString()).joinToString(" • ").ifBlank { track.artist },
+                listOfNotNull(track.album, track.releaseYear?.toString()).joinToString(" • ").ifBlank { displayArtist },
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 14.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${track.title}", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(24.dp))
+        Icon(Icons.Filled.PlayArrow, contentDescription = "Play $displayTitle", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(24.dp))
     }
 }
 

@@ -184,6 +184,15 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
         output.flip()
     }
 
+    /**
+     * Public entry point to force the current config into the native engine immediately.
+     * PlaybackService calls this when the user toggles EQ/spatial audio so the change is
+     * audible even if the audio pipeline is currently paused and not feeding buffers.
+     */
+    fun flushAndApplyConfig() {
+        onFlush()
+    }
+
     override fun onFlush() {
         if (nativeFailed) {
             ensureNativeEngine()
@@ -196,6 +205,14 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
 
     override fun onReset() {
         currentEncoding = C.ENCODING_INVALID
+    }
+
+    fun forceApply() {
+        if (nativeFailed) ensureNativeEngine()
+        synchronized(nativeLock) {
+            native?.applyConfig(config)
+            if (native != null) configDirty = false
+        }
     }
 
     fun release() {

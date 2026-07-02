@@ -4,12 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -34,9 +32,9 @@ import androidx.compose.ui.unit.sp
 
 // Warm velvet dark palette
 val AppBackground = VantaDesignSystem.Background
-val AppBackgroundTop = Color(0xFF0D0A11)
-val AppBackgroundBottom = Color(0xFF040305)
-val AppBackgroundGlow = Color(0xFF1F1826)
+val AppBackgroundTop = Color(0xFF18141C)
+val AppBackgroundBottom = Color(0xFF0F0C13)
+val AppBackgroundGlow = Color(0xFF2A2233)
 
 // Chrome — floating mini player & navigation
 val AppChrome = VantaDesignSystem.Background.copy(alpha = 0.98f)
@@ -170,23 +168,21 @@ object VantaChrome {
 // Content Padding
 // ============================================================
 @Composable
-fun appBottomContentPadding(isMiniPlayerVisible: Boolean): Dp {
-    val navBarHeight = VantaChrome.bottomNavHeight
+fun appBottomContentPadding(
+    isMiniPlayerVisible: Boolean,
+    isBottomNavVisible: Boolean = true
+): Dp {
+    val navBarHeight = if (isBottomNavVisible) VantaChrome.bottomNavHeight else 0.dp
     val miniPlayerHeight = if (isMiniPlayerVisible) VantaChrome.miniPlayerHeight else 0.dp
     val spacing = if (isMiniPlayerVisible) VantaChrome.overlayGap else 0.dp
-    val systemBar = with(LocalDensity.current) {
-        WindowInsets.systemBars
-            .only(WindowInsetsSides.Bottom)
-            .getBottom(this)
-            .toDp()
-    }
+    val systemBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     return miniPlayerHeight + spacing + navBarHeight + systemBar
 }
 
 @Composable
 fun appTopContentPadding(extra: Dp = 16.dp): Dp {
-    return WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + extra
+    return WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + extra
 }
 
 @Composable
@@ -194,7 +190,7 @@ fun appOverlayBottomPadding(
     miniPlayerVisible: Boolean,
     bottomNavVisible: Boolean = false
 ): androidx.compose.ui.unit.Dp {
-    val insets = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+    val insets = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val overlayBottomMargin = 18.dp
     val miniPlayerGap = VantaChrome.overlayGap
     val miniPlayerHeight = VantaChrome.miniPlayerHeight
@@ -207,7 +203,7 @@ fun appOverlayBottomPadding(
 
 @Composable
 fun appBottomWindowInsets(): androidx.compose.ui.unit.Dp {
-    return WindowInsets.systemBars.asPaddingValues().calculateBottomPadding() + 24.dp
+    return WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
 }
 
 fun Modifier.vantaSurface(
@@ -322,29 +318,20 @@ fun VantaAppBackground(modifier: Modifier = Modifier) {
                 )
             )
             .drawBehind {
+                // Soft centered ambient glow — no hard edges, no side panels
+                val centerX = size.width * 0.5f
+                val centerY = size.height * 0.18f
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            AppBackgroundGlow.copy(alpha = 0.55f),
+                            AppBackgroundGlow.copy(alpha = 0.12f),
                             Color.Transparent
                         ),
-                        center = Offset(size.width * 0.72f, size.height * 0.08f),
-                        radius = size.width * 0.95f
+                        center = Offset(centerX, centerY),
+                        radius = size.width * 0.90f
                     ),
-                    radius = size.width * 0.95f,
-                    center = Offset(size.width * 0.72f, size.height * 0.08f)
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            AppAccent.copy(alpha = 0.06f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.15f, size.height * 0.22f),
-                        radius = size.width * 0.55f
-                    ),
-                    radius = size.width * 0.55f,
-                    center = Offset(size.width * 0.15f, size.height * 0.22f)
+                    radius = size.width * 0.90f,
+                    center = Offset(centerX, centerY)
                 )
             }
     )

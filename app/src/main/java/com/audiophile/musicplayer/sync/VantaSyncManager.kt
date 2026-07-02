@@ -1,0 +1,170 @@
+package com.audiophile.musicplayer.sync
+
+import android.content.Context
+import android.os.Build
+import com.audiophile.musicplayer.BuildConfig
+import com.audiophile.musicplayer.account.AccountManager
+import com.audiophile.musicplayer.data.repository.TrackRepository
+import com.audiophile.musicplayer.social.FriendListeningEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+
+/**
+ * Orchestrates VANTA Sync: identity, library snapshot, and friend activity.
+ *
+ * Sync is opt-in and never blocks local playback. The manager creates a compact
+ * library snapshot and pushes it to the gateway. It also fetches friend activity
+ * so the HomeScreen "Friends Are Listening" row can be live.
+ */
+class VantaSyncManager(
+    context: Context,
+    private val accountManager: AccountManager,
+    private val trackRepository: TrackRepository,
+    private val identityStore: SyncIdentityStore = SyncIdentityStore(context),
+    gatewayApi: VantaGatewayApi? = createGatewayApi()
+) {
+    private val appContext = context.applicationContext
+    private val gatewayApi = gatewayApi
+
+    val isSyncEnabled: Boolean
+        get() = accountManager.profile.value.sourceSyncEnabled
+
+    /**
+     * Ensure the user has a stable VANTA ID. This is the iCloud-like anonymous identity
+     * that follows the user even before they link an external account.
+     */
+    fun ensureIdentity(): SyncIdentity {
+        val userId = accountManager.ensureUserId()
+        val profile = accountManager.profile.value
+        return SyncIdentity(
+            vantaUserId = userId,
+            displayName = profile.displayName.takeIf { it.isNotBlank() },
+            email = profile.email.takeIf { it.isNotBlank() },
+            linkedProviders = linkedProviders(profile)
+        )
+    }
+
+    /**
+     * Build a library snapshot from the local Room database.
+     */
+    suspend fun buildLibrarySnapshot(): LibrarySnapshot = withContext(Dispatchers.IO) {
+        val identity = ensureIdentity()
+        val tracks = trackRepository.getAllTracks()
+        val snapshotTracks = tracks.map { it.toLibrarySnapshotTrack() }
+        LibrarySnapshot(
+            vantaUserId = identity.vantaUserId,
+            deviceName = deviceName(),
+            tracks = snapshotTracks,
+            likedTrackIds = snapshotTracks.filter { it.isFavorite }.map { it.vantaTrackId },
+            recentPlayedTrackIds = snapshotTracks
+                .filter { it.lastPlayedAtMs != null }
+                .sortedByDescending { it.lastPlayedAtMs }
+                .take(50)
+                .map { it.vantaTrackId }
+        )
+    }
+
+    /**
+     * Push the library snapshot to the gateway. Returns a result describing the merge.
+     */
+    suspend fun pushLibrarySnapshot(): SyncPushResult = withContext(Dispatchers.IO) {
+        val api = gatewayApi ?: return@withContext SyncPushResult()
+        val snapshot = buildLibrarySnapshot()
+        val dto = snapshot.toDto()
+        val response = api.pushLibrarySnapshot(snapshot.vantaUserId, dto)
+        if (response.isSuccessful) {
+            val body = response.body()
+            identityStore.storeLastSnapshotId(body?.snapshotId)
+            identityStore.storeLastSyncedAtMs(System.currentTimeMillis())
+            SyncPushResult(
+                snapshotId = body?.snapshotId,
+                serverTracksMerged = body?.serverTracksMerged ?: 0,
+                conflicts = body?.conflicts ?: 0,
+                nextSyncAtMs = body?.nextSyncAtMs
+            )
+        } else {
+            SyncPushResult(conflicts = 0)
+        }
+    }
+
+    /**
+     * Fetch friend activity from the gateway.
+     */
+    suspend fun fetchFriendActivity(): List<FriendListeningEvent> = withContext(Dispatchers.IO) {
+        val api = gatewayApi ?: return@withContext emptyList()
+        val identity = ensureIdentity()
+        val response = api.getActivityFeed(identity.vantaUserId)
+        if (response.isSuccessful) {
+            response.body()?.events?.map { it.toFriendListeningEvent() } ?: emptyList()
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun deviceName(): String = runCatching {
+        Build.MODEL ?: "Android Device"
+    }.getOrDefault("Android Device")
+
+    private fun linkedProviders(profile: AccountManager.UserProfile): List<String> {
+        val providers = mutableListOf<String>()
+        if (!profile.appleMusicUserToken.isNullOrBlank()) providers.add("apple_music")
+        return providers
+    }
+
+    companion object {
+        private fun createGatewayApi(): VantaGatewayApi? {
+            val baseUrl = BuildConfig.STATION_BACKEND_URL?.takeIf { it.isNotBlank() } ?: return null
+            return try {
+                Retrofit.Builder()
+                    .baseUrl(baseUrl)
+                    .addConverterFactory(GsonConverterFactory.create())
+                    .build()
+                    .create(VantaGatewayApi::class.java)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+}
+
+private fun LibrarySnapshot.toDto(): com.audiophile.musicplayer.sync.LibrarySnapshotDto =
+    LibrarySnapshotDto(
+        vantaUserId = vantaUserId,
+        deviceName = deviceName,
+        version = version,
+        generatedAtMs = generatedAtMs,
+        tracks = tracks.map {
+            LibrarySnapshotTrackDto(
+                vantaTrackId = it.vantaTrackId,
+                title = it.title,
+                artist = it.artist,
+                album = it.album,
+                isrc = it.isrc,
+                isFavorite = it.isFavorite,
+                playCount = it.playCount,
+                lastPlayedAtMs = it.lastPlayedAtMs,
+                addedAtMs = it.addedAtMs,
+                artworkUrl = it.artworkUrl,
+                sourceProviderIds = it.sourceProviderIds
+            )
+        },
+        likedTrackIds = likedTrackIds,
+        recentPlayedTrackIds = recentPlayedTrackIds
+    )
+
+private fun com.audiophile.musicplayer.sync.ActivityEventDto.toFriendListeningEvent(): FriendListeningEvent =
+    FriendListeningEvent(
+        friendId = userId,
+        friendDisplayName = displayName ?: userId,
+        trackId = trackId,
+        title = title,
+        artist = artist,
+        album = album,
+        artworkUrl = artworkUrl,
+        sourceLabel = sourceLabel,
+        startedAtMs = startedAtMs,
+        positionMs = positionMs,
+        durationMs = durationMs
+    )

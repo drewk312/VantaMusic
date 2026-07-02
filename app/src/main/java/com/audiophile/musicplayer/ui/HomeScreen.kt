@@ -41,6 +41,8 @@ import com.audiophile.musicplayer.data.dj.JukeboxTrackEligibility
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixKind
+import com.audiophile.musicplayer.social.FriendFeed
+import com.audiophile.musicplayer.social.VantaSocialManager
 import com.audiophile.musicplayer.playback.NowPlayingState
 import java.util.Calendar
 
@@ -70,6 +72,8 @@ fun HomeScreen(
     onNavigateToArtist: (String, String?) -> Unit,
     onNavigateToAlbum: (String, String, String?) -> Unit,
     accountManager: com.audiophile.musicplayer.account.AccountManager? = null,
+    vantaSocialManager: VantaSocialManager? = null,
+
     onOpenAccount: (() -> Unit)? = null,
     miniPlayerVisible: Boolean = false
 ) {
@@ -77,6 +81,8 @@ fun HomeScreen(
     val hasNowPlaying = nowPlayingState.trackId != null
 
     val accountProfile = accountManager?.profile?.collectAsState()?.value
+    val friendFeed by vantaSocialManager?.feed?.collectAsState(initial = FriendFeed())
+        ?: remember { androidx.compose.runtime.mutableStateOf(FriendFeed()) }
     val profile = accountProfile?.let { if (it.isOnboarded) it else null }
     val isSignedIn = profile != null
     val userDisplayName = profile?.displayName
@@ -868,3 +874,5 @@ fun PersonalizedMixCard(
         }
     }
 }
+
+
