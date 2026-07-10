@@ -4,7 +4,8 @@ import { extractArtistsAndAlbums, rankTracks } from "../lib/search-rank";
 import { searchQobuzPublic } from "./qobuz-api";
 import { fetchJson } from "./shared";
 import { hasDolbyAtmosSignal, hasSpatialAudioSignal, hasSurroundSignal, isHiResSignal } from "../lib/stream-quality";
-import { enrichSpatialFromSeed } from "../lib/spatial-seed";
+import { enrichSpatialFromSeed, isKnownSpatialTrackWithFormat, SPATIAL_SEED } from "../lib/spatial-seed";
+import type { SpatialSeedEntry } from "../lib/spatial-seed";
 import { searchCacheTtl } from "../lib/cache";
 
 export async function searchDeezer(query: string, limit = 25): Promise<GatewayTrack[]> {
@@ -163,8 +164,6 @@ export function dedupeTracks(tracks: GatewayTrack[]): GatewayTrack[] {
 }
 
 import { isFormatOnlyQuery } from "../lib/content-purity";
-import type { SpatialSeedEntry } from "../lib/spatial-seed";
-import { isKnownSpatialTrackWithFormat } from "../lib/spatial-seed";
 
 export async function searchAll(
   query: string,
@@ -201,7 +200,7 @@ export async function searchAll(
     if (isFormatOnlyQuery(query)) {
       // Format-only queries ("Dolby Atmos", "spatial", "5.1", etc.) hit free APIs as metadata spam.
       // Fall back to curated seed list to surface real songs known to have spatial mixes.
-      const { SPATIAL_SEED, enrichSpatialFromSeed } = await import("../lib/spatial-seed");
+      
       const normalized = query.toLowerCase().trim().replace(/-/g, " ");
       const matchesFormat = (entry: SpatialSeedEntry) => {
         if (normalized.includes("dolby atmos") || normalized === "atmos") return entry.spatialFormat === "dolby_atmos";
