@@ -30,6 +30,10 @@ object CanonicalMapper {
                 quality = result.qualityLabel,
                 mime = null,
                 status = result.status,
+                isDolbyAtmos = result.isDolbyAtmos,
+                isSpatialAudio = result.isSpatialAudio,
+                isSurround = result.isSurround,
+                isHiRes = result.isHiRes,
                 sourceProviderId = result.providerId,
                 reason = when (result.status) {
                     SearchItemStatus.PREVIEW -> "preview_source"

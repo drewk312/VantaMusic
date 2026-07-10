@@ -1,7 +1,7 @@
-const CORS_HEADERS: Record<string, string> = {
+export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Api-Key, User-Agent, Accept",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Api-Key, User-Agent, Accept",
 };
 
 export function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -68,14 +68,21 @@ export function extractTrackId(pathname: string): string | null {
   ];
   for (const pattern of patterns) {
     const match = pathname.match(pattern);
-    if (match?.[1]) return decodeURIComponent(match[1]);
+    if (match?.[1]) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }
 
 export function normalizeQuality(raw: string | null | undefined, fallback: string): string {
-  const value = (raw ?? fallback).trim();
-  return value === "16" || value === "24" ? value : fallback;
+  const safeFallback = fallback === "16" || fallback === "24" ? fallback : "24";
+  const value = (raw ?? safeFallback).trim();
+  return value === "16" || value === "24" ? value : safeFallback;
 }
 
 export function providerFromQuery(url: URL, bodyService?: string): string | undefined {

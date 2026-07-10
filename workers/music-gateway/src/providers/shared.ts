@@ -3,38 +3,48 @@ import type { Env, ProviderId } from "../types";
 const UA = "VANTA-MusicGateway/2.0";
 
 export async function fetchJson(url: string, init?: RequestInit): Promise<unknown | null> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      "User-Agent": UA,
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!response.ok) return null;
   try {
-    return await response.json();
-  } catch {
-    const text = await response.text();
-    const trimmed = text.trim();
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      return { url: trimmed.replace(/^"|"$/g, "") };
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": UA,
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!response.ok) return null;
+    try {
+      return await response.json();
+    } catch {
+      const text = await response.text();
+      const trimmed = text.trim();
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return { url: trimmed.replace(/^"|"$/g, "") };
+      }
+      return null;
     }
+  } catch (err) {
+    console.warn("VANTA_FETCH_ERROR", JSON.stringify({ url, error: err instanceof Error ? err.message : String(err) }));
     return null;
   }
 }
 
 export async function fetchText(url: string, init?: RequestInit): Promise<string | null> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "*/*",
-      "User-Agent": UA,
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!response.ok) return null;
-  return response.text();
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        Accept: "*/*",
+        "User-Agent": UA,
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!response.ok) return null;
+    return response.text();
+  } catch (err) {
+    console.warn("VANTA_FETCH_ERROR", JSON.stringify({ url, error: err instanceof Error ? err.message : String(err) }));
+    return null;
+  }
 }
 
 export function providerStatus(env: Env): Record<string, { search: boolean; stream: boolean; notes: string[] }> {
@@ -105,8 +115,8 @@ export function streamProvidersInOrder(env: Env, preferred?: string): ProviderId
   return [normalized, ...configured.filter((p) => p !== normalized)];
 }
 
-function parseProviderList(raw: string): ProviderId[] {
-  return raw
+function parseProviderList(raw: string | undefined): ProviderId[] {
+  return (raw ?? "")
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter((value): value is ProviderId =>

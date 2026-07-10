@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { fetchJson } from "../providers/shared";
+import { searchQobuzPublic } from "../providers/qobuz-api";
 import { healthCacheTtl } from "./cache";
 
 export interface ProviderHealth {
@@ -20,11 +21,8 @@ async function smokeTest(env: Env, provider: string): Promise<{ ok: boolean; lat
         return { ok: Array.isArray((result as { data?: unknown[] })?.data), latencyMs: Date.now() - start };
       }
       case "qobuz": {
-        // Qobuz search requires auth; just hit the public catalog endpoint to check DNS/TLS.
-        const res = await fetch("https://www.qobuz.com/api.json/0.2/catalog/search?query=test&limit=1", {
-          headers: { Accept: "application/json" },
-        });
-        return { ok: res.ok || res.status === 401, latencyMs: Date.now() - start };
+        const results = await searchQobuzPublic("nirvana", 1);
+        return { ok: results.length > 0, latencyMs: Date.now() - start };
       }
       case "apple": {
         const result = await fetchJson("https://itunes.apple.com/search?term=test&limit=1");
@@ -42,9 +40,13 @@ async function smokeTest(env: Env, provider: string): Promise<{ ok: boolean; lat
 export async function checkProviderHealth(env: Env): Promise<ProviderHealth[]> {
   const cacheKey = "health:providers";
   if (env.CACHE) {
-    const cached = await env.CACHE.get(cacheKey, "json") as ProviderHealth[] | null;
-    if (cached && cached.length > 0 && Date.now() - cached[0].checkedAt < healthCacheTtl(env) * 1000) {
-      return cached;
+    try {
+      const cached = await env.CACHE.get(cacheKey, "json") as ProviderHealth[] | null;
+      if (cached && cached.length > 0 && Date.now() - cached[0].checkedAt < healthCacheTtl(env) * 1000) {
+        return cached;
+      }
+    } catch (err) {
+      console.warn("VANTA_HEALTH_CACHE_READ_ERROR", JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -63,7 +65,11 @@ export async function checkProviderHealth(env: Env): Promise<ProviderHealth[]> {
   );
 
   if (env.CACHE) {
-    await env.CACHE.put(cacheKey, JSON.stringify(results), { expirationTtl: healthCacheTtl(env) });
+    try {
+      await env.CACHE.put(cacheKey, JSON.stringify(results), { expirationTtl: healthCacheTtl(env) });
+    } catch (err) {
+      console.warn("VANTA_HEALTH_CACHE_WRITE_ERROR", JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
   }
 
   return results;

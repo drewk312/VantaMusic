@@ -1,6 +1,7 @@
 import { md5Hex } from "../lib/md5";
 import type { Env, GatewayTrack } from "../types";
 import { fetchJson, fetchText } from "./shared";
+import { hasDolbyAtmosSignal, hasSpatialAudioSignal, hasSurroundSignal, isHiResSignal } from "../lib/stream-quality";
 
 const UA = "VANTA-MusicGateway/2.0";
 const QOBUZ_API_BASE = "https://www.qobuz.com/api.json/0.2";
@@ -83,11 +84,13 @@ export async function searchQobuzPublic(query: string, limit = 25): Promise<Gate
 }
 
 function mapQobuzTrack(item: Record<string, unknown>): GatewayTrack {
-  const performer = item.performer as { name?: string } | undefined;
-  const album = item.album as { title?: string; id?: string | number; image?: { large?: string } } | undefined;
   const id = String(item.id ?? "");
   const bitDepth = typeof item.maximum_bit_depth === "number" ? item.maximum_bit_depth : 16;
   const sampleRate = typeof item.maximum_sampling_rate === "number" ? item.maximum_sampling_rate : 44.1;
+  const performer = item.performer as { name?: string } | undefined;
+  const album = item.album as { title?: string; id?: string | number; image?: { large?: string } } | undefined;
+  const audioQuality = "${bitDepth}-bit /  kHz FLAC";
+  const channelCount = typeof item.maximum_channel_count === "number" ? item.maximum_channel_count : 2;
 
   return {
     id,
@@ -105,6 +108,10 @@ function mapQobuzTrack(item: Record<string, unknown>): GatewayTrack {
     explicit: Boolean(item.parental_warning),
     provider: "qobuz",
     qobuz_id: id,
+    isDolbyAtmos: hasDolbyAtmosSignal(String(item.title ?? ""), String(album?.title ?? "")),
+    isSpatialAudio: hasSpatialAudioSignal(String(item.title ?? ""), String(album?.title ?? "")),
+    isSurround: channelCount > 2 || hasSurroundSignal(String(item.title ?? ""), String(album?.title ?? "")),
+    isHiRes: typeof item.hires_streamable === "boolean" ? item.hires_streamable : isHiResSignal(audioQuality, "flac", sampleRate, bitDepth),
   };
 }
 
@@ -115,3 +122,18 @@ export async function lookupQobuzTrackByIsrc(isrc: string): Promise<string | nul
   const id = payload?.tracks?.items?.[0]?.id;
   return id != null ? String(id) : null;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

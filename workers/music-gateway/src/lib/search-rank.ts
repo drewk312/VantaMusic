@@ -9,11 +9,24 @@ function normalize(value: string): string {
     .trim();
 }
 
+const CANONICAL_ARTISTS_BY_TITLE: Record<string, string[]> = {
+  "spirit in the sky": ["norman greenbaum"],
+  "everybody wants to rule the world": ["tears for fears"],
+  "head over heels": ["tears for fears"],
+  "sowing the seeds of love": ["tears for fears"],
+  "mad world": ["tears for fears"],
+};
+
 /** Boost official studio vocal masters; demote covers, variants, and wrong artists. */
+function userWantsSpatial(query: string): boolean {
+  return /\b(atmos|dolby atmos|spatial|surround|5\.1|7\.1|360|sony 360|hi-res|hires)\b/.test(query.toLowerCase());
+}
+
 export function rankTracks(query: string, tracks: GatewayTrack[]): GatewayTrack[] {
   const q = normalize(query);
   const tokens = q.split(" ").filter(Boolean);
   const likelyArtist = tokens.length >= 2 ? tokens.slice(-2).join(" ") : tokens[tokens.length - 1] ?? "";
+  const canonicalArtists = CANONICAL_ARTISTS_BY_TITLE[q] ?? [];
 
   const scored = tracks.map((track) => {
     const title = normalize(track.title ?? "");
@@ -48,13 +61,14 @@ export function rankTracks(query: string, tracks: GatewayTrack[]): GatewayTrack[
 
     // Exact studio single / album track preference
     if (title === tokens[0] && likelyArtist && artist.includes(likelyArtist)) score += 60;
+    if (title === q && canonicalArtists.includes(artist)) score += 260;
 
     if (track.isrc) score += 8;
 
     const variant = variantPenalty(track, query);
     score -= variant;
 
-    // Quality boost only when no variant penalty
+    // Quality / spatial boost only when no variant penalty
     if (variant < 40) {
       if (track.provider === "qobuz") score += 12;
       if (track.provider === "deezer" && track.qobuz_id) score += 8;
@@ -62,6 +76,17 @@ export function rankTracks(query: string, tracks: GatewayTrack[]): GatewayTrack[
       if (track.audioQuality?.includes("48 kHz")) score += 8;
       if (track.audioQuality?.includes("96 kHz")) score += 10;
       if (track.format?.toLowerCase() === "flac") score += 6;
+
+      // Spatial / surround / hi-res preference when user explicitly asks for it
+      if (userWantsSpatial(q)) {
+        if (track.isDolbyAtmos) score += 180;
+        else if (track.isSpatialAudio) score += 140;
+        else if (track.isSurround) score += 100;
+        if (track.isHiRes) score += 40;
+      } else if (track.isDolbyAtmos || track.isSpatialAudio || track.isSurround) {
+        // Slight preference for spatial-aware masters in normal queries too, but much smaller
+        score += 8;
+      }
     }
 
     // Penalize obvious non-original artist names when query names a known artist
@@ -129,3 +154,5 @@ export function extractArtistsAndAlbums(tracks: GatewayTrack[]): {
     albums: [...albumMap.values()].slice(0, 12),
   };
 }
+
+

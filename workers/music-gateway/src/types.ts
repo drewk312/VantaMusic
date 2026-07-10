@@ -9,6 +9,14 @@ export interface Env {
   ENRICH_SEARCH_RESULTS: string;
   SEARCH_ENRICH_LIMIT: string;
   GATEWAY_API_KEY?: string;
+  /** HMAC secret used to validate per-user sync bearer tokens. Required outside development. */
+  SYNC_AUTH_SECRET?: string;
+  /** Firebase project whose ID tokens are accepted for production sync. */
+  FIREBASE_PROJECT_ID?: string;
+  /** Explicit development-only identity accepted through X-Dev-Sync-User. */
+  DEV_SYNC_USER_ID?: string;
+  ENVIRONMENT?: string;
+  NODE_ENV?: string;
   QOBUZ_STREAM_UPSTREAM?: string;
   TIDAL_STREAM_UPSTREAM?: string;
   TIDAL_API_URL?: string;
@@ -32,6 +40,8 @@ export interface Env {
   HEALTH_CACHE_TTL_SECONDS?: string;
   STREAM_CACHE_TTL_SECONDS?: string;
   CACHE?: KVNamespace;
+  /** Friend graph, listening activity, and library snapshots. */
+  SOCIAL_KV?: KVNamespace;
 }
 
 export type ProviderId = "qobuz" | "tidal" | "deezer" | "amazon" | "pandora" | "apple";
@@ -51,6 +61,10 @@ export interface GatewayTrack {
   format?: string;
   explicit?: boolean;
   provider?: ProviderId;
+  isDolbyAtmos?: boolean;
+  isSpatialAudio?: boolean;
+  isSurround?: boolean;
+  isHiRes?: boolean;
   tidal_id?: string;
   qobuz_id?: string;
   deezer_id?: string;
@@ -68,6 +82,10 @@ export interface StreamResult {
   bitrateKbps?: number;
   expiresAt?: number;
   provider?: ProviderId;
+  isDolbyAtmos?: boolean;
+  isSpatialAudio?: boolean;
+  isSurround?: boolean;
+  isHiRes?: boolean;
 }
 
 export interface ResolveResult {
@@ -91,8 +109,8 @@ export const ALL_PROVIDER_IDS: ProviderId[] = [
   "apple",
 ];
 
-export function parseProviderList(raw: string): ProviderId[] {
-  return raw
+export function parseProviderList(raw: string | undefined): ProviderId[] {
+  return (raw ?? "")
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter((value): value is ProviderId => ALL_PROVIDER_IDS.includes(value as ProviderId));
@@ -113,5 +131,9 @@ export function enrichLimit(env: Env): number {
 export function qobuzFormatId(quality: string): string {
   return quality === "16" ? "6" : "27";
 }
+
+
+
+
 
 

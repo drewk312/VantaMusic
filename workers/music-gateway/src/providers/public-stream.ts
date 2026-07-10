@@ -1,5 +1,11 @@
 import { md5Hex } from "../lib/md5";
-import { inferBitrateKbps, qualityLabelFromBitrate } from "../lib/stream-quality";
+import {
+  hasDolbyAtmosSignal,
+  hasSpatialAudioSignal,
+  hasSurroundSignal,
+  inferBitrateKbps,
+  qualityLabelFromBitrate,
+} from "../lib/stream-quality";
 import { raceFirst } from "../lib/race-first";
 import type { Env, ProviderId, StreamResult } from "../types";
 import { getCommunityApiKey } from "./community-api-key";
@@ -48,6 +54,9 @@ function toStreamResult(url: string, provider: ProviderId, quality?: string, for
     mimeType: format.includes("/") ? format : `audio/${format}`,
     bitrateKbps,
     provider,
+    isDolbyAtmos: hasDolbyAtmosSignal(quality, format),
+    isSpatialAudio: hasSpatialAudioSignal(quality, format),
+    isSurround: hasSurroundSignal(quality, format),
   };
 }
 

@@ -7,6 +7,7 @@ export interface MetricsSnapshot {
   stream: number;
   play: number;
   download: number;
+  sync: number;
   errors: number;
   rateLimited: number;
   startedAt: number;
@@ -19,6 +20,7 @@ let memoryMetrics: MetricsSnapshot = {
   stream: 0,
   play: 0,
   download: 0,
+  sync: 0,
   errors: 0,
   rateLimited: 0,
   startedAt: Date.now(),
@@ -28,7 +30,7 @@ export function incrementRequests(): void {
   memoryMetrics.requests++;
 }
 
-export function incrementRoute(route: "search" | "resolve" | "stream" | "play" | "download"): void {
+export function incrementRoute(route: "search" | "resolve" | "stream" | "play" | "download" | "sync"): void {
   memoryMetrics[route]++;
 }
 
@@ -52,6 +54,7 @@ export function resetMetrics(): MetricsSnapshot {
     stream: 0,
     play: 0,
     download: 0,
+    sync: 0,
     errors: 0,
     rateLimited: 0,
     startedAt: Date.now(),

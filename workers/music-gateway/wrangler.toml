@@ -22,13 +22,23 @@ DEFAULT_COMMUNITY_GATEWAY = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
 FALLBACK_COMMUNITY_GATEWAYS = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
 GDSTUDIO_API_URL = "https://music.gdstudio.xyz/api.php"
 
-# Optional KV cache (wrangler kv namespace create CACHE)
-# [[kv_namespaces]]
-# binding = "CACHE"
-# id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# Required in production: durable cache and rate-limit storage.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "1395e92642c944e7a8894c66a971af9d"
+
+# Social sync (friends, activity feed, library snapshots)
+[[kv_namespaces]]
+binding = "SOCIAL_KV"
+id = "c621547d69d14d339c724e3af9395720"
 
 # ── Secrets: npx wrangler secret put <NAME> ──────────────────────────────────
 # GATEWAY_API_KEY          Lock gateway to your app (send X-Api-Key header)
+# FIREBASE_PROJECT_ID      Firebase project ID used to verify user ID tokens
+# SYNC_AUTH_SECRET         Development-only HMAC sync-token fallback
+# In production, CACHE, SOCIAL_KV, GATEWAY_API_KEY, and FIREBASE_PROJECT_ID are required.
+# Development-only identity bypass: ENVIRONMENT=development plus DEV_SYNC_USER_ID;
+# clients must send the same value in X-Dev-Sync-User.
 #
 # ── Qobuz (direct search + stream, best option) ─────────────────────────────
 # QOBUZ_APP_ID             Qobuz application id

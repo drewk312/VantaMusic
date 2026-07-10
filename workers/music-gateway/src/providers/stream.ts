@@ -1,5 +1,11 @@
 import type { Env, ProviderId, StreamResult } from "../types";
-import { inferBitrateKbps, qualityLabelFromBitrate } from "../lib/stream-quality";
+import {
+  hasDolbyAtmosSignal,
+  hasSpatialAudioSignal,
+  hasSurroundSignal,
+  inferBitrateKbps,
+  qualityLabelFromBitrate,
+} from "../lib/stream-quality";
 import { raceBest } from "../lib/race-first";
 import { streamWithPublicFallbacks } from "./public-stream";
 import { lookupQobuzTrackByIsrc } from "./qobuz-api";
@@ -117,14 +123,22 @@ export async function streamFromProvider(
   if (!trackId) return null;
 
   const upstream = await streamViaUpstream(env, provider, trackId, quality);
-  if (upstream) return upstream;
+  if (upstream) {
+    logResolvedStream(provider, trackId, quality, upstream);
+    return upstream;
+  }
 
   if (provider === "qobuz" || provider === "deezer" || provider === "tidal" || provider === "amazon") {
     const musicDl = await streamViaMusicDl(env, provider, trackId, quality);
-    if (musicDl) return musicDl;
+    if (musicDl) {
+      logResolvedStream(provider, trackId, quality, musicDl);
+      return musicDl;
+    }
   }
 
-  return streamWithPublicFallbacks(env, provider, trackId, quality, crossIds);
+  const publicFallback = await streamWithPublicFallbacks(env, provider, trackId, quality, crossIds);
+  if (publicFallback) logResolvedStream(provider, trackId, quality, publicFallback);
+  return publicFallback;
 }
 
 async function streamViaUpstream(
@@ -234,6 +248,12 @@ function normalizeStreamPayload(payload: unknown, provider: ProviderId): StreamR
   const bitrate =
     firstNumber(record, ["bitrateKbps", "bitrate_kbps", "bitrate", "bit_rate", "br"]) ??
     inferBitrateKbps(quality, format);
+  const atmos = firstBoolean(record, ["isDolbyAtmos", "dolbyAtmos", "atmos"]) ||
+    hasDolbyAtmosSignal(quality, format);
+  const spatial = firstBoolean(record, ["isSpatialAudio", "spatialAudio", "spatial"]) ||
+    hasSpatialAudioSignal(quality, format);
+  const surround = firstBoolean(record, ["isSurround", "surround"]) ||
+    hasSurroundSignal(quality, format);
 
   return {
     url,
@@ -244,7 +264,27 @@ function normalizeStreamPayload(payload: unknown, provider: ProviderId): StreamR
     bitrateKbps: bitrate,
     expiresAt: expiresAt ?? undefined,
     provider,
+    isDolbyAtmos: atmos,
+    isSpatialAudio: spatial,
+    isSurround: surround,
   };
+}
+
+function logResolvedStream(provider: ProviderId, trackId: string, quality: string, result: StreamResult): void {
+  console.log(
+    "VANTA_STREAM_RESOLVE",
+    JSON.stringify({
+      provider,
+      trackId,
+      quality,
+      format: result.format,
+      bitrateKbps: result.bitrateKbps,
+      isDolbyAtmos: result.isDolbyAtmos,
+      isSpatialAudio: result.isSpatialAudio,
+      isSurround: result.isSurround,
+      expiresAt: result.expiresAt ? new Date(result.expiresAt * 1000).toISOString() : null,
+    })
+  );
 }
 
 function firstString(record: Record<string, unknown>, keys: string[]): string | null {
@@ -255,6 +295,19 @@ function firstString(record: Record<string, unknown>, keys: string[]): string | 
   return null;
 }
 
+function firstBoolean(record: Record<string, unknown>, keys: string[]): boolean {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) return true;
+      if (["0", "false", "no", "off"].includes(normalized)) return false;
+    }
+  }
+  return false;
+}
+
 function firstNumber(record: Record<string, unknown>, keys: string[]): number | null {
   for (const key of keys) {
     const value = record[key];
@@ -263,3 +316,13 @@ function firstNumber(record: Record<string, unknown>, keys: string[]): number | 
   }
   return null;
 }
+
+
+
+
+
+
+
+
+
+

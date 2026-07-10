@@ -10,14 +10,20 @@ function makeRequest(headers = {}) {
 describe("rate-limit", () => {
   it("allows requests when no cache is configured", async () => {
     const env: Env = {} as Env;
-    const result = await checkRateLimit(makeRequest(), env);
+    const result = await checkRateLimit(makeRequest(), { ...env, NODE_ENV: "development" });
     assert.equal(result.allowed, true);
     assert.equal(result.state.remaining, 120);
   });
 
   it("uses API key when present", async () => {
     const env: Env = {} as Env;
-    const result = await checkRateLimit(makeRequest({ "X-Api-Key": "secret-key-123" }), env);
+    const result = await checkRateLimit(makeRequest({ "X-Api-Key": "secret-key-123" }), { ...env, NODE_ENV: "development" });
     assert.equal(result.key, "apikey:secret-key-123".slice(0, 23)); // 16 chars after prefix
   });
+});
+
+it("fails closed without KV outside development", async () => {
+  const result = await checkRateLimit(makeRequest(), {} as Env);
+  assert.equal(result.allowed, false);
+  assert.equal(result.storageUnavailable, true);
 });

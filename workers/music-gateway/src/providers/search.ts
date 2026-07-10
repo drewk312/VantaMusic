@@ -3,6 +3,8 @@ import { filterTracks } from "../lib/content-purity";
 import { extractArtistsAndAlbums, rankTracks } from "../lib/search-rank";
 import { searchQobuzPublic } from "./qobuz-api";
 import { fetchJson } from "./shared";
+import { hasDolbyAtmosSignal, hasSpatialAudioSignal, hasSurroundSignal, isHiResSignal } from "../lib/stream-quality";
+import { enrichSpatialFromSeed } from "../lib/spatial-seed";
 import { searchCacheTtl } from "../lib/cache";
 
 export async function searchDeezer(query: string, limit = 25): Promise<GatewayTrack[]> {
@@ -160,6 +162,8 @@ export function dedupeTracks(tracks: GatewayTrack[]): GatewayTrack[] {
   return result;
 }
 
+import { isFormatOnlyQuery } from "../lib/content-purity";
+
 export async function searchAll(
   query: string,
   env: Env
@@ -169,42 +173,69 @@ export async function searchAll(
   artists: unknown[];
   playlists: unknown[];
 }> {
-  const cacheKey = `search:${query.trim().toLowerCase()}`;
-  if (env.CACHE) {
-    const cached = await env.CACHE.get(cacheKey, "json") as {
-      tracks: GatewayTrack[];
-      albums: unknown[];
-      artists: unknown[];
-      playlists: unknown[];
-    } | null;
-    if (cached?.tracks?.length) {
-      return cached;
+  try {
+    const cacheKey = `search:${query.trim().toLowerCase()}`;
+    if (env.CACHE) {
+      try {
+        const cached = await env.CACHE.get(cacheKey, "json") as {
+          tracks: GatewayTrack[];
+          albums: unknown[];
+          artists: unknown[];
+          playlists: unknown[];
+        } | null;
+        if (cached?.tracks?.length) {
+          return cached;
+        }
+      } catch (err) {
+        console.warn("VANTA_SEARCH_CACHE_READ_ERROR", JSON.stringify({ cacheKey, error: err instanceof Error ? err.message : String(err) }));
+      }
     }
-  }
 
-  const providers = env.ENABLED_SEARCH_PROVIDERS.split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean) as ProviderId[];
+    const providers = env.ENABLED_SEARCH_PROVIDERS.split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean) as ProviderId[];
 
-  const batches = await Promise.all(providers.map((provider) => searchByProvider(provider, query, env)));
-  let tracks = dedupeTracks(batches.flat());
-
-  if (truthy(env.ENRICH_SEARCH_RESULTS) && tracks.length > 0) {
+    let tracks: GatewayTrack[] = [];
+    if (isFormatOnlyQuery(query)) {
+      // Format-only queries ("Dolby Atmos", "spatial", "5.1", etc.) hit free APIs as metadata spam.
+      // Fall back to curated seed list to surface real songs known to have spatial mixes.
+      const { SPATIAL_SEED } = await import("../lib/spatial-seed");
+      const seedQueries = SPATIAL_SEED.slice(0, 24).map((entry) => `${entry.title} ${entry.artist}`);
+      const seedBatches = await Promise.all(
+        seedQueries.map(async (seedQuery) => {
+          const batch = await Promise.all(providers.map((provider) => searchByProvider(provider, seedQuery, env)));
+          return batch.flat();
+        })
+      );
+      tracks = dedupeTracks(seedBatches.flat());
+    } else {
+      const batches = await Promise.all(providers.map((provider) => searchByProvider(provider, query, env)));
+      tracks = dedupeTracks(batches.flat());
+    }  if (truthy(env.ENRICH_SEARCH_RESULTS) && tracks.length > 0) {
     const { enrichTracks } = await import("./enrich");
     tracks = await enrichTracks(tracks, env);
   }
 
+  tracks = tracks.map((track) => enrichSpatialFromSeed(track));
   tracks = filterTracks(tracks, query);
-  tracks = rankTracks(query, tracks).slice(0, 30);
+    tracks = rankTracks(query, tracks).slice(0, 30);
 
-  const { artists, albums } = extractArtistsAndAlbums(tracks);
-  const payload = { tracks, albums, artists, playlists: [] as unknown[] };
+    const { artists, albums } = extractArtistsAndAlbums(tracks);
+    const payload = { tracks, albums, artists, playlists: [] as unknown[] };
 
-  if (env.CACHE) {
-    await env.CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: searchCacheTtl(env, payload.tracks.length) });
+    if (env.CACHE) {
+      try {
+        await env.CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: searchCacheTtl(env, payload.tracks.length) });
+      } catch (err) {
+        console.warn("VANTA_SEARCH_CACHE_WRITE_ERROR", JSON.stringify({ cacheKey, error: err instanceof Error ? err.message : String(err) }));
+      }
+    }
+
+    return payload;
+  } catch (err) {
+    console.error("VANTA_SEARCH_ERROR", JSON.stringify({ query, error: err instanceof Error ? err.message : String(err) }));
+    return { tracks: [], albums: [], artists: [], playlists: [] };
   }
-
-  return payload;
 }
 
 function truthy(value: string | undefined): boolean {
@@ -212,3 +243,11 @@ function truthy(value: string | undefined): boolean {
   const normalized = value.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
+
+
+
+
+
+
+
+

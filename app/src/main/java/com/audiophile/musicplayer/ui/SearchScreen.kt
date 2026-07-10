@@ -67,8 +67,11 @@ import com.audiophile.musicplayer.data.display.TrackDisplayResolver
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.SearchItemStatus
+import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
+import com.audiophile.musicplayer.data.source.isUnavailable
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
+import com.audiophile.musicplayer.data.source.userFacingLabel
 import androidx.core.content.edit
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -151,7 +154,7 @@ fun SearchScreen(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Search", color = AppText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("Search", style = VantaType.pageTitle)
 
         VantaSearchField(
             query = uiState.query,
@@ -978,26 +981,37 @@ private fun SearchIconAction(
     contentDescription: String,
     onClick: () -> Unit,
     tint: Color = AppTextSecondary,
-    emphasized: Boolean = false
+    emphasized: Boolean = false,
+    enabled: Boolean = true
 ) {
     val shape = CircleShape
     Box(
         modifier = Modifier
             .size(36.dp)
             .clip(shape)
-            .background(if (emphasized) AppAccent.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.035f))
+            .background(
+                if (emphasized) {
+                    AppAccent.copy(alpha = if (enabled) 0.14f else 0.08f)
+                } else {
+                    Color.White.copy(alpha = if (enabled) 0.035f else 0.02f)
+                }
+            )
             .border(
                 width = 0.5.dp,
-                color = if (emphasized) AppAccent.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f),
+                color = if (emphasized) {
+                    AppAccent.copy(alpha = if (enabled) 0.18f else 0.10f)
+                } else {
+                    Color.White.copy(alpha = if (enabled) 0.06f else 0.03f)
+                },
                 shape = shape
             )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = tint,
+            tint = if (enabled) tint else tint.copy(alpha = 0.45f),
             modifier = Modifier.size(if (emphasized) 21.dp else 18.dp)
         )
     }
@@ -1012,6 +1026,13 @@ private fun TopResultCard(
     onSave: (CanonicalTrack) -> Unit = {},
     onStartStation: () -> Unit = {}
 ) {
+    val sourceStatus = remember(track.sourceStatus) { track.sourceStatus ?: SearchItemStatus.METADATA_ONLY }
+    val canPlay = remember(sourceStatus) { sourceStatus.canEnterPlaybackFlow() }
+    val statusLabel = remember(sourceStatus) {
+        sourceStatus
+            .takeIf { !it.canEnterPlaybackFlow() || it.isUnavailable() }
+            ?.userFacingLabel()
+    }
     val cleaned = remember(track.title, track.artist) {
         DisplayMetadataCleaner.computeDisplayMetadata(track.title, track.artist, track.album, explicit = track.explicit)
     }
@@ -1026,7 +1047,7 @@ private fun TopResultCard(
         modifier = Modifier
             .fillMaxWidth()
             .searchResultSurface(featured = true)
-            .clickable { onPlay(track) }
+            .clickable(enabled = canPlay) { onPlay(track) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1056,7 +1077,18 @@ private fun TopResultCard(
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 if (cleaned.explicit == true) VantaExplicitBadge()
-                if (track.sourceStatus != SearchItemStatus.PREVIEW) {
+                if (statusLabel != null) {
+                    track.qualityInfo?.let { q ->
+                        if (q.isDolbyAtmos) VantaStatusBadge("Dolby Atmos", AppAccent)
+                        else if (q.isSpatialAudio) VantaStatusBadge("Spatial", AppAccent)
+                        else if (q.isSurround) VantaStatusBadge("Surround", AppAccent)
+                        if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                    }
+                    VantaStatusBadge(
+                        text = statusLabel,
+                        color = if (sourceStatus.isUnavailable()) AppWarning else AppTextSecondary
+                    )
+                } else if (sourceStatus != SearchItemStatus.PREVIEW) {
                     VantaQualityBadge(track.qualityInfo?.bestQualityLabel())
                 }
             }
@@ -1078,7 +1110,7 @@ private fun TopResultCard(
             contentDescription = "Save to library",
             onClick = { onSave(track) }
         )
-        SearchPlayAction(track = track, onPlay = onPlay)
+        SearchPlayAction(track = track, onPlay = onPlay, enabled = canPlay)
     }
 }
 
@@ -1092,6 +1124,13 @@ private fun SearchSongRow(
     onOpenTrackSheet: (() -> Unit)? = null,
     onStartStation: () -> Unit = {}
 ) {
+    val sourceStatus = remember(track.sourceStatus) { track.sourceStatus ?: SearchItemStatus.METADATA_ONLY }
+    val canPlay = remember(sourceStatus) { sourceStatus.canEnterPlaybackFlow() }
+    val statusLabel = remember(sourceStatus) {
+        sourceStatus
+            .takeIf { !it.canEnterPlaybackFlow() || it.isUnavailable() }
+            ?.userFacingLabel()
+    }
     val cleaned = remember(track.title, track.artist) {
         DisplayMetadataCleaner.computeDisplayMetadata(track.title, track.artist, track.album, explicit = track.explicit)
     }
@@ -1106,7 +1145,7 @@ private fun SearchSongRow(
         modifier = Modifier
             .fillMaxWidth()
             .searchResultSurface()
-            .clickable { onPlay(track) }
+            .clickable(enabled = canPlay) { onPlay(track) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1136,7 +1175,18 @@ private fun SearchSongRow(
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 if (cleaned.explicit == true) VantaExplicitBadge()
-                if (track.sourceStatus != SearchItemStatus.PREVIEW) {
+                if (statusLabel != null) {
+                    track.qualityInfo?.let { q ->
+                        if (q.isDolbyAtmos) VantaStatusBadge("Dolby Atmos", AppAccent)
+                        else if (q.isSpatialAudio) VantaStatusBadge("Spatial", AppAccent)
+                        else if (q.isSurround) VantaStatusBadge("Surround", AppAccent)
+                        if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                    }
+                    VantaStatusBadge(
+                        text = statusLabel,
+                        color = if (sourceStatus.isUnavailable()) AppWarning else AppTextSecondary
+                    )
+                } else if (sourceStatus != SearchItemStatus.PREVIEW) {
                     VantaQualityBadge(track.qualityInfo?.bestQualityLabel())
                 }
             }
@@ -1165,21 +1215,23 @@ private fun SearchSongRow(
             contentDescription = "Save to library",
             onClick = { onSave(track) }
         )
-        SearchPlayAction(track = track, onPlay = onPlay)
+        SearchPlayAction(track = track, onPlay = onPlay, enabled = canPlay)
     }
 }
 
 @Composable
 private fun SearchPlayAction(
     track: CanonicalTrack,
-    onPlay: (CanonicalTrack) -> Unit
+    onPlay: (CanonicalTrack) -> Unit,
+    enabled: Boolean
 ) {
     SearchIconAction(
         icon = Icons.Filled.PlayArrow,
-        contentDescription = "Play",
+        contentDescription = if (enabled) "Play" else "Unavailable",
         onClick = { onPlay(track) },
         tint = AppAccent,
-        emphasized = true
+        emphasized = true,
+        enabled = enabled
     )
 }
 
@@ -1296,8 +1348,8 @@ private fun SearchAlbumCard(
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(album.title, color = AppText, fontWeight = FontWeight.SemiBold, maxLines = 1, fontSize = 13.sp, overflow = TextOverflow.Ellipsis)
-                Text(album.artist, color = AppTextSecondary, maxLines = 1, fontSize = 12.sp, overflow = TextOverflow.Ellipsis)
+                Text(DisplayMetadataCleaner.cleanDisplayName(album.title).ifBlank { album.title }, color = AppText, fontWeight = FontWeight.SemiBold, maxLines = 1, fontSize = 13.sp, overflow = TextOverflow.Ellipsis)
+                Text(DisplayMetadataCleaner.cleanDisplayName(album.artist).ifBlank { album.artist }, color = AppTextSecondary, maxLines = 1, fontSize = 12.sp, overflow = TextOverflow.Ellipsis)
             }
             Icon(
                 ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
@@ -1335,7 +1387,7 @@ private fun SearchArtistCard(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            artist.name,
+            DisplayMetadataCleaner.cleanDisplayName(artist.name).ifBlank { artist.name },
             color = AppText,
             fontWeight = FontWeight.Medium,
             maxLines = 2,
@@ -1416,7 +1468,7 @@ private fun RichArtistCard(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(artist.name, color = AppText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(DisplayMetadataCleaner.cleanDisplayName(artist.name).ifBlank { artist.name }, color = AppText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 if (artist.genre != null) {
                     Text(artist.genre, color = AppTextSecondary, fontSize = 13.sp)
                 }

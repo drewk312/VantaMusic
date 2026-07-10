@@ -108,7 +108,11 @@ data class SourceSearchResult(
     val isrc: String? = null,
     val status: SearchItemStatus,
     val qualityLabel: String?,
-    val featuredArtists: List<String> = emptyList()
+    val featuredArtists: List<String> = emptyList(),
+    val isDolbyAtmos: Boolean = false,
+    val isSpatialAudio: Boolean = false,
+    val isSurround: Boolean = false,
+    val isHiRes: Boolean = false
 ) {
     val artworkUrl: String?
         get() {
@@ -405,5 +409,10 @@ data class ResolvedStream(
     val bitrateKbps: Int,
     val mimeType: String? = null,
     val expiresAt: Long? = null,
-    val qualityLabel: String? = null
+    val qualityLabel: String? = null,
+    val format: String? = null,
+    val isSpatialAudio: Boolean = false,
+    val isDolbyAtmos: Boolean = false,
+    val isSurround: Boolean = false,
+    val providerId: String? = null
 )

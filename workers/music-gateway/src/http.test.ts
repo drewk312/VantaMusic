@@ -18,6 +18,10 @@ describe("http helpers", () => {
     assert.equal(extractTrackId("/search"), null);
   });
 
+  it("ignores malformed percent-encoded track ids", () => {
+    assert.equal(extractTrackId("/api/stream/%E0%A4%A"), null);
+  });
+
   it("normalizes quality to 16 or 24", () => {
     assert.equal(normalizeQuality("24", "16"), "24");
     assert.equal(normalizeQuality("16", "24"), "16");
