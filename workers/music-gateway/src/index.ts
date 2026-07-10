@@ -19,6 +19,9 @@ import { searchAll } from "./providers/search";
 import { resolveTrack } from "./providers/resolve";
 import { streamWithFallback } from "./providers/stream";
 import { providerStatus } from "./providers/shared";
+import { handleSyncRoute } from "./sync/routes";
+import { authenticateSyncRequest, isDevelopment } from "./auth";
+import type { SyncIdentity } from "./auth";
 import { parseProviderList } from "./types";
 import type { Env, StreamResult } from "./types";
 
@@ -26,6 +29,10 @@ function isAuthorized(request: Request, env: Env): boolean {
   const required = env.GATEWAY_API_KEY?.trim();
   if (!required) return true;
   return request.headers.get("X-Api-Key") === required;
+}
+
+function requiresGatewayAuth(pathname: string): boolean {
+  return pathname !== "/" && pathname !== "/health";
 }
 
 function requestId(): string {
@@ -64,11 +71,26 @@ async function resolveStreamWithCache(
     console.log("VANTA_STREAM_CACHE_HIT", JSON.stringify({ ...logBase, id: trackId, service: provider ?? "auto", quality }));
     return cached;
   }
-  const stream = await streamWithFallback(env, trackId, quality, provider, { provider });
-  if (stream) {
-    await putCachedStream(env, key, stream, streamCacheTtl(env));
+  try {
+    const stream = await streamWithFallback(env, trackId, quality, provider, { provider });
+    if (stream) {
+      await putCachedStream(env, key, stream, streamCacheTtl(env));
+    }
+    return stream;
+  } catch (err) {
+    incrementErrors();
+    console.error(
+      "VANTA_STREAM_RESOLVE_ERROR",
+      JSON.stringify({
+        ...logBase,
+        id: trackId,
+        service: provider ?? "auto",
+        quality,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+    return null;
   }
-  return stream;
 }
 
 function isStreamExpired(stream: StreamResult): boolean {
@@ -79,14 +101,35 @@ function isStreamExpired(stream: StreamResult): boolean {
   return expiresMs < Date.now();
 }
 
-export async function handleRequest(request: Request, env: Env): Promise<Response> {
+export async function handleRequest(request: Request, env: Env, requestIdValue?: string): Promise<Response> {
   if (request.method === "OPTIONS") return handleOptions();
-  if (!isAuthorized(request, env)) return unauthorized();
 
-  const id = requestId();
-  const url = new URL(request.url);
+  const id = requestIdValue ?? requestId();
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch (err) {
+    return errorResponse(
+      "bad_request",
+      "Invalid request URL.",
+      400,
+      id,
+      false,
+      { "X-Request-Id": id }
+    );
+  }
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  const isSyncRoute = pathname.startsWith("/sync/");
+  let syncIdentity: SyncIdentity | undefined;
 
+  if (isSyncRoute) {
+    const authentication = await authenticateSyncRequest(request, env);
+    if (!authentication.ok) return errorResponse(authentication.error, "Sync authentication is required.", authentication.status, id);
+    syncIdentity = authentication.identity;
+  } else if (requiresGatewayAuth(pathname)) {
+    // Free/no-config mode: no GATEWAY_API_KEY required. If a key is configured, it is still enforced.
+    if (!isAuthorized(request, env)) return unauthorized();
+  }
   const rate = await checkRateLimit(request, env);
   const rateHeaders = {
     "X-RateLimit-Limit": String(rate.state.remaining + (rate.allowed ? 1 : 0)),
@@ -96,6 +139,16 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   };
 
   if (!rate.allowed) {
+    if (rate.storageUnavailable) {
+      return errorResponse(
+        "rate_limit_unavailable",
+        "Rate-limit storage is unavailable.",
+        503,
+        id,
+        true,
+        rateHeaders
+      );
+    }
     incrementRateLimited();
     return errorResponse(
       "rate_limited",
@@ -327,11 +380,47 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   }
 
   if (pathname.startsWith("/search/")) {
-    const query = decodeURIComponent(pathname.slice("/search/".length));
+    let query: string;
+    try {
+      query = decodeURIComponent(pathname.slice("/search/".length));
+    } catch (err) {
+      return errorResponse(
+        "bad_request",
+        "Invalid search path encoding.",
+        400,
+        id,
+        false,
+        rateHeaders
+      );
+    }
     if (!query.trim()) return withHeaders(badRequest("missing search path"), rateHeaders);
     incrementRoute("search");
     console.log("VANTA_SEARCH_REQUEST", JSON.stringify({ ...logBase, query }));
     return json(await searchAll(query.trim(), env), 200, rateHeaders);
+  }
+
+  let syncResponse: Response | null;
+  try {
+    syncResponse = await handleSyncRoute(request, env, pathname, rateHeaders, syncIdentity);
+  } catch (err) {
+    incrementErrors();
+    console.error(
+      "VANTA_SYNC_ROUTE_ERROR",
+      JSON.stringify({ ...logBase, error: err instanceof Error ? err.message : String(err) })
+    );
+    syncResponse = errorResponse(
+      "sync_unavailable",
+      "Sync is temporarily unavailable. Retry later.",
+      503,
+      id,
+      true,
+      rateHeaders
+    );
+  }
+  if (syncResponse) {
+    incrementRoute("sync");
+    console.log("VANTA_SYNC_REQUEST", JSON.stringify({ ...logBase, resource: pathname }));
+    return syncResponse;
   }
 
   return withHeaders(notFound(), rateHeaders);
@@ -366,17 +455,23 @@ function withHeaders(response: Response, headers: Record<string, string>): Respo
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const id = requestId();
     try {
-      return await handleRequest(request, env);
+      return await handleRequest(request, env, id);
     } catch (error) {
       incrementErrors();
-      console.error("gateway_error", error);
+      console.error(
+        "gateway_error",
+        JSON.stringify({ requestId: id, error: error instanceof Error ? error.message : String(error) })
+      );
       return json(
         {
           error: "internal_error",
           message: error instanceof Error ? error.message : "unknown",
+          requestId: id,
         },
-        500
+        500,
+        { "X-Request-Id": id }
       );
     }
   },
