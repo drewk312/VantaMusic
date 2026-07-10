@@ -163,6 +163,8 @@ export function dedupeTracks(tracks: GatewayTrack[]): GatewayTrack[] {
 }
 
 import { isFormatOnlyQuery } from "../lib/content-purity";
+import type { SpatialSeedEntry } from "../lib/spatial-seed";
+import { isKnownSpatialTrackWithFormat } from "../lib/spatial-seed";
 
 export async function searchAll(
   query: string,
@@ -199,15 +201,42 @@ export async function searchAll(
     if (isFormatOnlyQuery(query)) {
       // Format-only queries ("Dolby Atmos", "spatial", "5.1", etc.) hit free APIs as metadata spam.
       // Fall back to curated seed list to surface real songs known to have spatial mixes.
-      const { SPATIAL_SEED } = await import("../lib/spatial-seed");
-      const seedQueries = SPATIAL_SEED.slice(0, 24).map((entry) => `${entry.title} ${entry.artist}`);
+      const { SPATIAL_SEED, enrichSpatialFromSeed } = await import("../lib/spatial-seed");
+      const normalized = query.toLowerCase().trim().replace(/-/g, " ");
+      const matchesFormat = (entry: SpatialSeedEntry) => {
+        if (normalized.includes("dolby atmos") || normalized === "atmos") return entry.spatialFormat === "dolby_atmos";
+        if (normalized.includes("spatial audio") || normalized === "spatial") return ["dolby_atmos", "spatial_audio"].includes(entry.spatialFormat);
+        if (normalized.includes("surround") || normalized === "5.1" || normalized === "7.1") return ["dolby_atmos", "spatial_audio", "surround"].includes(entry.spatialFormat);
+        if (normalized.includes("hi res") || normalized.includes("hires") || normalized.includes("hi-res")) return entry.spatialFormat === "hi_res";
+        if (normalized.includes("lossless") || normalized.includes("flac") || normalized.includes("dsd")) return entry.spatialFormat === "hi_res";
+        return true;
+      };
+      const seedQueries = SPATIAL_SEED.filter(matchesFormat).slice(0, 60).map((entry) => `${entry.title} ${entry.artist}`);
       const seedBatches = await Promise.all(
         seedQueries.map(async (seedQuery) => {
           const batch = await Promise.all(providers.map((provider) => searchByProvider(provider, seedQuery, env)));
           return batch.flat();
         })
       );
-      tracks = dedupeTracks(seedBatches.flat());
+      tracks = dedupeTracks(seedBatches.flat()).map(enrichSpatialFromSeed);
+      // Keep only tracks that match the requested format according to the seed list.
+      tracks = tracks.filter((track) => {
+        const title = track.title ?? "";
+        const artist = track.artist ?? "";
+        if (normalized.includes("hi res") || normalized.includes("hires") || normalized.includes("lossless") || normalized.includes("flac")) {
+          return isKnownSpatialTrackWithFormat(title, artist, "hi_res");
+        }
+        if (normalized.includes("dolby atmos") || normalized === "atmos") {
+          return isKnownSpatialTrackWithFormat(title, artist, "dolby_atmos");
+        }
+        if (normalized.includes("spatial audio") || normalized === "spatial") {
+          return isKnownSpatialTrackWithFormat(title, artist, ["dolby_atmos", "spatial_audio"]);
+        }
+        if (normalized.includes("surround") || normalized === "5.1" || normalized === "7.1") {
+          return isKnownSpatialTrackWithFormat(title, artist, ["dolby_atmos", "spatial_audio", "surround"]);
+        }
+        return track.isDolbyAtmos || track.isSpatialAudio || track.isSurround || track.isHiRes;
+      });
     } else {
       const batches = await Promise.all(providers.map((provider) => searchByProvider(provider, query, env)));
       tracks = dedupeTracks(batches.flat());

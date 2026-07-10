@@ -107,6 +107,19 @@ export const SPATIAL_SEED: SpatialSeedEntry[] = [
   { title: "My Way", artist: "Frank Sinatra", spatialFormat: "dolby_atmos" },
   { title: "That's Life", artist: "Frank Sinatra", spatialFormat: "dolby_atmos" },
   { title: "New York, New York", artist: "Frank Sinatra", spatialFormat: "dolby_atmos" },
+  // Hi-Res seed entries
+  { title: "Hotel California", artist: "Eagles", spatialFormat: "hi_res" },
+  { title: "Stairway to Heaven", artist: "Led Zeppelin", spatialFormat: "hi_res" },
+  { title: "Money", artist: "Pink Floyd", spatialFormat: "hi_res" },
+  { title: "Time", artist: "Pink Floyd", spatialFormat: "hi_res" },
+  { title: "Wish You Were Here", artist: "Pink Floyd", spatialFormat: "hi_res" },
+  { title: "Blackbird", artist: "The Beatles", spatialFormat: "hi_res" },
+  { title: "Here Comes the Sun", artist: "The Beatles", spatialFormat: "hi_res" },
+  { title: "Let It Be", artist: "The Beatles", spatialFormat: "hi_res" },
+  { title: "Aja", artist: "Steely Dan", spatialFormat: "hi_res" },
+  { title: "Peg", artist: "Steely Dan", spatialFormat: "hi_res" },
+  { title: "Deacon Blues", artist: "Steely Dan", spatialFormat: "hi_res" },
+  { title: "Take Five", artist: "Dave Brubeck", spatialFormat: "hi_res" },
 ];
 
 function normalize(value: string): string {
@@ -125,6 +138,7 @@ export function enrichSpatialFromSeed(track: GatewayTrack): GatewayTrack {
     isDolbyAtmos: seed.spatialFormat === "dolby_atmos" || track.isDolbyAtmos,
     isSpatialAudio: ["dolby_atmos", "spatial_audio"].includes(seed.spatialFormat) || track.isSpatialAudio,
     isSurround: ["dolby_atmos", "spatial_audio", "surround"].includes(seed.spatialFormat) || track.isSurround,
+    isHiRes: seed.spatialFormat === "hi_res" || track.isHiRes,
   };
 }
 
@@ -136,6 +150,22 @@ export function isKnownSpatialTrack(title: string, artist: string): SpatialSeedE
     const eArtist = normalize(entry.artist ?? "");
     if (!eTitle || !eArtist) return false;
     return nTitle === eTitle && nArtist === eArtist;
+  });
+}
+
+export function isKnownSpatialTrackWithFormat(
+  title: string,
+  artist: string,
+  format: SpatialSeedEntry["spatialFormat"] | SpatialSeedEntry["spatialFormat"][]
+): boolean {
+  const nTitle = normalize(title);
+  const nArtist = normalize(artist);
+  const formats = Array.isArray(format) ? format : [format];
+  return SPATIAL_SEED.some((entry) => {
+    const eTitle = normalize(entry.title ?? "");
+    const eArtist = normalize(entry.artist ?? "");
+    if (!eTitle || !eArtist) return false;
+    return nTitle === eTitle && nArtist === eArtist && formats.includes(entry.spatialFormat);
   });
 }
 

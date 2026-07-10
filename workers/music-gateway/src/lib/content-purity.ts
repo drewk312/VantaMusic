@@ -98,6 +98,7 @@ export function isFormatOnlyQuery(query: string): boolean {
   if (!q) return false;
   const formatKeywords = [
     'atmos',
+    'dolby',
     'dolby atmos',
     'spatial',
     'spatial audio',
@@ -106,14 +107,19 @@ export function isFormatOnlyQuery(query: string): boolean {
     '7.1',
     'hi-res',
     'hires',
+    'hi res',
     'lossless',
     'flac',
     'dsd',
     '192khz',
     '96khz',
   ];
-  const tokens = q.split(/\s+/).filter((t) => t.length > 0);
-  const nonFormatTokens = tokens.filter((t) => !formatKeywords.some((f) => f === t));
+  // Normalize hyphenated variants like "hi-res" /> "hi res" and check whole phrases.
+  const normalized = q.replace(/-/g, ' ');
+  if (formatKeywords.includes(normalized)) return true;
+  const singleWordKeywords = formatKeywords.filter((k) => !k.includes(' '));
+  const tokens = normalized.split(/\s+/).filter((t) => t.length > 0);
+  const nonFormatTokens = tokens.filter((t) => !singleWordKeywords.includes(t));
   return nonFormatTokens.length === 0;
 }
 
