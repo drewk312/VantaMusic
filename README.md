@@ -16,18 +16,26 @@ MusicPlayer/
 
 - Android SDK 36 (compileSdk), minSdk 26
 - JDK 17+
-- Node.js 20+ (for station-backend)
+- Node.js 22+ (for service tooling)
 - Wrangler (for music-gateway)
 
 ## Configuration
 
-Copy `app/local.properties` and set your backend URL:
+Set the backend URL through the `STATION_BACKEND_URL` environment variable, a
+Gradle property, or the root `local.properties` file:
 
 ```properties
 STATION_BACKEND_URL=https://your-station-backend.example.com/
 ```
 
+The optional Apple MusicKit authentication AAR may be placed at
+`app/libs/musickitauth-release-1.1.2.aar`. Builds remain reproducible without it;
+the authentication callback activity is disabled when the licensed SDK is absent.
+
 Other credentials (TorBox, Real-Debrid, LLM keys, Apple Music token) are configured at runtime through the app's Settings screen and stored in encrypted SharedPreferences.
+
+See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for signing, secret management,
+container deployment, Worker deployment, and the final release gate.
 
 ## Build & Test
 
@@ -39,12 +47,17 @@ Other credentials (TorBox, Real-Debrid, LLM keys, Apple Music token) are configu
 
 # Station backend
 cd station-backend
-npm install
-npx tsc --noEmit
+npm ci
+npm run typecheck
+npm test
+npm run build
 npm start
 
 # Music gateway
 cd workers/music-gateway
+npm ci
+npm run typecheck
+npm test
 npx wrangler deploy --dry-run
 ```
 

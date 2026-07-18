@@ -9,6 +9,7 @@ import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.SourceSearchResult
 import com.audiophile.musicplayer.data.source.canResolveStream
 import com.audiophile.musicplayer.data.source.isLikelyMusicTrack
+import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -26,7 +27,8 @@ data class StreamingStationRequest(
     val localEnrichment: List<UnifiedTrackWithSources> = emptyList(),
     val targetCount: Int = 30,
     val minPlayableToStart: Int = 3,
-    val fastPreview: Boolean = false
+    val fastPreview: Boolean = false,
+    val generationToken: Long = 0L
 )
 
 data class StreamingStationResult(val candidates: List<UnifiedTrackWithSources>, val totalGenerated: Int, val queriesExecuted: Int, val discoveredArtists: List<String> = emptyList(), val failureReason: String? = null) {
@@ -67,7 +69,14 @@ class RadioQueueEngine(
         // 1. Try Backend (Gemini) if available
         val backendTracks = tryBackendFetch(seed, request, excludeIds)
         if (backendTracks.isNotEmpty()) {
-            val processed = resolveCandidates(backendTracks.map { "${it.title} ${it.artist}" }, excludeIds, request.playedTrackIds, maxTracks = request.targetCount)
+            val processed = resolveCandidates(
+                queries = backendTracks.map { "${it.title} ${it.artist}" },
+                excludeTrackIds = excludeIds,
+                playedTrackIds = request.playedTrackIds,
+                maxTracks = request.targetCount,
+                stationSeed = seed,
+                taste = request.taste
+            )
             if (processed.size >= request.minPlayableToStart) {
                 val scored = processed.map { scoreTrack(it, seed, request.taste) }.sortedByDescending { it.first }
                 val finalList = applyDiversityInterleaving(scored.map { it.second }, seed.seedArtist ?: "", maxPerArtist = 2)
@@ -76,8 +85,19 @@ class RadioQueueEngine(
         }
 
         // 2. Fallback to Provider Text Search
-        val queries = StreamingStationQueryPlanner.planInitialQueries(seed)
-        val collected = resolveCandidates(queries, excludeIds, request.playedTrackIds, maxTracks = request.targetCount)
+        val queries = StreamingStationQueryPlanner.planInitialQueries(seed, request.taste)
+        // Start on a compact verified queue, then let the existing refill path
+        // build the full station in the background. Waiting for 20 resolved
+        // tracks before the first note made Radio feel stalled.
+        val bootstrapTarget = request.targetCount.coerceAtMost(maxOf(request.minPlayableToStart + 3, 8))
+        val collected = resolveCandidates(
+            queries = queries,
+            excludeTrackIds = excludeIds,
+            playedTrackIds = request.playedTrackIds,
+            maxTracks = bootstrapTarget,
+            stationSeed = seed,
+            taste = request.taste
+        )
         
         val enriched = appendLocalEnrichment(collected, request.localEnrichment, excludeIds, request.playedTrackIds, request.taste)
         val scored = enriched.map { scoreTrack(it, seed, request.taste) }.sortedByDescending { it.first }
@@ -97,7 +117,14 @@ class RadioQueueEngine(
         // Attempt backend refill first
         val backendRefill = tryBackendFetch(seed, request.copy(targetCount = 15), excludeIds)
         if (backendRefill.isNotEmpty()) {
-            val processed = resolveCandidates(backendRefill.map { "${it.title} ${it.artist}" }, excludeIds, request.playedTrackIds, maxTracks = 15)
+            val processed = resolveCandidates(
+                queries = backendRefill.map { "${it.title} ${it.artist}" },
+                excludeTrackIds = excludeIds,
+                playedTrackIds = request.playedTrackIds,
+                maxTracks = 15,
+                stationSeed = seed,
+                taste = request.taste
+            )
             val scored = processed.map { scoreTrack(it, seed, request.taste) }.sortedByDescending { it.first }
             return applyDiversityInterleaving(scored.map { it.second }, seed.seedArtist ?: "", maxPerArtist = 2)
                 .filter { it.track.trackId !in existingTrackIds }
@@ -105,8 +132,20 @@ class RadioQueueEngine(
         }
 
         // Fallback expansion
-        val expansion = StreamingStationQueryPlanner.planExpansionQueries(seed, seed.seedArtists, 2)
-        val processed = resolveCandidates(expansion, excludeIds, request.playedTrackIds, maxTracks = 20)
+        val expansion = StreamingStationQueryPlanner.planExpansionQueries(
+            seed = seed,
+            discoveredArtists = seed.seedArtists,
+            pass = 2,
+            taste = request.taste
+        )
+        val processed = resolveCandidates(
+            queries = expansion,
+            excludeTrackIds = excludeIds,
+            playedTrackIds = request.playedTrackIds,
+            maxTracks = 20,
+            stationSeed = seed,
+            taste = request.taste
+        )
         val scored = processed.map { scoreTrack(it, seed, request.taste) }.sortedByDescending { it.first }
         return applyDiversityInterleaving(scored.map { it.second }, seed.seedArtist ?: "", maxPerArtist = 2)
             .filter { it.track.trackId !in existingTrackIds }
@@ -119,10 +158,14 @@ class RadioQueueEngine(
         queries: List<String>,
         excludeTrackIds: Set<Long>,
         playedTrackIds: Set<Long>,
-        maxTracks: Int
+        maxTracks: Int,
+        stationSeed: StreamingStationSeed? = null,
+        taste: StreamingStationTasteSignals = StreamingStationTasteSignals()
     ): List<UnifiedTrackWithSources> {
         val collected = mutableListOf<UnifiedTrackWithSources>()
         val seenKeys = mutableSetOf<String>()
+        val seenStationKeys = mutableSetOf<String>()
+        val artistCounts = mutableMapOf<String, Int>()
 
         coroutineScope {
             val deferred = queries.map { query ->
@@ -132,16 +175,45 @@ class RadioQueueEngine(
                 }
             }
 
-            for (deferredResult in deferred) {
+            queryLoop@ for ((queryIndex, deferredResult) in deferred.withIndex()) {
                 val results = deferredResult.await()
-                for (result in results) {
+                val rankedResults = if (stationSeed != null) {
+                    StreamingStationCandidateRanker.rankCandidates(
+                        results = results,
+                        seed = stationSeed,
+                        taste = taste,
+                        seenNormKeys = seenStationKeys,
+                        artistCounts = artistCounts,
+                        maxPerArtist = 2
+                    )
+                } else {
+                    results
+                }
+                for (result in rankedResults) {
                     if (collected.size >= maxTracks) break
 
                     if (!result.status.canResolveStream() || !result.isLikelyMusicTrack()) continue
 
+                    if (stationSeed != null) {
+                        val gate = PlaybackIdentityGate.verifyCandidate(
+                            title = result.title,
+                            artist = result.artist,
+                            album = result.album,
+                            durationMs = result.durationMs
+                        )
+                        if (gate is GateVerdict.Failed) {
+                            Log.d(
+                                "VANTA_RADIO_ENGINE",
+                                "candidate_rejected_before_resolve reason=${gate.reason} title='${result.title}' artist='${result.artist}'"
+                            )
+                            continue
+                        }
+                    }
+
                     val normKey = normalizeKey(result.title, result.artist)
+                    val stationKey = StreamingStationCandidateRanker.normalizeCandidateKey(result.title, result.artist)
                     val isrcKey = result.isrc?.takeIf { it.isNotBlank() }?.let { "isrc:$it" }
-                    if (normKey in seenKeys || (isrcKey != null && isrcKey in seenKeys)) continue
+                    if (normKey in seenKeys || stationKey in seenStationKeys || (isrcKey != null && isrcKey in seenKeys)) continue
 
                     try {
                         val resolved = sourceRegistry.resolveStream(result.providerId, result.id, timeoutMs = 10_000L) ?: continue
@@ -160,13 +232,33 @@ class RadioQueueEngine(
                         val track = trackRepository.getTrackWithSources(trackId) ?: continue
                         if (track.track.trackId in excludeTrackIds || track.track.trackId in playedTrackIds) continue
                         if (!track.sourceValidityStatus().canResolveStream()) continue
+                        val resolvedGate = PlaybackIdentityGate.verify(track)
+                        if (resolvedGate is GateVerdict.Failed) {
+                            Log.d(
+                                "VANTA_RADIO_ENGINE",
+                                "candidate_rejected_after_resolve reason=${resolvedGate.reason} title='${track.track.title}' artist='${track.track.artist}'"
+                            )
+                            continue
+                        }
 
                         seenKeys.add(normKey)
+                        seenStationKeys.add(stationKey)
                         isrcKey?.let { seenKeys.add(it) }
                         collected.add(track)
+                        val artistKey = track.track.artist?.trim()?.lowercase().orEmpty()
+                        if (artistKey.isNotBlank()) {
+                            artistCounts[artistKey] = (artistCounts[artistKey] ?: 0) + 1
+                        }
                     } catch (e: Exception) {
                         Log.w("VANTA_RADIO_ENGINE", "resolve_error: ${e.message}")
                     }
+                }
+                if (collected.size >= maxTracks) {
+                    // Do not wait for unrelated searches after we have a
+                    // playable starting queue. Their work is superseded by the
+                    // station's background expansion request.
+                    deferred.drop(queryIndex + 1).forEach { it.cancel() }
+                    break@queryLoop
                 }
             }
         }
@@ -252,38 +344,54 @@ class RadioQueueEngine(
     private fun applyDiversityInterleaving(
         sortedTracks: List<UnifiedTrackWithSources>,
         seedArtist: String,
-        maxPerArtist: Int = 3
+        maxPerArtist: Int = 2
     ): List<UnifiedTrackWithSources> {
         val result = mutableListOf<UnifiedTrackWithSources>()
-        val artistBuckets = sortedTracks.groupBy { it.track.artist?.lowercase() ?: "unknown" }
-        val seedBucket = artistBuckets[seedArtist.lowercase()].orEmpty().toMutableList()
-        val otherBuckets = artistBuckets.filter { it.key != seedArtist.lowercase() }.values.map { it.toMutableList() }.toMutableList()
+        val seedArtistKey = seedArtist.trim().lowercase()
+        val artistBuckets = sortedTracks
+            .groupBy { it.track.artist?.trim()?.lowercase()?.takeIf { artist -> artist.isNotBlank() } ?: "unknown" }
+            .mapValues { it.value.toMutableList() }
+            .toMutableMap()
+        val seedBucket = artistBuckets.remove(seedArtistKey) ?: mutableListOf()
 
         var seedCount = 0
         var otherCount = 0
+        val totalPerArtist = mutableMapOf<String, Int>()
 
-        while (result.size < sortedTracks.size && (seedBucket.isNotEmpty() || otherBuckets.any { it.isNotEmpty() })) {
-            // Force variety: if we've played 2 seed tracks, force an other
+        while (result.size < sortedTracks.size && (seedBucket.isNotEmpty() || artistBuckets.any { it.value.isNotEmpty() })) {
             val takeFromSeed = when {
                 seedBucket.isEmpty() -> false
-                otherBuckets.all { it.isEmpty() } -> true
-                seedCount >= 2 -> false
+                artistBuckets.all { it.value.isEmpty() } -> true
+                seedCount >= maxPerArtist -> false
                 otherCount >= 2 -> true
-                result.isEmpty() -> true // Start with the seed artist if possible
-                else -> (0..1).random() == 1 // Randomly interleave
+                result.isEmpty() -> true
+                else -> false
             }
 
             if (takeFromSeed && seedBucket.isNotEmpty()) {
-                result.add(seedBucket.removeAt(0))
+                val track = seedBucket.removeAt(0)
+                val artistKey = track.track.artist?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "unknown"
+                val artistTotal = totalPerArtist[artistKey] ?: 0
+                if (result.size < 10 && artistTotal >= maxPerArtist) continue
+                result.add(track)
+                totalPerArtist[artistKey] = (totalPerArtist[artistKey] ?: 0) + 1
                 seedCount++
                 otherCount = 0
             } else {
-                // Pull from a random other bucket to keep things fresh
-                val availableBuckets = otherBuckets.filter { it.isNotEmpty() }
-                if (availableBuckets.isNotEmpty()) {
-                    val bucket = availableBuckets.random()
+                val nextEntry = artistBuckets
+                    .filter { it.value.isNotEmpty() }
+                    .minWithOrNull(
+                        compareBy<Map.Entry<String, MutableList<UnifiedTrackWithSources>>> { totalPerArtist[it.key] ?: 0 }
+                            .thenBy { sortedTracks.indexOf(it.value.first()) }
+                    )
+                if (nextEntry != null) {
+                    val bucket = nextEntry.value
                     val track = bucket.removeAt(0)
+                    val artistKey = nextEntry.key
+                    val artistTotal = totalPerArtist[artistKey] ?: 0
+                    if (result.size < 10 && artistTotal >= maxPerArtist) continue
                     result.add(track)
+                    totalPerArtist[artistKey] = (totalPerArtist[artistKey] ?: 0) + 1
                     otherCount++
                     seedCount = 0
                 } else if (seedBucket.isNotEmpty()) {
@@ -314,7 +422,7 @@ class RadioQueueEngine(
         val bonus = mutableListOf<UnifiedTrackWithSources>()
         
         for (track in localTracks) {
-            if (!track.sources.any { it.streamUrl.isNotBlank() }) continue
+            if (!track.isPlayableMusicCandidate()) continue
             if (track.track.trackId in excludeIds || track.track.trackId in playedIds) continue
             val key = normalizeKey(track.track.title ?: "", track.track.artist ?: "")
             if (key in seen) continue
@@ -333,10 +441,10 @@ class RadioQueueEngine(
             val recentHistory = request.playedTrackIds.take(10).mapNotNull { id ->
                 trackRepository.getTrackWithSources(id)?.let { SimpleTrackRef(it.track.title ?: "", it.track.artist ?: "") }
             }
-            val apiRequest = GenerateStationRequestV1(
-                seed = seed.displayName, seedKind = seed.kind.name, seedEraStart = seed.eraStart, seedEraEnd = seed.eraEnd,
-                seedArtist = seed.seedArtist, seedTitle = seed.seedTitle, hintKeywords = seed.hintKeywords.takeIf { it.isNotEmpty() },
-                recentHistory = recentHistory, tasteProfile = TasteProfile(emptyList(), emptyList()), count = request.targetCount
+            val apiRequest = RadioBackendRequestPlanner.buildGenerateStationRequest(
+                seed = seed,
+                request = request,
+                recentHistory = recentHistory
             )
             val response = radioApiService.generateStation(apiRequest)
             if (response.isSuccessful) response.body()?.tracks.orEmpty() else emptyList()

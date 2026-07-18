@@ -75,6 +75,7 @@ class LocalLibraryRepository(
     suspend fun createPlaylist(
         name: String,
         description: String? = null,
+        artworkUrl: String? = null,
         sourceType: SourceType = SourceType.LOCAL,
         importBatchId: Long? = null
     ): Long = withContext(Dispatchers.IO) {
@@ -82,6 +83,7 @@ class LocalLibraryRepository(
             PlaylistEntity(
                 name = name,
                 description = description,
+                artworkUrl = artworkUrl,
                 sourceType = sourceType,
                 importBatchId = importBatchId
             )
@@ -94,6 +96,14 @@ class LocalLibraryRepository(
                 PlaylistSongCrossRef(playlistId = playlistId, songId = songId, position = index)
             }
         )
+    }
+
+    suspend fun playlistSongsSnapshot(playlistId: Long): List<LocalSongEntity> = withContext(Dispatchers.IO) {
+        libraryDao.getPlaylistSongs(playlistId)
+    }
+
+    suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
+        libraryDao.deletePlaylist(playlistId)
     }
 
     suspend fun saveImportBatch(batch: ImportBatchEntity): Long = withContext(Dispatchers.IO) {

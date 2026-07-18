@@ -117,7 +117,7 @@ class ExternalSourceConfigStore(context: Context) {
                 .map { source ->
                     source.copy(providerKind = PlaybackProviderKind.normalize(source.providerKind))
                 }
-        } catch (e: Exception) {
+        } catch (e: com.google.gson.JsonSyntaxException) {
             Log.e("ExternalSourceConfig", "Failed to parse sources", e)
             emptyList()
         }

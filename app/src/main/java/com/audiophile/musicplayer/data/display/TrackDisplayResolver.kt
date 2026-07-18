@@ -41,7 +41,7 @@ object TrackDisplayResolver {
         return DisplayTrack(
             title = display.title,
             artist = display.artist,
-            album = track.albumName,
+            album = display.album ?: DisplayMetadataCleaner.cleanAlbumName(track.albumName),
             artworkUrl = artworkUrl,
             trackId = track.trackId,
             durationMs = track.durationMs,

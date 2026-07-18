@@ -100,10 +100,11 @@ class AiDjPlaybackManager(
             return
         }
 
+        val capturedGeneration = playbackGeneration
         prefetchJob?.cancel()
         cachedAudioFile?.delete()
         cachedAudioFile = null
-        lastPrefetchedGeneration = playbackGeneration
+        lastPrefetchedGeneration = capturedGeneration
 
         Log.d("VANTA_AI_DJ", "Starting prefetch for next track: ${nextTrack.track.title}")
         
@@ -114,11 +115,16 @@ class AiDjPlaybackManager(
                 }
                 val nextRef = SimpleTrackRef(title = nextTrack.track.title ?: "", artist = nextTrack.track.artist ?: "")
 
+                val tone = selectTone(recentTracks, nextTrack)
+                val stationName = recentTracks.firstOrNull()?.track?.genre?.let { "$it station" }
+                    ?: nextTrack.track.genre?.let { "$it station" }
+                    ?: "VANTA Station"
+
                 val request = DjSegmentRequestV1(
-                    stationName = "VANTA Station", // We can improve this later
+                    stationName = stationName,
                     recentTracks = recentRefs,
                     nextTrack = nextRef,
-                    tone = "energetic"
+                    tone = tone
                 )
                 val response = radioApiService.generateDjSegment(request)
                 if (response.isSuccessful && response.body() != null) {
@@ -129,7 +135,7 @@ class AiDjPlaybackManager(
                         FileOutputStream(file).use { it.write(bytes) }
                         
                         withContext(Dispatchers.Main) {
-                            if (lastPrefetchedGeneration == playbackGeneration) {
+                            if (lastPrefetchedGeneration == capturedGeneration) {
                                 cachedAudioFile = file
                                 Log.d("VANTA_AI_DJ", "Prefetch successful, saved to ${file.absolutePath}")
                             } else {
@@ -196,6 +202,31 @@ class AiDjPlaybackManager(
         }
     }
 
+    private fun selectTone(
+        recentTracks: List<UnifiedTrackWithSources>,
+        nextTrack: UnifiedTrackWithSources
+    ): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val timeTone = when (hour) {
+            in 5..11 -> "bright morning"
+            in 12..17 -> "midday energy"
+            in 18..21 -> "evening cool"
+            else -> "late night"
+        }
+        val energy = nextTrack.track.genre?.lowercase()?.let { genre ->
+            when {
+                genre.contains("rock") || genre.contains("metal") ||
+                    genre.contains("hip-hop") || genre.contains("edm") ||
+                    genre.contains("trap") || genre.contains("drum") -> "high energy"
+                genre.contains("jazz") || genre.contains("classical") ||
+                    genre.contains("ambient") || genre.contains("acoustic") ||
+                    genre.contains("lo-fi") || genre.contains("folk") -> "mellow"
+                else -> "smooth"
+            }
+        } ?: "smooth"
+        return "$timeTone, $energy"
+    }
+
     fun releasePlayer() {
         prefetchJob?.cancel()
         djPlayer?.release()
@@ -203,3 +234,4 @@ class AiDjPlaybackManager(
         cachedAudioFile?.delete()
     }
 }
+

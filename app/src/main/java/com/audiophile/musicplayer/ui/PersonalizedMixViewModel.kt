@@ -24,6 +24,7 @@ data class PersonalizedMixCardState(
     val subtitle: String,
     val trackCount: Int,
     val lastRefreshedLabel: String?,
+    val artworkUrl: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
     val isEmpty: Boolean = false,
@@ -54,7 +55,10 @@ class PersonalizedMixViewModel @Inject constructor(
             val cards = registry.homeKinds().mapNotNull { kind ->
                 val spec = registry.get(kind) ?: return@mapNotNull null
                 val record = runCatching { manager.ensureMix(kind) }.getOrNull()
-                buildCard(kind, spec.displayName, spec.subtitle, record)
+                val artworkUrl = runCatching {
+                    manager.getSnapshot(kind)?.tracks?.firstOrNull()?.artworkUrl
+                }.getOrNull()
+                buildCard(kind, spec.displayName, spec.subtitle, record, artworkUrl)
             }
             _uiState.update { it.copy(cards = cards) }
         }
@@ -98,7 +102,8 @@ class PersonalizedMixViewModel @Inject constructor(
         kind: PersonalizedMixKind,
         title: String,
         subtitle: String,
-        record: PersonalizedMixRecord?
+        record: PersonalizedMixRecord?,
+        artworkUrl: String? = null
     ): PersonalizedMixCardState =
         PersonalizedMixCardState(
             kind = kind,
@@ -106,6 +111,7 @@ class PersonalizedMixViewModel @Inject constructor(
             subtitle = subtitle,
             trackCount = record?.trackCount ?: 0,
             lastRefreshedLabel = formatLastRefreshed(record?.lastGeneratedAt),
+            artworkUrl = artworkUrl,
             error = record?.lastGenerationError,
             isEmpty = (record?.trackCount ?: 0) == 0,
             isStale = record?.isStale == true

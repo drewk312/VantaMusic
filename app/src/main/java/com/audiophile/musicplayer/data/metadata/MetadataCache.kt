@@ -20,7 +20,7 @@ class MetadataCache(
 
         return try {
             gson.fromJson(entity.metadataJson, EnhancedMetadata::class.java)
-        } catch (e: Exception) {
+        } catch (e: com.google.gson.JsonSyntaxException) {
             null
         }
     }

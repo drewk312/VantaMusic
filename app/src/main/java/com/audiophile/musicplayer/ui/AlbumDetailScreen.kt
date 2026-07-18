@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.display.TrackDisplayResolver
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.catalog.AlbumCatalog
@@ -104,6 +105,7 @@ fun AlbumDetailScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
+            .statusBarsPadding()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -136,10 +138,10 @@ fun AlbumDetailScreen(
                         )
                     }
                     Spacer(Modifier.height(20.dp))
-                    Text(albumName, color = AppText, fontSize = 26.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(DisplayMetadataCleaner.cleanDisplayName(albumName).ifBlank { albumName }, color = AppText, fontSize = 26.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        artistName,
+                        DisplayMetadataCleaner.cleanDisplayName(artistName).ifBlank { artistName },
                         color = AppAccent,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -196,14 +198,17 @@ fun AlbumDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text("${track.trackNumber ?: index + 1}", color = AppTextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
+                        val (catalogTitle, catalogArtist) = remember(track) {
+                            DisplayMetadataCleaner.computeDisplayTitleArtist(track.title, track.artist)
+                        }
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(track.title, color = AppText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(catalogTitle.ifBlank { track.title }, color = AppText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if (track.explicit == true) VantaExplicitBadge()
                             }
-                            Text(track.artist, color = AppTextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(catalogArtist.ifBlank { track.artist }, color = AppTextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${track.title}", tint = AppAccent, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${catalogTitle.ifBlank { track.title }}", tint = AppAccent, modifier = Modifier.size(24.dp))
                     }
                 }
             } else {

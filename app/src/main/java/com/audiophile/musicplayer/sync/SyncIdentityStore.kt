@@ -6,14 +6,14 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.core.content.edit
+import com.audiophile.musicplayer.security.FailClosedSharedPreferences
 
 /**
  * Encrypted storage for VANTA Sync identity and encryption keys.
  *
- * Tries AES-256 [EncryptedSharedPreferences] first and falls back to plain
- * [SharedPreferences] if the device keystore is unavailable. The data here is
- * non-sensitive by itself (anonymous user ID + sync key), but encryption is used
- * to prevent trivial tampering.
+ * Uses AES-256 [EncryptedSharedPreferences]. If the device keystore is unavailable,
+ * reads return defaults and writes fail closed instead of persisting a sync key in
+ * plaintext.
  */
 class SyncIdentityStore(context: Context) {
 
@@ -34,10 +34,10 @@ class SyncIdentityStore(context: Context) {
     } catch (e: Exception) {
         Log.e(
             "VANTA_SYNC_STORE",
-            "secure_store_unavailable fallback=plain_shared_prefs",
+            "secure_store_unavailable sync_persistence_disabled",
             e
         )
-        context.getSharedPreferences("vanta_sync_plain", Context.MODE_PRIVATE)
+        FailClosedSharedPreferences
     }
 
     fun storeSyncKey(syncKey: String?) {

@@ -16,6 +16,8 @@ import retrofit2.http.Query
  * - GET  /sync/library/{userId}       fetch merged library
  * - POST /sync/activity/{userId}      post own listening activity
  * - GET  /sync/activity/{userId}      fetch friend activity feed
+ * - POST /sync/friends/{userId}       add a friend by id
+ * - GET  /sync/friends/{userId}       list friend ids
  */
 interface VantaGatewayApi {
 
@@ -42,6 +44,17 @@ interface VantaGatewayApi {
         @Path("userId") userId: String,
         @Query("limit") limit: Int = 50
     ): Response<ActivityFeedDto>
+
+    @POST("sync/friends/{userId}")
+    suspend fun addFriend(
+        @Path("userId") userId: String,
+        @Body body: AddFriendRequestDto
+    ): Response<FriendsListDto>
+
+    @GET("sync/friends/{userId}")
+    suspend fun getFriends(
+        @Path("userId") userId: String
+    ): Response<FriendsListDto>
 }
 
 data class LibrarySnapshotDto(
@@ -92,4 +105,12 @@ data class ActivityEventDto(
 data class ActivityFeedDto(
     @SerializedName("events") val events: List<ActivityEventDto> = emptyList(),
     @SerializedName("updatedAtMs") val updatedAtMs: Long = System.currentTimeMillis()
+)
+
+data class AddFriendRequestDto(
+    @SerializedName("friendId") val friendId: String
+)
+
+data class FriendsListDto(
+    @SerializedName("friendIds") val friendIds: List<String> = emptyList()
 )

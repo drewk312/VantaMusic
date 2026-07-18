@@ -260,7 +260,7 @@ class LocalMediaImporter(
             val file = File(appContext.cacheDir, "art_${safeName}_${System.currentTimeMillis()}.jpg")
             FileOutputStream(file).use { fos -> fos.write(picture) }
             file.absolutePath
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.e("LocalMediaImporter", "Failed to write embedded artwork for: $uri", e)
             null
         }

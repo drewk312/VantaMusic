@@ -83,17 +83,20 @@ class SpotifyLibraryApiClient(
         }
 
         if (request.importPlaylistTracks && request.importPlaylists) {
-            // Fetch first page of tracks for each playlist on this pass.
-            // A production implementation should paginate playlist tracks separately.
             playlists.forEach { playlist ->
                 runCatching {
-                    service.getPlaylistTracks(playlist.providerPlaylistId, 100, 0)
-                        .body()
-                        ?.items
-                        ?.mapNotNull { it.track }
-                        ?.mapTo(tracks) { track ->
-                            track.toImportedLibraryTrack(addedAt = null, playlistIds = listOf(playlist.providerPlaylistId))
-                        }
+                    var playlistOffset = 0
+                    while (true) {
+                        val page = service.getPlaylistTracks(playlist.providerPlaylistId, 100, playlistOffset).body()
+                        val pageItems = page?.items.orEmpty()
+                        pageItems
+                            .mapNotNull { it.track }
+                            .mapTo(tracks) { track ->
+                                track.toImportedLibraryTrack(addedAt = null, playlistIds = listOf(playlist.providerPlaylistId))
+                            }
+                        if (page?.next.isNullOrBlank() || pageItems.isEmpty()) break
+                        playlistOffset += pageItems.size
+                    }
                 }
             }
         }

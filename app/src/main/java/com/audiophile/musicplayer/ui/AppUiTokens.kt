@@ -158,10 +158,10 @@ object VantaRadius {
 }
 
 object VantaChrome {
-    val miniPlayerHeight = 68.dp
-    val bottomNavHeight = 72.dp
+    val miniPlayerHeight = 64.dp
+    val bottomNavHeight = 68.dp
     val overlayHorizontal = 16.dp
-    val overlayGap = 10.dp
+    val overlayGap = 6.dp
 }
 
 // ============================================================

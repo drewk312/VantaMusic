@@ -34,6 +34,8 @@ import com.audiophile.musicplayer.search.UnifiedSearchResponse
 import com.audiophile.musicplayer.data.metadata.EnhancedMetadata
 import com.audiophile.musicplayer.data.source.SourceSearchResult
 import com.audiophile.musicplayer.data.source.SearchItemStatus
+import com.audiophile.musicplayer.data.source.SelectedRecordingIdentity
+import com.audiophile.musicplayer.data.source.SourceCandidateRanker
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
 import com.audiophile.musicplayer.data.source.canResolveStream
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
@@ -51,12 +53,15 @@ import com.audiophile.musicplayer.data.dj.JukeboxTrackEligibility
 import com.audiophile.musicplayer.data.dj.StationSearchResolver
 import com.audiophile.musicplayer.data.dj.StreamingSeedParams
 import com.audiophile.musicplayer.data.dj.toStreamingSeed
+import com.audiophile.musicplayer.radio.toStreamingSeedParams
 import com.audiophile.musicplayer.radio.toStationSeed
 import com.audiophile.musicplayer.data.canonical.CanonicalAlbum
 import com.audiophile.musicplayer.data.canonical.CanonicalArtist
+import com.audiophile.musicplayer.data.canonical.CanonicalMapper
 import com.audiophile.musicplayer.data.canonical.CanonicalTrack
 import com.audiophile.musicplayer.data.catalog.ArtistCatalog
 import com.audiophile.musicplayer.data.catalog.AlbumCatalog
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
 import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -119,7 +124,8 @@ private data class LibraryRefreshSnapshot(
     val importBatches: List<ImportBatchEntity>,
     val activeTrackId: String?,
     val resolverConfig: ResolverConfigForm,
-    val libraryAlbums: List<com.audiophile.musicplayer.data.local.entities.Album>
+    val libraryAlbums: List<com.audiophile.musicplayer.data.local.entities.Album>,
+    val localPlaylists: List<com.audiophile.musicplayer.data.local.entities.PlaylistEntity> = emptyList()
 )
 
 private data class ResolvedImportSource(
@@ -140,6 +146,8 @@ private data class ResolvedImportSource(
 data class MainUiState(
     val query: String = "",
     val localSongs: List<LocalSongEntity> = emptyList(),
+    val editorialNewReleases: List<SourceSearchResult> = emptyList(),
+    val editorialNewReleasesLoading: Boolean = false,
     val library: List<UnifiedTrackWithSources> = emptyList(),
     val visibleTracks: List<UnifiedTrackWithSources> = emptyList(),
     val sourceResults: List<CanonicalTrack> = emptyList(),
@@ -180,7 +188,13 @@ data class MainUiState(
     val albumCatalog: AlbumCatalog? = null,
     val albumCatalogLoading: Boolean = false,
     val matchedStations: List<JukeboxStation> = emptyList(),
-    val streamingStationLoading: Boolean = false
+    val streamingStationLoading: Boolean = false,
+    val localPlaylists: List<com.audiophile.musicplayer.data.local.entities.PlaylistEntity> = emptyList(),
+    val playlistDetailTracks: List<LocalSongEntity> = emptyList(),
+    val activePlaylistId: Long? = null,
+    val activePlaylistName: String = "",
+    val activePlaylistArtworkUrl: String? = null,
+    val activePlaylistDescription: String? = null
 )
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -211,6 +225,7 @@ class MainViewModel @Inject constructor(
     private val refreshMutex = Mutex()
     private var artistCatalogRequest: String? = null
     private var albumCatalogRequest: String? = null
+    private var editorialReleasesLoaded = false
 
     // ── Endless Station State ──
     private var activeStationSeed: StreamingSeedParams? = null
@@ -232,6 +247,70 @@ class MainViewModel @Inject constructor(
             if (artistCatalogRequest.equals(cleanArtist, ignoreCase = true)) {
                 _uiState.update { it.copy(artistCatalog = catalog, artistCatalogLoading = false) }
             }
+        }
+    }
+
+    fun loadEditorialNewReleases(force: Boolean = false) {
+        if (!force && (editorialReleasesLoaded || _uiState.value.editorialNewReleasesLoading)) return
+        _uiState.update { it.copy(editorialNewReleasesLoading = true) }
+        viewModelScope.launch {
+            val releases = withContext(Dispatchers.IO) { container.newReleasesSource.editorialNewReleases() }
+            editorialReleasesLoaded = releases.isNotEmpty()
+            _uiState.update { it.copy(editorialNewReleases = releases, editorialNewReleasesLoading = false) }
+        }
+    }
+
+    fun playTodaysDrop(shuffle: Boolean = false) {
+        viewModelScope.launch {
+            val candidates = ensureTodaysDropCandidates()
+            val release = when {
+                candidates.isEmpty() -> null
+                shuffle && candidates.size > 1 -> candidates[((System.currentTimeMillis() % (candidates.size - 1)).toInt() + 1)]
+                else -> candidates.first()
+            } ?: run {
+                setStatusMessage("Today's Drop is not available yet.")
+                return@launch
+            }
+
+            setStatusMessage(if (shuffle) "Shuffling Today's Drop..." else "Playing Today's Drop...")
+            playSourceResult(CanonicalMapper.mapToCanonicalTrack(release))
+        }
+    }
+
+    fun saveTodaysDropToLibrary() {
+        viewModelScope.launch {
+            val candidates = ensureTodaysDropCandidates().take(12)
+            if (candidates.isEmpty()) {
+                setStatusMessage("Today's Drop is not available yet.")
+                return@launch
+            }
+            setStatusMessage("Saving Today's Drop...")
+            var saved = 0
+            candidates.forEach { release ->
+                val resolved = withContext(Dispatchers.IO) {
+                    resolveCanonicalTrack(CanonicalMapper.mapToCanonicalTrack(release))
+                }
+                if (resolved != null) saved += 1
+            }
+            refreshAll(skipRoomMaterialize = true)
+            setStatusMessage(
+                if (saved > 0) "Saved $saved Today's Drop track(s) to your library"
+                else "No playable Today's Drop tracks could be saved"
+            )
+        }
+    }
+
+    private suspend fun ensureTodaysDropCandidates(): List<SourceSearchResult> {
+        if (_uiState.value.editorialNewReleases.isEmpty()) {
+            _uiState.update { it.copy(editorialNewReleasesLoading = true, statusMessage = "Finding today's drop...") }
+            val releases = withContext(Dispatchers.IO) { container.newReleasesSource.editorialNewReleases() }
+            editorialReleasesLoaded = releases.isNotEmpty()
+            _uiState.update { it.copy(editorialNewReleases = releases, editorialNewReleasesLoading = false) }
+        }
+        return _uiState.value.editorialNewReleases.filter { candidate ->
+            candidate.title.isNotBlank() &&
+                candidate.artist.isNotBlank() &&
+                candidate.status != SearchItemStatus.PREVIEW
         }
     }
 
@@ -261,6 +340,7 @@ class MainViewModel @Inject constructor(
     init {
         refreshAll()
         resumeManagedDownloadImports()
+        refreshDueConnectedLibraries()
 
         // Restore played history from DB for radio exclusion persistence
         viewModelScope.launch(Dispatchers.IO) {
@@ -324,6 +404,31 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
+        }
+    }
+
+    private fun refreshDueConnectedLibraries() {
+        viewModelScope.launch {
+            ConnectedLibraryProvider.entries.forEach { provider ->
+                if (!container.connectedLibraryManager.isConnected(provider)) return@forEach
+                if (!container.connectedLibraryManager.isAutoRefreshDue(provider)) return@forEach
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        container.connectedLibraryManager.importLibrary(provider)
+                    }
+                }.onSuccess { result ->
+                    Log.i(
+                        "VANTA_CONNECTOR_AUTO_REFRESH",
+                        "provider=$provider tracks=${result.summary.tracksImported} playlists=${result.summary.playlistsImported}"
+                    )
+                    refreshAll(skipRoomMaterialize = true)
+                }.onFailure { error ->
+                    Log.w(
+                        "VANTA_CONNECTOR_AUTO_REFRESH",
+                        "provider=$provider reason=${error.message ?: error.javaClass.simpleName}"
+                    )
+                }
+            }
         }
     }
 
@@ -712,6 +817,7 @@ class MainViewModel @Inject constructor(
                         activeTrackId = refreshed.activeTrackId,
                         resolverConfig = refreshed.resolverConfig,
                         libraryAlbums = refreshed.libraryAlbums,
+                        localPlaylists = refreshed.localPlaylists,
                         libraryNeedsRefresh = false
                     )
                 }
@@ -805,6 +911,7 @@ class MainViewModel @Inject constructor(
             .orEmpty()
         val importBatches = container.localLibraryRepository.importBatchesSnapshot()
         val libraryAlbums = container.trackRepository.getAllAlbumsWithTracks().map { it.album }
+        val localPlaylists = container.localLibraryRepository.playlistsSnapshot()
 
         val likedCount = localSongs.count { it.isFavorite }
         Log.d("VANTA_LIBRARY_TRUTH", "likedCount=$likedCount totalLibrary=${library.size} totalLocalSongs=${localSongs.size}")
@@ -819,7 +926,8 @@ class MainViewModel @Inject constructor(
             importBatches = importBatches,
             activeTrackId = activeTrackId,
             resolverConfig = loadResolverConfigForm(),
-            libraryAlbums = libraryAlbums
+            libraryAlbums = libraryAlbums,
+            localPlaylists = localPlaylists
         )
     }
 
@@ -1153,7 +1261,7 @@ class MainViewModel @Inject constructor(
         val artistMatches = expectedArtist == actualArtist ||
             ((expectedArtist.contains(actualArtist) || actualArtist.contains(expectedArtist)) &&
             minOf(expectedArtist.length, actualArtist.length).toFloat() /
-                maxOf(expectedArtist.length, actualArtist.length) >= 0.72f)
+                maxOf(expectedArtist.length, actualArtist.length) >= 0.85f)
         if (!artistMatches) return false
 
         val expectedTokens = expectedTitle.split(' ').filter { it.isNotBlank() }.toSet()
@@ -1180,25 +1288,36 @@ class MainViewModel @Inject constructor(
         return versionMatches && (
             expectedTitle == actualTitle ||
                 (expectedTitle.contains(actualTitle) || actualTitle.contains(expectedTitle)) &&
-                minOf(expectedTitle.length, actualTitle.length).toFloat() / maxOf(expectedTitle.length, actualTitle.length) >= 0.72f ||
-                overlap >= 0.62f
+                minOf(expectedTitle.length, actualTitle.length).toFloat() / maxOf(expectedTitle.length, actualTitle.length) >= 0.85f ||
+                overlap >= 0.75f
             )
     }
 
-    private fun sourceCandidateMatches(expected: CanonicalTrack, candidate: SourceSearchResult): Boolean =
-        sourceCandidateMatches(
-            PlatformLinkMetadata(
-                title = expected.title,
-                artist = expected.artist,
-                album = expected.album,
-                isrc = expected.isrc,
-                durationMs = expected.durationMs,
-                matchReason = "Canonical source validation"
-            ),
-            candidate.title,
-            candidate.artist,
-            candidate.isrc
-        )
+    private fun sourceCandidateMatches(expected: CanonicalTrack, candidate: SourceSearchResult): Boolean {
+        if (!sourceCandidateMatches(
+                PlatformLinkMetadata(
+                    title = expected.title,
+                    artist = expected.artist,
+                    album = expected.album,
+                    isrc = expected.isrc,
+                    durationMs = expected.durationMs,
+                    matchReason = "Canonical source validation"
+                ),
+                candidate.title,
+                candidate.artist,
+                candidate.isrc
+            )
+        ) {
+            return false
+        }
+        val expectedMs = expected.durationMs
+        val actualMs = candidate.durationMs
+        if (expectedMs != null && expectedMs > 0L && actualMs != null && actualMs > 0L) {
+            val delta = kotlin.math.abs(actualMs - expectedMs)
+            if (delta > 45_000L) return false
+        }
+        return true
+    }
 
     /** Tap-to-play: resolve the exact catalog row first, re-search only as fallback. */
     private suspend fun resolveCanonicalTrackForPlayback(
@@ -1217,7 +1336,10 @@ class MainViewModel @Inject constructor(
                 externalId,
                 timeoutMs = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.CLOUD_RESOLVE_TIMEOUT_MS
             )
-            if (directStream != null && isValidResolvedStream(directStream)) {
+            if (directStream != null &&
+                isValidResolvedStream(directStream) &&
+                (directStream.providerId == null || directStream.providerId == providerId)
+            ) {
                 Log.d("VANTA_PLAY_TRACK_REQUEST", "direct_resolve_ok provider=$providerId id=$externalId url=${directStream.streamUrl.take(80)}")
                 return toSourceSearchResult(result) to directStream
             }
@@ -1315,7 +1437,26 @@ class MainViewModel @Inject constructor(
             .replace(Regex("""\b(official|audio|video|visualizer|lyrics?)\b"""), " ")
             .replace(Regex("""[^\p{L}\p{N}\s]+"""), " ")
             .replace(Regex("""\s+"""), " ")
+            .normalizeDigitWords()
             .trim()
+
+    private fun String.normalizeDigitWords(): String {
+        var result = this
+        LINK_DIGIT_WORD_MAP.forEach { (word, digit) ->
+            result = result.replace(word, digit)
+        }
+        return result
+    }
+
+    private val LINK_DIGIT_WORD_MAP = mapOf(
+        "zero" to "0", "one" to "1", "two" to "2", "three" to "3", "four" to "4",
+        "five" to "5", "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9",
+        "ten" to "10", "eleven" to "11", "twelve" to "12", "thirteen" to "13",
+        "fourteen" to "14", "fifteen" to "15", "sixteen" to "16", "seventeen" to "17",
+        "eighteen" to "18", "nineteen" to "19", "twenty" to "20", "thirty" to "30",
+        "forty" to "40", "fifty" to "50", "sixty" to "60", "seventy" to "70",
+        "eighty" to "80", "ninety" to "90"
+    )
 
     private fun browseCategorySeeds(category: String): List<String> {
         return when (category.trim().lowercase()) {
@@ -1372,6 +1513,9 @@ class MainViewModel @Inject constructor(
                 stopStationMonitor()
 
                 val stationSeed = seedParams.toStationSeed()
+                withContext(Dispatchers.IO) {
+                    container.queueManager.setStreamingStationSeed(stationSeed)
+                }
                 val initialRequest = com.audiophile.musicplayer.radio.StreamingStationRequest(
                     seed = stationSeed,
                     targetCount = 30,
@@ -1514,6 +1658,8 @@ class MainViewModel @Inject constructor(
             }
 
             val seed = withContext(Dispatchers.IO) { com.audiophile.musicplayer.radio.StreamingStationSeedResolver.fromUserInput(trimmed) }
+            activeStationSeed = seed.toStreamingSeedParams()
+            playedStationTrackIds.clear()
             val taste = withContext(Dispatchers.IO) { container.aiDjRecommendationEngine.streamingTasteSignals() }
             val playedIds = withContext(Dispatchers.IO) { container.queueManager.playedHistory.toSet() }
             val currentQueueIds = withContext(Dispatchers.IO) { container.queueManager.originalQueue.map { it.track.trackId }.toSet() }
@@ -1614,6 +1760,8 @@ class MainViewModel @Inject constructor(
                 )
             }
 
+            startStationMonitor()
+
             launch(Dispatchers.IO) {
                 val expanded = container.radioQueueEngine.generateStreamingStation(
                     com.audiophile.musicplayer.radio.StreamingStationRequest(
@@ -1628,10 +1776,22 @@ class MainViewModel @Inject constructor(
                 )
                 if (expanded.candidates.isNotEmpty()) {
                     val added = container.queueManager.appendToOriginalQueueIfAbsent(expanded.candidates)
+                    newTracksFromExpansion(expanded.candidates)
                     Log.d("VANTA_STREAMING_STATION", "background_expand added=$added total=${expanded.candidates.size}")
                     _uiState.update { state ->
                         state.copy(queueSnapshot = container.queueManager.snapshot())
                     }
+                }
+            }
+        }
+    }
+
+    private fun newTracksFromExpansion(tracks: List<UnifiedTrackWithSources>) {
+        tracks.map { it.track.trackId.toString() }.forEach { id ->
+            if (id !in playedStationTrackIds) {
+                playedStationTrackIds.addLast(id)
+                if (playedStationTrackIds.size > 500) {
+                    playedStationTrackIds.removeFirst()
                 }
             }
         }
@@ -1769,15 +1929,17 @@ class MainViewModel @Inject constructor(
             val providerId = identitySource.externalProviderId ?: return null
             val externalTrackId = identitySource.externalTrackId ?: return null
             _uiState.update { it.copy(statusMessage = "Resolving stream for $cleanTitle...") }
+            // Only resolve on the *owning* provider. Its externalTrackId lives in that
+            // provider's ID namespace; reusing it against other providers (gateways strip the
+            // prefix and look the bare id up in a different catalog) can resolve a *different*
+            // recording and poison the stored externalProviderId/externalTrackId. When the
+            // owning provider cannot resolve, we fall through to the metadata search below,
+            // which verifies identity by title/artist/ISRC.
             val resolved = container.sourceRegistry.resolveStream(
                 providerId,
                 externalTrackId,
                 timeoutMs = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.CLOUD_RESOLVE_TIMEOUT_MS
-            ) ?: container.sourceRegistry.resolveStreamParallelBest(
-                externalTrackId,
-                zeroConfigResolveProviderIds().filter { it != identitySource.externalProviderId },
-                timeoutMs = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.CLOUD_RESOLVE_TIMEOUT_MS
-            )?.second
+            )
             if (resolved != null &&
                 resolved.streamUrl.isNotBlank() &&
                 !resolved.streamUrl.contains("soundhelix", ignoreCase = true)
@@ -2410,9 +2572,13 @@ class MainViewModel @Inject constructor(
     }
 
     fun testAppleMusicConnection() {
-        val userToken = container.accountManager.profile.value.appleMusicUserToken
-        val storefront = container.accountManager.profile.value.appleMusicStorefront ?: "us"
-        val devToken = container.resolverConfigStore.getAppleMusicDeveloperToken()
+        val userToken = container.connectedLibraryTokenStore.musicUserToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        )
+        val storefront = container.resolverConfigStore.getAppleMusicStorefront()
+        val devToken = container.connectedLibraryTokenStore.accessToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        ) ?: container.resolverConfigStore.getAppleMusicDeveloperToken()
         
         if (devToken.isNullOrBlank()) {
             setStatusMessage("Apple Music Developer Token not configured")
@@ -2437,9 +2603,13 @@ class MainViewModel @Inject constructor(
     }
 
     fun importAppleMusicLibrary() {
-        val userToken = container.accountManager.profile.value.appleMusicUserToken
-        val devToken = container.resolverConfigStore.getAppleMusicDeveloperToken()
-        val storefront = container.accountManager.profile.value.appleMusicStorefront ?: "us"
+        val userToken = container.connectedLibraryTokenStore.musicUserToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        )
+        val devToken = container.connectedLibraryTokenStore.accessToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        ) ?: container.resolverConfigStore.getAppleMusicDeveloperToken()
+        val storefront = container.resolverConfigStore.getAppleMusicStorefront()
 
         if (devToken.isNullOrBlank() || userToken.isNullOrBlank()) {
             setStatusMessage("Connect Apple Music in settings first")
@@ -2693,10 +2863,11 @@ class MainViewModel @Inject constructor(
                 return@launch
             }
 
-            val selected = cleanPlayable.shuffled().take(30)
+            val selected = cleanPlayable
+                .distinctBy { it.track.trackId }
+                .take(30)
             Log.d("VANTA_RADIO_TRUTH", "about_to_start_queue branch='playSongRadio' count=${selected.size}")
-            val startIndex = selected.indexOfFirst { it.track.artist.equals(artist, ignoreCase = true) }.coerceAtLeast(0)
-            container.playerController.playQueue(selected, startIndex, com.audiophile.musicplayer.playback.QueueMode.RADIO_QUEUE)
+            container.playerController.playQueue(selected, 0, com.audiophile.musicplayer.playback.QueueMode.RADIO_QUEUE)
             val first = selected.first()
             container.nowPlayingStateStore.save(
                 NowPlayingState(
@@ -2817,9 +2988,16 @@ class MainViewModel @Inject constructor(
                     if (durationMs != null && durationMs in 120_000L..420_000L) score += 1
                     score
                 }
-            val selected = exactArtistTracks
+            val relatedTracks = cleanCandidates
+                .filterNot { it.track.artist.equals(artistName, ignoreCase = true) }
+            val selected = (exactArtistTracks + relatedTracks)
                 .distinctBy { it.track.trackId }
                 .take(30)
+            if (selected.isEmpty()) {
+                Log.d("VANTA_RADIO_TRUTH", "failed reason='no_ranked_artist_tracks' artist='${artistName}'")
+                _uiState.update { it.copy(statusMessage = "No studio tracks found for $artistName.") }
+                return@launch
+            }
             Log.d("VANTA_RADIO_TRUTH", "about_to_start_queue branch='playArtistRadio' count=${selected.size}")
             container.playerController.playQueue(selected, 0, com.audiophile.musicplayer.playback.QueueMode.RADIO_QUEUE)
             val first = selected.first()
@@ -2837,7 +3015,11 @@ class MainViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     queueSnapshot = container.queueManager.snapshot(),
-                    statusMessage = "Artist Radio: $artistName"
+                    statusMessage = if (exactArtistTracks.isEmpty()) {
+                        "Artist Radio: $artistName and similar tracks"
+                    } else {
+                        "Artist Radio: $artistName"
+                    }
                 )
             }
         }
@@ -3102,6 +3284,10 @@ class MainViewModel @Inject constructor(
                 setStatusMessage("Paste tracks before parsing")
                 return@launch
             }
+            if (com.audiophile.musicplayer.data.importer.SoundiizTextParser.isEclipsePlaylistUrl(pastedText)) {
+                importEclipsePlaylist(pastedText.trim())
+                return@launch
+            }
             val result = withContext(Dispatchers.IO) {
                 val batchId = container.libraryImporter.importPastedText(importName, pastedText)
                 val tracks = container.localLibraryRepository.importedTracksByBatchSnapshot(batchId)
@@ -3170,7 +3356,7 @@ class MainViewModel @Inject constructor(
 
     fun importEclipsePlaylist(url: String) {
         viewModelScope.launch {
-            _uiState.update { it.copy(statusMessage = "Importing Eclipse playlist…", isSearching = true) }
+            _uiState.update { it.copy(statusMessage = "Importing playlist…", isSearching = true) }
             val result = withContext(Dispatchers.IO) {
                 container.eclipsePlaylistImporter.import(url)
             }
@@ -3192,6 +3378,83 @@ class MainViewModel @Inject constructor(
                         isSearching = false
                     )
                 }
+            }
+        }
+    }
+
+    fun playPlaylist(playlistId: Long, shuffle: Boolean = false) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Loading playlist…") }
+            val (localSongs, playableTracks) = withContext(Dispatchers.IO) {
+                val songs = container.localLibraryRepository.playlistSongsSnapshot(playlistId)
+                songs to buildPlayableLocalSongQueue(songs)
+            }
+            if (localSongs.isEmpty()) {
+                _uiState.update { it.copy(statusMessage = "Playlist is empty") }
+                return@launch
+            }
+            if (playableTracks.isEmpty()) {
+                _uiState.update { it.copy(statusMessage = "No playable tracks in playlist. Repair the unmatched tracks first.") }
+                return@launch
+            }
+            val ordered = if (shuffle) playableTracks.shuffled() else playableTracks
+            val skippedCount = (localSongs.size - ordered.size).coerceAtLeast(0)
+            playQueue(ordered, 0)
+            _uiState.update {
+                it.copy(
+                    statusMessage = if (skippedCount > 0) {
+                        "Playing playlist (${ordered.size}/${localSongs.size} playable)"
+                    } else {
+                        "Playing playlist (${ordered.size} tracks)"
+                    }
+                )
+            }
+        }
+    }
+
+    fun playLocalSong(song: LocalSongEntity) {
+        viewModelScope.launch {
+            val playableTrack = withContext(Dispatchers.IO) {
+                buildPlayableLocalSongQueue(listOf(song)).firstOrNull()
+            }
+            if (playableTrack == null) {
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "\"${DisplayMetadataCleaner.cleanTitle(song.title)}\" is unavailable. Repair the track or add a playable source."
+                    )
+                }
+                return@launch
+            }
+            playTrack(playableTrack)
+        }
+    }
+
+    fun deletePlaylist(playlistId: Long) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                container.localLibraryRepository.deletePlaylist(playlistId)
+            }
+            refreshAll()
+            _uiState.update { it.copy(statusMessage = "Playlist deleted") }
+        }
+    }
+
+    fun loadPlaylistTracks(playlistId: Long) {
+        viewModelScope.launch {
+            val playlist = withContext(Dispatchers.IO) {
+                container.localLibraryRepository.playlistsSnapshot().find { it.id == playlistId }
+            }
+            val tracks = withContext(Dispatchers.IO) {
+                container.localLibraryRepository.playlistSongsSnapshot(playlistId)
+            }
+            _uiState.update {
+                it.copy(
+                    playlistDetailTracks = tracks,
+                    activePlaylistId = playlistId,
+                    activePlaylistName = playlist?.name ?: "",
+                    activePlaylistArtworkUrl = playlist?.artworkUrl,
+                    activePlaylistDescription = playlist?.description
+                )
             }
         }
     }
@@ -3336,12 +3599,12 @@ class MainViewModel @Inject constructor(
                     skippedDuplicates += 1
                 }
                 updatedRows += row.copy(
-                    matchStatus = ImportMatchStatus.MATCHED,
-                    playabilityStatus = PlayabilityStatus.METADATA_ONLY,
-                    matchConfidence = if (row.matchConfidence == MatchConfidence.NONE) MatchConfidence.MEDIUM else row.matchConfidence,
-                    matchReason = row.matchReason ?: "Saved as metadata; no playable source resolved yet",
+                    matchStatus = ImportMatchStatus.NEEDS_REVIEW,
+                    playabilityStatus = PlayabilityStatus.NEEDS_REVIEW,
+                    matchConfidence = if (row.matchConfidence == MatchConfidence.NONE) MatchConfidence.LOW else row.matchConfidence,
+                    matchReason = row.matchReason ?: "Saved as metadata only; playable source still needs review",
                     friendlySourceLabel = row.friendlySourceLabel ?: "Metadata",
-                    confidenceScore = if (row.confidenceScore <= 0f) 0.68f else row.confidenceScore,
+                    confidenceScore = if (row.confidenceScore <= 0f) 0.45f else row.confidenceScore.coerceAtMost(0.6f),
                     updatedAt = System.currentTimeMillis()
                 )
             } else {
@@ -3392,13 +3655,16 @@ class MainViewModel @Inject constructor(
         }
 
         val query = listOf(title, artist.takeIf { it != "Unknown Artist" }).filterNotNull().joinToString(" ")
-        val candidates = container.sourceRegistry.searchAll(query, timeoutMs = 12_000L)
-            .asSequence()
-            .filter { it.status.canResolveStream() }
-            .filter { it.isLikelyMusicTrack() }
-            .sortedByDescending { scoreImportedSourceCandidate(title, artist, it) }
-            .take(8)
-            .toList()
+        val identity = SelectedRecordingIdentity(
+            title = title,
+            artist = artist
+        )
+        val candidates = SourceCandidateRanker.rankSearchResults(
+            identity,
+            container.sourceRegistry.searchAll(query, timeoutMs = 12_000L)
+                .filter { it.status.canResolveStream() }
+                .filter { it.isLikelyMusicTrack() }
+        ).take(8)
 
         for (candidate in candidates) {
             val resolved = container.sourceRegistry.resolveStream(candidate.providerId, candidate.id, timeoutMs = 12_000L)
@@ -3422,19 +3688,6 @@ class MainViewModel @Inject constructor(
         }
         return null
     }
-
-    private fun scoreImportedSourceCandidate(
-        title: String,
-        artist: String,
-        candidate: SourceSearchResult
-    ): Int = com.audiophile.musicplayer.data.source.SourceIdentityGate.evaluateSearchResult(
-        selected = com.audiophile.musicplayer.data.source.SelectedRecordingIdentity(
-            title = title,
-            artist = artist,
-            userQuery = _uiState.value.query.takeIf { it.isNotBlank() }
-        ),
-        candidate = candidate
-    ).score
 
     private fun isPlayableImportStream(value: String): Boolean {
         val trimmed = value.trim()
@@ -3661,6 +3914,21 @@ class MainViewModel @Inject constructor(
         return songs.mapNotNull { song ->
             song.toPlayableQueueItem()?.let { tracksByLocalId[song.id] ?: it }
         }
+    }
+
+    private suspend fun buildPlayableLocalSongQueue(songs: List<LocalSongEntity>): List<UnifiedTrackWithSources> {
+        materializeSongsForPlayback(songs)
+        val tracksByLocalId = container.trackRepository.getAllTracks()
+            .asSequence()
+            .mapNotNull { track -> track.track.localLibraryId?.let { id -> id to track } }
+            .toMap()
+        return songs.mapNotNull { song ->
+            val materialized = tracksByLocalId[song.id]
+            when {
+                materialized?.sourceValidityStatus()?.canEnterPlaybackFlow() == true -> materialized
+                else -> song.toPlayableQueueItem()?.takeIf { it.sourceValidityStatus().canEnterPlaybackFlow() }
+            }
+        }.distinctBy { it.track.localLibraryId?.let { id -> "local:$id" } ?: "track:${it.track.trackId}" }
     }
 
     private suspend fun materializeSongsForPlayback(songs: List<LocalSongEntity>): Int {

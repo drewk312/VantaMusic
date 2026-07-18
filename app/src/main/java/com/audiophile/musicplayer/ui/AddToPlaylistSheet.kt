@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.local.entities.PlaylistEntity
 
 @Composable
@@ -108,7 +109,7 @@ fun AddToPlaylistSheet(
             playlists.forEach { playlist ->
                 VantaSheetAction(
                     icon = Icons.Filled.PlaylistPlay,
-                    label = playlist.name,
+                    label = DisplayMetadataCleaner.cleanDisplayName(playlist.name).ifBlank { playlist.name },
                     subtitle = if (playlist.description != null) playlist.description else null,
                     onClick = {
                         onAddToPlaylist(playlist.id)

@@ -139,8 +139,8 @@ fun MiniPlayer(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                        .size(42.dp)
+                            .clip(RoundedCornerShape(13.dp))
                     ) {
                         NetworkArtwork(
                             artworkUrl = artworkUrl,
@@ -183,7 +183,7 @@ fun MiniPlayer(
                     contentDescription = if (nowPlayingState.isFavorite) "Remove favorite" else "Add favorite",
                     tint = if (nowPlayingState.isFavorite) AppAccent else Color.White.copy(alpha = 0.5f),
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .clickable { onToggleFavorite() }
                         .padding(12.dp)
@@ -194,7 +194,7 @@ fun MiniPlayer(
                     contentDescription = "Previous track",
                     tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .clickable { onPrevious() }
                         .padding(12.dp)
@@ -202,7 +202,7 @@ fun MiniPlayer(
 
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(AppAccent.copy(alpha = 0.16f))
                         .border(0.5.dp, AppAccent.copy(alpha = 0.28f), CircleShape)
@@ -222,7 +222,7 @@ fun MiniPlayer(
                     contentDescription = "Next track",
                     tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .clickable { onNext() }
                         .padding(12.dp)

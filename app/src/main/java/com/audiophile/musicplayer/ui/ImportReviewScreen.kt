@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.importer.ImportMatchStatus
 import com.audiophile.musicplayer.data.importer.PlayabilityStatus
 import com.audiophile.musicplayer.data.local.entities.ImportedTrackEntity
@@ -151,7 +152,10 @@ private fun ImportTrackRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(track.rawText, color = AppText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOfNotNull(track.parsedTitle, track.parsedArtist).joinToString(" - ").ifBlank { "Unparsed" },
+                listOfNotNull(
+                    track.parsedTitle?.let { DisplayMetadataCleaner.cleanDisplayName(it).ifBlank { it } },
+                    track.parsedArtist?.let { DisplayMetadataCleaner.cleanDisplayName(it).ifBlank { it } }
+                ).joinToString(" - ").ifBlank { "Unparsed" },
                 color = AppTextSecondary,
                 fontSize = 12.sp,
                 maxLines = 1,

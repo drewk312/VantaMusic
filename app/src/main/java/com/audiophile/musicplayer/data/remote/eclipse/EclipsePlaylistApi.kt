@@ -22,15 +22,20 @@ class EclipsePlaylistApi(private val okHttpClient: OkHttpClient) {
             val request = Request.Builder()
                 .url(normalized)
                 .header("Accept", "application/json")
+                .header("User-Agent", "VANTA/1.0 Android")
                 .get()
                 .build()
             val response = okHttpClient.newCall(request).execute()
             val body = response.body?.string()
                 ?: throw IllegalStateException("Empty response from Eclipse API")
             if (!response.isSuccessful) {
-                throw IllegalStateException("Eclipse API returned ${response.code}: $body")
+                throw IllegalStateException("API returned ${response.code}: $body")
             }
-            gson.fromJson(body, EclipsePlaylistResponse::class.java)
+            val wrapper = gson.fromJson(body, EclipseApiResponse::class.java)
+            if (!wrapper.success) {
+                throw IllegalStateException("API returned success=false")
+            }
+            wrapper.data ?: throw IllegalStateException("API returned null data")
         }
     }
 

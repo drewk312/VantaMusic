@@ -6,7 +6,10 @@ package com.audiophile.musicplayer.radio
  */
 object StreamingStationQueryPlanner {
 
-    fun planInitialQueries(seed: StreamingStationSeed): List<String> {
+    fun planInitialQueries(
+        seed: StreamingStationSeed,
+        taste: StreamingStationTasteSignals = StreamingStationTasteSignals()
+    ): List<String> {
         val base = linkedSetOf<String>()
 
         seed.seedArtists.take(8).forEach { artist ->
@@ -54,6 +57,9 @@ object StreamingStationQueryPlanner {
                 appendGenreMoodQueries(base, seed)
             }
             else -> {
+                if (VibeTranslator.isPersonalTastePrompt(seed.primaryQuery)) {
+                    appendTasteAnchorQueries(base, taste)
+                }
                 val vibeSeeds = VibeTranslator.extractSearchQueries(seed.primaryQuery)
                 vibeSeeds.forEach { vibeSeed ->
                     expandFreeTextQueries(vibeSeed, seed.hintKeywords).forEach { base += it }
@@ -62,6 +68,9 @@ object StreamingStationQueryPlanner {
         }
 
         seed.queryPhrases.filter { it.isNotBlank() }.forEach { phrase ->
+            if (seed.kind == StreamingStationKind.FREE_TEXT) {
+                return@forEach
+            }
             if (seed.seedArtists.isNotEmpty() &&
                 seed.hintKeywords.any { phrase.equals(it, ignoreCase = true) }
             ) {
@@ -88,10 +97,10 @@ object StreamingStationQueryPlanner {
     fun planExpansionQueries(
         seed: StreamingStationSeed,
         discoveredArtists: Collection<String>,
-        pass: Int
+        pass: Int,
+        taste: StreamingStationTasteSignals = StreamingStationTasteSignals()
     ): List<String> {
         val queries = linkedSetOf<String>()
-        val primary = seed.primaryQuery
         val genreUsesArtistSeeds = seed.kind == StreamingStationKind.GENRE &&
             seed.seedArtists.isNotEmpty()
 
@@ -104,10 +113,7 @@ object StreamingStationQueryPlanner {
                         queries += "$artist greatest hits"
                     }
                 } else {
-                    queries += "$primary essentials"
-                    queries += "best $primary songs"
-                    queries += "$primary deep cuts"
-                    queries += "discover $primary"
+                    appendPrimaryExpansionQueries(queries, seed, pass, taste)
                 }
             }
             1 -> {
@@ -121,21 +127,82 @@ object StreamingStationQueryPlanner {
                 }
             }
             2 -> {
-                discoveredArtists.distinct().shuffled().take(8).forEach { artist ->
+                discoveredArtists.distinct().take(8).forEach { artist ->
                     queries += "artists like $artist"
                 }
-                queries += "$primary hidden gems"
-                queries += "$primary album tracks"
+                appendPrimaryExpansionQueries(queries, seed, pass, taste)
             }
             else -> {
                 discoveredArtists.distinct().take(6).forEach { artist ->
                     queries += "$artist deep cuts"
                 }
-                queries += "$primary deep album cuts"
+                appendPrimaryExpansionQueries(queries, seed, pass, taste)
             }
         }
 
         return StationQuerySanitizer.filterSearchQueries(queries).take(20)
+    }
+
+    private fun appendPrimaryExpansionQueries(
+        queries: LinkedHashSet<String>,
+        seed: StreamingStationSeed,
+        pass: Int,
+        taste: StreamingStationTasteSignals
+    ) {
+        val anchors = expansionAnchors(seed, taste)
+        if (anchors.isEmpty()) return
+
+        if (seed.kind == StreamingStationKind.FREE_TEXT) {
+            anchors.take(5).forEach { anchor ->
+                when (pass) {
+                    0 -> expandFreeTextQueries(anchor, seed.hintKeywords).take(3).forEach { queries += it }
+                    2 -> {
+                        queries += "$anchor hidden gems"
+                        queries += "$anchor album tracks"
+                        queries += "underrated $anchor songs"
+                    }
+                    else -> {
+                        queries += "$anchor deep cuts"
+                        queries += "$anchor album tracks"
+                        queries += "underrated $anchor"
+                    }
+                }
+            }
+            return
+        }
+
+        val primary = anchors.first()
+        when (pass) {
+            0 -> {
+                queries += "$primary essentials"
+                queries += "best $primary songs"
+                queries += "$primary deep cuts"
+                queries += "discover $primary"
+            }
+            2 -> {
+                queries += "$primary hidden gems"
+                queries += "$primary album tracks"
+            }
+            else -> {
+                queries += "$primary deep album cuts"
+            }
+        }
+    }
+
+    private fun expansionAnchors(seed: StreamingStationSeed, taste: StreamingStationTasteSignals): List<String> {
+        if (seed.kind == StreamingStationKind.FREE_TEXT) {
+            if (VibeTranslator.isPersonalTastePrompt(seed.primaryQuery)) {
+                val tasteAnchors = tasteAnchorTerms(taste)
+                if (tasteAnchors.isNotEmpty()) return tasteAnchors
+            }
+            return VibeTranslator.extractSearchQueries(seed.primaryQuery)
+                .map { StationQuerySanitizer.cleanStationMeta(it) }
+                .filter { it.isNotBlank() && !StationQuerySanitizer.isStationMetaPhrase(it) }
+                .distinct()
+        }
+
+        return listOf(StationQuerySanitizer.cleanStationMeta(seed.primaryQuery))
+            .filter { it.isNotBlank() && !StationQuerySanitizer.isStationMetaPhrase(it) }
     }
 
     private fun appendEraQueries(base: LinkedHashSet<String>, seed: StreamingStationSeed) {
@@ -193,6 +260,41 @@ object StreamingStationQueryPlanner {
         if (seed.eraStart != null && seed.eraEnd != null) {
             appendEraQueries(base, seed)
         }
+    }
+
+    private fun appendTasteAnchorQueries(base: LinkedHashSet<String>, taste: StreamingStationTasteSignals) {
+        taste.favoriteArtists
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+            .take(8)
+            .forEach { artist ->
+                base += artist
+                base += "$artist top songs"
+                base += "$artist essential songs"
+                base += "artists like $artist"
+            }
+
+        taste.genreAffinities.entries
+            .sortedByDescending { it.value }
+            .map { it.key.trim() }
+            .filter { it.length >= 2 && !StationQuerySanitizer.isStationMetaPhrase(it) }
+            .take(5)
+            .forEach { genre ->
+                base += genre
+                base += "$genre essentials"
+                base += "best $genre songs"
+            }
+    }
+
+    private fun tasteAnchorTerms(taste: StreamingStationTasteSignals): List<String> {
+        val artists = taste.favoriteArtists
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+        val genres = taste.genreAffinities.entries
+            .sortedByDescending { it.value }
+            .map { it.key.trim() }
+            .filter { it.length >= 2 && !StationQuerySanitizer.isStationMetaPhrase(it) }
+        return (artists + genres).distinct()
     }
 
     private fun prioritizeQueries(queries: List<String>, seed: StreamingStationSeed): List<String> {

@@ -72,12 +72,15 @@ import com.audiophile.musicplayer.data.dj.AiDjViewModel
 import com.audiophile.musicplayer.data.dj.JukeboxCatalog
 import com.audiophile.musicplayer.data.dj.PulseListeningStyle
 import com.audiophile.musicplayer.ui.preview.ArtworkPlaceholder
+import com.audiophile.musicplayer.radio.VibeTranslator
 
 @Composable
 fun AiDjScreen(
     viewModel: AiDjViewModel,
     onBack: () -> Unit,
     onOpenStation: (String) -> Unit = {},
+    onStartStreamingStation: (String) -> Unit = {},
+    onStartJukeboxStation: (String) -> Unit = {},
     miniPlayerVisible: Boolean = false,
     bottomNavVisible: Boolean = true
 ) {
@@ -106,7 +109,7 @@ fun AiDjScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
-            .padding(top = if (sessionState.isStarted) 0.dp else 24.dp)
+            .padding(top = if (sessionState.isStarted) 0.dp else appTopContentPadding(extra = 8.dp))
             .padding(bottom = chromeBottomPadding)
     ) {
         if (!sessionState.isStarted) {
@@ -121,21 +124,72 @@ fun AiDjScreen(
                 nowPlayingArtist = nowPlaying.artist,
                 hasNowPlaying = nowPlaying.trackId != null,
                 stationLabel = viewModel::stationLabel,
-                onStartPulseLive = { viewModel.startPulseLive() },
-                onStartReleaseRadar = { viewModel.startReleaseRadar() },
-                onStartMoodSession = { query -> viewModel.processDjRequest(query) },
-                onCompanionPrompt = viewModel::submitCompanionPrompt,
+                onStartPulseLive = {
+                    Log.d("VANTA_RADIO", "action=pulse_live")
+                    onStartStreamingStation("continuous mix across genres")
+                },
+                onStartReleaseRadar = {
+                    Log.d("VANTA_RADIO", "action=release_radar")
+                    onStartStreamingStation("new releases")
+                },
+                onStartMoodSession = { query ->
+                    val cleaned = query.trim()
+                    if (cleaned.isNotBlank()) {
+                        val translated = VibeTranslator.extractSearchQueries(cleaned).firstOrNull()?.takeIf { it.isNotBlank() } ?: cleaned
+                        Log.d("VANTA_RADIO", "action=mood_session input='$cleaned' translated='$translated'")
+                        onStartStreamingStation(translated)
+                    }
+                },
+                onCompanionPrompt = { prompt ->
+                    val cleaned = prompt.trim()
+                    if (cleaned.isNotBlank()) {
+                        val translated = VibeTranslator.extractSearchQueries(cleaned).firstOrNull()?.takeIf { it.isNotBlank() } ?: cleaned
+                        Log.d("VANTA_RADIO", "action=companion_prompt input='$cleaned' translated='$translated'")
+                        onStartStreamingStation(translated)
+                    }
+                },
                 companionMode = state.companionMode,
-                onStartForgottenFavorites = { viewModel.startForgottenFavorites() },
-                onStartMadeForYou = { viewModel.startMadeForYou() },
-                onStartDiscover = { viewModel.startSession(AiDjMode.DISCOVER_NEW) },
-                onStartJukebox = onOpenStation,
-                onStartEra = { onOpenStation("era_$it") },
-                onStartGenre = { onOpenStation("genre_$it") },
-                onStartArtistStation = { viewModel.startArtistStation(it) },
-                onStartSongStation = { viewModel.startSongStationFromNowPlaying() },
+                onStartForgottenFavorites = {
+                    Log.d("VANTA_RADIO", "action=forgotten_favorites")
+                    onStartStreamingStation("rediscover classic songs")
+                },
+                onStartMadeForYou = {
+                    Log.d("VANTA_RADIO", "action=made_for_you")
+                    onStartStreamingStation("daily mix")
+                },
+                onStartDiscover = {
+                    Log.d("VANTA_RADIO", "action=discover")
+                    onStartStreamingStation("discover new music")
+                },
+                onStartJukebox = { stationId ->
+                    Log.d("VANTA_RADIO", "action=jukebox stationId=$stationId")
+                    onStartJukeboxStation(stationId)
+                },
+                onStartEra = { era ->
+                    Log.d("VANTA_RADIO", "action=era era=$era")
+                    onStartStreamingStation("${era}s hits")
+                },
+                onStartGenre = { genre ->
+                    Log.d("VANTA_RADIO", "action=genre genre=$genre")
+                    onStartStreamingStation(genre)
+                },
+                onStartArtistStation = { artist ->
+                    Log.d("VANTA_RADIO", "action=artist_station artist=$artist")
+                    onStartStreamingStation(artist)
+                },
+                onStartSongStation = {
+                    val title = nowPlaying.title?.takeIf { it.isNotBlank() }
+                    val artist = nowPlaying.artist?.takeIf { it.isNotBlank() } ?: ""
+                    if (!title.isNullOrBlank()) {
+                        val query = if (artist.isNotBlank()) "songs like $title by $artist" else title
+                        Log.d("VANTA_RADIO", "action=song_station title='$title' artist='$artist' query='$query'")
+                        onStartStreamingStation(query)
+                    }
+                },
                 onCreateCustomStation = { name, artists, eraId, genreId ->
-                    viewModel.createCustomStation(name, artists, eraId, genreId)
+                    val query = buildCustomStationQuery(name, artists, eraId, genreId)
+                    Log.d("VANTA_RADIO", "action=custom_station query='$query'")
+                    onStartStreamingStation(query)
                 },
                 onBack = onBack
             )
@@ -364,7 +418,7 @@ private fun PulseHubScreen(
                 tag = "PULSE LIVE",
                 title = "Live DJ",
                 subtitle = "A private concert that evolves — chapters, bridges, and pockets you can stay in.",
-                gradient = listOf(Color(0xFF34221B), Color(0xFF121014), Color(0xFF071812)),
+                gradient = listOf(AppSurfaceVariant, AppSurfaceRaised, AppBackground),
                 onClick = onStartPulseLive
             )
         }
@@ -416,8 +470,8 @@ private fun PulseHubScreen(
                 tag = "MADE FOR ${madeForLabel.uppercase()}",
                 title = "Your daily mix",
                 subtitle = "Short sets shaped by what you save, finish, and skip.",
-                gradient = listOf(Color(0xFF2E2A1F), Color(0xFF1A1612)),
-                accent = Color(0xFFD7C2FF),
+                gradient = listOf(AppSurfaceRaised, AppBackground),
+                accent = AppAccentSecondary,
                 onClick = onStartMadeForYou,
                 trailingIcon = Icons.Filled.AutoAwesome
             )
@@ -426,8 +480,8 @@ private fun PulseHubScreen(
                 tag = "DISCOVER WEEKLY",
                 title = "New music, built around you",
                 subtitle = "Fresh order each week — avoids repeats from this session.",
-                gradient = listOf(Color(0xFF2A241D), Color(0xFF1A1612)),
-                accent = Color(0xFFD7C2FF),
+                gradient = listOf(AppSurface, AppBackground),
+                accent = AppAccent,
                 onClick = onStartDiscover,
                 trailingIcon = Icons.Filled.Explore,
                 compact = true
@@ -441,8 +495,8 @@ private fun PulseHubScreen(
                 tag = "RELEASE RADAR",
                 title = "Fresh from your artists",
                 subtitle = "New and recent tracks from your favorite artists and similar sounds.",
-                gradient = listOf(Color(0xFF1B2A34), Color(0xFF14181B)),
-                accent = Color(0xFF7BC8E8),
+                gradient = listOf(AppSurfaceRaised, AppBackground),
+                accent = AppAccentSecondary,
                 onClick = onStartReleaseRadar,
                 trailingIcon = Icons.Filled.AutoAwesome,
                 compact = true
@@ -452,8 +506,8 @@ private fun PulseHubScreen(
                 tag = "MOOD DISCOVERY",
                 title = "Describe the vibe",
                 subtitle = "Find songs matching any mood or description — upbeat, dark, dreamy, anything.",
-                gradient = listOf(Color(0xFF342A1B), Color(0xFF1B1814)),
-                accent = Color(0xFFE8C87B),
+                gradient = listOf(AppSurfaceRaised, AppBackground),
+                accent = AppAccent,
                 onClick = { showMoodDialog = true },
                 trailingIcon = Icons.Filled.Audiotrack,
                 compact = true
@@ -463,8 +517,8 @@ private fun PulseHubScreen(
                 tag = "FORGOTTEN FAVORITES",
                 title = "Rediscover old gems",
                 subtitle = "Tracks you loved but haven't heard in a while.",
-                gradient = listOf(Color(0xFF2A241D), Color(0xFF18141B)),
-                accent = Color(0xFFC89BE8),
+                gradient = listOf(AppSurface, AppBackground),
+                accent = AppAccent,
                 onClick = onStartForgottenFavorites,
                 trailingIcon = Icons.Filled.Favorite,
                 compact = true
@@ -1489,7 +1543,7 @@ private fun RadioControlStrip(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            .background(Color(0xFF0A0A0C))
+            .background(AppBackgroundBottom)
             .border(
                 0.5.dp,
                 AppAccent.copy(alpha = 0.1f),
@@ -1707,6 +1761,22 @@ fun AudioWaveformVisualizer(
             )
         }
     }
+}
+
+
+/** Build a clean catalog-backed query from custom station parameters. */
+private fun buildCustomStationQuery(
+    name: String,
+    artists: List<String>,
+    eraId: String?,
+    genreId: String?
+): String {
+    val parts = mutableListOf<String>()
+    if (artists.isNotEmpty()) parts.add(artists.joinToString(" ") + " music")
+    genreId?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+    eraId?.takeIf { it.isNotBlank() }?.let { parts.add("${it}s hits") }
+    if (parts.isEmpty()) parts.add(name)
+    return parts.joinToString(" ").trim().ifBlank { name }
 }
 
 private fun buildTasteSummary(profile: com.audiophile.musicplayer.data.dj.AiDjTasteProfile): String {

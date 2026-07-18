@@ -13,9 +13,16 @@ import com.audiophile.musicplayer.data.dj.toStreamingSeed
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.playback.NowPlayingState
 import com.audiophile.musicplayer.playback.QueueMode
+import com.audiophile.musicplayer.radio.PlaybackIdentityGate
+import com.audiophile.musicplayer.radio.RadioBrain
+import com.audiophile.musicplayer.radio.RadioEnergyLevel
+import com.audiophile.musicplayer.radio.RadioSeedType
+import com.audiophile.musicplayer.radio.RadioStationIntent
 import com.audiophile.musicplayer.radio.StreamingStationRequest
+import com.audiophile.musicplayer.radio.StreamingStationSeed
 import com.audiophile.musicplayer.radio.StreamingStationSeedResolver
 import com.audiophile.musicplayer.radio.StreamingStationKind
+import com.audiophile.musicplayer.radio.toStreamingSeedParams
 import com.audiophile.musicplayer.radio.toStationSeed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -66,6 +73,8 @@ class StationViewModel @Inject constructor(
     private var isRefillingStation = false
     private var stationMonitorJob: Job? = null
     private val REFILL_THRESHOLD = 5
+    private var generationToken = 0L
+    private var lastGenerationToken = 0L
 
     fun onEvent(event: StationUiEvent) {
         when (event) {
@@ -94,6 +103,9 @@ class StationViewModel @Inject constructor(
                 stopStationMonitor()
 
                 val stationSeed = seedParams.toStationSeed()
+                withContext(Dispatchers.IO) {
+                    container.queueManager.setStreamingStationSeed(stationSeed)
+                }
                 val result = withContext(Dispatchers.IO) {
                     container.radioQueueEngine.generateStreamingStation(
                         StreamingStationRequest(
@@ -105,17 +117,46 @@ class StationViewModel @Inject constructor(
                 }
 
                 if (!result.canStartPlayback) {
+                    withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(null) }
                     _uiState.update { it.copy(isLoading = false, error = "No tracks found for ${station.name}") }
                     return@launch
                 }
 
-                val finalTracks = if (shuffle) result.candidates.shuffled() else result.candidates
-                finalTracks.map { it.track.trackId.toString() }.forEach { id ->
-                    if (id !in playedStationTrackIds) {
-                        playedStationTrackIds.addLast(id)
-                        if (playedStationTrackIds.size > 500) playedStationTrackIds.removeFirst()
-                    }
+                val intent = RadioBrain.buildIntent(
+                    seedType = when (stationSeed.kind) {
+                        StreamingStationKind.SONG,
+                        StreamingStationKind.SONG_SIMILAR -> RadioSeedType.SONG
+                        StreamingStationKind.ARTIST -> RadioSeedType.ARTIST
+                        StreamingStationKind.MOOD -> RadioSeedType.MOOD
+                        StreamingStationKind.ERA -> RadioSeedType.ERA
+                        else -> RadioSeedType.PROMPT
+                    },
+                    trackTitle = stationSeed.seedTitle,
+                    trackArtist = stationSeed.seedArtist,
+                    userInput = station.name
+                )
+                val (verifiedQueue, gateRejections) = RadioBrain.buildVerifiedQueue(
+                    tracks = result.candidates,
+                    intent = intent,
+                    previousTrackIds = emptySet()
+                )
+                if (verifiedQueue.size < 3) {
+                    VantaLogger.w(
+                        VantaLogger.Tag.STATION,
+                        "jukebox_all_rejected_by_gate station='${station.name}' rejections=${gateRejections.take(10).joinToString("|")}"
+                    )
+                    withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(null) }
+                    _uiState.update { it.copy(isLoading = false, error = "No playable tracks found for ${station.name}") }
+                    return@launch
                 }
+
+                val finalTracks = prepareStationQueue(stationSeed, verifiedQueue, shuffle)
+                if (finalTracks.isEmpty()) {
+                    withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(null) }
+                    _uiState.update { it.copy(isLoading = false, error = "No playable tracks found for ${station.name}") }
+                    return@launch
+                }
+                rememberStationTracks(finalTracks)
 
                 withContext(Dispatchers.Main) {
                     container.playerController.playQueue(finalTracks, 0, QueueMode.STREAMING_STATION)
@@ -140,14 +181,19 @@ class StationViewModel @Inject constructor(
         if (trimmed.isBlank()) return
         viewModelScope.launch {
             stopStationMonitor()
+            generationToken++
+            val currentToken = generationToken
             _uiState.update { it.copy(isLoading = true, statusMessage = "Building station\u2026", error = null) }
 
             val seed = withContext(Dispatchers.IO) { StreamingStationSeedResolver.fromUserInput(trimmed) }
+            activeStationSeed = seed.toStreamingSeedParams()
+            playedStationTrackIds.clear()
             val taste = withContext(Dispatchers.IO) { container.aiDjRecommendationEngine.streamingTasteSignals() }
             val playedIds = withContext(Dispatchers.IO) { container.queueManager.playedHistory.toSet() }
             val currentQueueIds = withContext(Dispatchers.IO) { container.queueManager.originalQueue.map { it.track.trackId }.toSet() }
+            val minPlayableToStart = 4
 
-            VantaLogger.d(VantaLogger.Tag.STATION, "start seed='${seed.displayName}' kind=${seed.kind}")
+            VantaLogger.d(VantaLogger.Tag.STATION, "start seed='${seed.displayName}' kind=${seed.kind} token=$currentToken")
 
             val bootstrap = withContext(Dispatchers.IO) {
                 container.radioQueueEngine.generateStreamingStation(
@@ -157,7 +203,8 @@ class StationViewModel @Inject constructor(
                         playedTrackIds = playedIds,
                         taste = taste,
                         targetCount = 20,
-                        minPlayableToStart = 4
+                        minPlayableToStart = minPlayableToStart,
+                        generationToken = currentToken
                     )
                 )
             }
@@ -175,20 +222,49 @@ class StationViewModel @Inject constructor(
 
             withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(seed) }
 
-            val stationCandidates = bootstrap.candidates
-                .filterNot { JukeboxTrackEligibility.shouldExcludeFromRadioQueue(it) }
-                .let { clean ->
-                    if (seed.kind == StreamingStationKind.ARTIST) {
-                        val artistKey = seed.seedArtist?.trim().orEmpty().ifBlank {
-                            seed.displayName.removeSuffix(" Radio").trim()
-                        }
-                        clean.sortedByDescending { track ->
-                            if (track.track.artist.equals(artistKey, ignoreCase = true)) 1 else 0
-                        }
-                    } else clean
-                }
+            val intent = RadioBrain.buildIntent(
+                seedType = when (seed.kind) {
+                    StreamingStationKind.SONG,
+                    StreamingStationKind.SONG_SIMILAR -> RadioSeedType.SONG
+                    StreamingStationKind.ARTIST -> RadioSeedType.ARTIST
+                    StreamingStationKind.MOOD -> RadioSeedType.MOOD
+                    StreamingStationKind.ERA -> RadioSeedType.ERA
+                    StreamingStationKind.FREE_TEXT,
+                    StreamingStationKind.ACTIVITY -> RadioSeedType.PROMPT
+                    else -> RadioSeedType.PROMPT
+                },
+                trackTitle = seed.seedTitle,
+                trackArtist = seed.seedArtist,
+                userInput = trimmed
+            )
 
-            val playQueue = interleaveByArtist(if (shuffle) stationCandidates.shuffled() else stationCandidates)
+            val (verifiedQueue, gateRejections) = RadioBrain.buildVerifiedQueue(
+                tracks = bootstrap.candidates,
+                intent = intent,
+                previousTrackIds = currentQueueIds + playedIds
+            )
+            if (verifiedQueue.size < minPlayableToStart) {
+                val genLog = RadioBrain.buildGenerationLog(
+                    seedIdentity = seed.displayName,
+                    intent = intent,
+                    candidates = bootstrap.candidates,
+                    rejections = emptyList(),
+                    gateRejections = gateRejections,
+                    verifiedQueue = verifiedQueue,
+                    totalQueries = bootstrap.queriesExecuted
+                )
+                RadioBrain.logGeneration(genLog)
+                withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(null) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Couldn't find enough trusted playable tracks for ${seed.displayName}."
+                    )
+                }
+                return@launch
+            }
+
+            val playQueue = prepareStationQueue(seed, verifiedQueue, shuffle)
             if (playQueue.isEmpty()) {
                 withContext(Dispatchers.IO) { container.queueManager.setStreamingStationSeed(null) }
                 _uiState.update {
@@ -200,6 +276,18 @@ class StationViewModel @Inject constructor(
                 return@launch
             }
 
+            val genLog = RadioBrain.buildGenerationLog(
+                seedIdentity = seed.displayName,
+                intent = intent,
+                candidates = bootstrap.candidates,
+                rejections = emptyList(),
+                gateRejections = gateRejections,
+                verifiedQueue = verifiedQueue,
+                totalQueries = bootstrap.queriesExecuted
+            )
+            RadioBrain.logGeneration(genLog)
+
+            rememberStationTracks(playQueue)
             container.playerController.playQueue(playQueue, 0, QueueMode.STREAMING_STATION)
             withContext(Dispatchers.IO) {
                 val first = playQueue.first()
@@ -222,9 +310,12 @@ class StationViewModel @Inject constructor(
                     statusMessage = "Playing ${seed.displayName}"
                 )
             }
+            lastGenerationToken = currentToken
+            startStationMonitor()
 
             // Background expand
             launch(Dispatchers.IO) {
+                if (lastGenerationToken != currentToken) return@launch
                 val expanded = container.radioQueueEngine.generateStreamingStation(
                     StreamingStationRequest(
                         seed = seed,
@@ -232,12 +323,28 @@ class StationViewModel @Inject constructor(
                         playedTrackIds = container.queueManager.playedHistory.toSet(),
                         taste = taste,
                         targetCount = 45,
-                        minPlayableToStart = 8
+                        minPlayableToStart = 8,
+                        generationToken = currentToken
                     )
                 )
                 if (expanded.candidates.isNotEmpty()) {
-                    val added = container.queueManager.appendToOriginalQueueIfAbsent(expanded.candidates)
-                    VantaLogger.d(VantaLogger.Tag.STATION, "bg_expand added=$added total=${expanded.candidates.size}")
+                    val (expVerified, expRejections) = RadioBrain.buildVerifiedQueue(
+                        tracks = expanded.candidates,
+                        intent = intent,
+                        previousTrackIds = container.queueManager.originalQueue.map { it.track.trackId }.toSet() +
+                            container.queueManager.playedHistory.toSet()
+                    )
+                    if (expVerified.isNotEmpty()) {
+                        val expansionQueue = prepareStationQueue(seed, expVerified, shuffle = false)
+                        if (expansionQueue.isNotEmpty()) {
+                            val added = container.queueManager.appendToOriginalQueueIfAbsent(expansionQueue)
+                            if (added > 0) {
+                                rememberStationTracks(expansionQueue)
+                                container.playerController.refreshQueueTimeline()
+                            }
+                            VantaLogger.d(VantaLogger.Tag.STATION, "bg_expand added=$added total=${expVerified.size} gateRejected=${expRejections.size}")
+                        }
+                    }
                 }
             }
         }
@@ -246,34 +353,65 @@ class StationViewModel @Inject constructor(
     private fun startStationMonitor() {
         stationMonitorJob = viewModelScope.launch {
             while (isActive && activeStationSeed != null) {
+                if (lastGenerationToken != generationToken) break
                 val upcomingSize = container.queueManager.upcomingOriginalQueue().size
                 if (upcomingSize < REFILL_THRESHOLD && !isRefillingStation) {
                     isRefillingStation = true
-                    VantaLogger.d(VantaLogger.Tag.STATION, "refill_triggered upcoming=$upcomingSize")
+                    VantaLogger.d(VantaLogger.Tag.STATION, "refill_triggered upcoming=$upcomingSize token=$generationToken")
                     try {
                         val seedParams = activeStationSeed ?: break
+                        if (lastGenerationToken != generationToken) break
                         val stationSeed = seedParams.toStationSeed()
-                        val excludeIds = playedStationTrackIds.mapNotNull { it.toLongOrNull() }.toSet()
+                        val stationContext = withContext(Dispatchers.IO) {
+                            Triple(
+                                container.queueManager.originalQueue.map { it.track.trackId }.toSet(),
+                                container.queueManager.playedHistory.toSet(),
+                                container.aiDjRecommendationEngine.streamingTasteSignals()
+                            )
+                        }
+                        val queuedIds = stationContext.first
+                        val playedIds = stationContext.second
+                        val taste = stationContext.third
+                        val existingIds = queuedIds + playedStationTrackIds.mapNotNull { it.toLongOrNull() }.toSet()
                         val newTracks = withContext(Dispatchers.IO) {
                             container.radioQueueEngine.refillStreamingStation(
                                 request = StreamingStationRequest(
                                     seed = stationSeed,
+                                    excludeTrackIds = queuedIds,
+                                    playedTrackIds = playedIds,
+                                    taste = taste,
                                     targetCount = 20,
-                                    minPlayableToStart = 3
+                                    minPlayableToStart = 3,
+                                    generationToken = generationToken
                                 ),
-                                existingTrackIds = excludeIds
+                                existingTrackIds = existingIds
                             )
                         }
-                        if (newTracks.isNotEmpty()) {
-                            val added = container.queueManager.appendToOriginalQueueIfAbsent(newTracks)
-                            newTracks.map { it.track.trackId.toString() }.forEach { id ->
-                                if (id !in playedStationTrackIds) {
-                                    playedStationTrackIds.addLast(id)
-                                    if (playedStationTrackIds.size > 500) playedStationTrackIds.removeFirst()
-                                }
+                        if (lastGenerationToken != generationToken) break
+                        val (verifiedRefill, refillRejections) = RadioBrain.buildVerifiedQueue(
+                            tracks = newTracks,
+                            intent = RadioBrain.buildIntent(
+                                seedType = when (stationSeed.kind) {
+                                    StreamingStationKind.SONG,
+                                    StreamingStationKind.SONG_SIMILAR -> RadioSeedType.SONG
+                                    StreamingStationKind.ARTIST -> RadioSeedType.ARTIST
+                                    else -> RadioSeedType.PROMPT
+                                },
+                                trackTitle = stationSeed.seedTitle,
+                                trackArtist = stationSeed.seedArtist
+                            ),
+                            previousTrackIds = existingIds
+                        )
+                        if (verifiedRefill.isNotEmpty()) {
+                            val refillQueue = prepareStationQueue(stationSeed, verifiedRefill, shuffle = false)
+                            if (refillQueue.isNotEmpty()) {
+                                val added = container.queueManager.appendToOriginalQueueIfAbsent(refillQueue)
+                                rememberStationTracks(refillQueue)
+                                container.playerController.refreshQueueTimeline()
+                                VantaLogger.d(VantaLogger.Tag.STATION, "refill_ok added=$added gateRejected=${refillRejections.size}")
                             }
-                            container.playerController.refreshQueueTimeline()
-                            VantaLogger.d(VantaLogger.Tag.STATION, "refill_ok added=$added")
+                        } else {
+                            VantaLogger.w(VantaLogger.Tag.STATION, "refill_all_rejected_by_gate rejections=${refillRejections.take(10).joinToString("|")}")
                         }
                     } catch (e: Exception) {
                         VantaLogger.w(VantaLogger.Tag.STATION, "refill_failed will_retry: ${e.message}")
@@ -290,6 +428,36 @@ class StationViewModel @Inject constructor(
         stationMonitorJob?.cancel()
         stationMonitorJob = null
         isRefillingStation = false
+    }
+
+    private fun prepareStationQueue(
+        seed: StreamingStationSeed,
+        tracks: List<UnifiedTrackWithSources>,
+        shuffle: Boolean
+    ): List<UnifiedTrackWithSources> {
+        val cleaned = tracks
+            .filterNot { JukeboxTrackEligibility.shouldExcludeFromRadioQueue(it) }
+            .distinctBy { it.track.trackId }
+            .let { filtered ->
+                if (seed.kind != StreamingStationKind.ARTIST) return@let filtered
+                val artistKey = seed.seedArtist?.trim().orEmpty().ifBlank {
+                    seed.displayName.removeSuffix(" Radio").trim()
+                }
+                filtered.sortedByDescending { track ->
+                    if (artistKey.isNotBlank() && track.track.artist.equals(artistKey, ignoreCase = true)) 1 else 0
+                }
+            }
+        val ordered = if (shuffle) cleaned.shuffled() else cleaned
+        return interleaveByArtist(ordered)
+    }
+
+    private fun rememberStationTracks(tracks: List<UnifiedTrackWithSources>) {
+        tracks.map { it.track.trackId.toString() }.forEach { id ->
+            if (id !in playedStationTrackIds) {
+                playedStationTrackIds.addLast(id)
+                if (playedStationTrackIds.size > 500) playedStationTrackIds.removeFirst()
+            }
+        }
     }
 
     private fun interleaveByArtist(tracks: List<UnifiedTrackWithSources>): List<UnifiedTrackWithSources> {

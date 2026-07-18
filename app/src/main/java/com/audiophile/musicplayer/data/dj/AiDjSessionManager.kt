@@ -94,7 +94,7 @@ class AiDjSessionManager(
             excludeTrackIds = recentTrackIds,
             rotationSalt = newSessionId.toLong()
         )
-        val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration)
+        val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration, mode = AiDjMode.DAILY_DJ)
         val session = AiDjSession(
             id = newSessionId,
             mode = AiDjMode.DAILY_DJ,
@@ -378,7 +378,7 @@ class AiDjSessionManager(
             rotationSalt = newSessionId.toLong()
         )
 
-        val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration)
+        val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration, mode = mode)
 
         val session = AiDjSession(
             id = newSessionId,
@@ -452,11 +452,12 @@ class AiDjSessionManager(
 
     fun getCurrentSession(): AiDjSession? = synchronized(sessionLock) { currentSession }
 
-    private fun segmentWithIntroOrPlannerMessage(segment: AiDjSegment, introNarration: String): AiDjSegment {
+    private fun segmentWithIntroOrPlannerMessage(segment: AiDjSegment, introNarration: String, mode: AiDjMode? = null): AiDjSegment {
         return when {
             segment.tracks.isNotEmpty() -> segment.copy(narration = introNarration)
             segment.narration.isNotBlank() -> segment
-            else -> segment.copy(narration = narrationGenerator.generateEmptyLibraryMessage())
+            else -> segment.copy(narration = narrationGenerator.generateEmptyLibraryMessage(mode))
         }
     }
 }
+

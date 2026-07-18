@@ -97,13 +97,33 @@ class ConnectedLibraryManager(
     fun isSyncLikesEnabled(provider: ConnectedLibraryProvider): Boolean =
         prefs.getBoolean("${provider.name.lowercase()}_sync_likes", false)
 
+    fun setAutoRefreshInterval(provider: ConnectedLibraryProvider, interval: String) {
+        val normalized = interval.lowercase().takeIf { it in AUTO_REFRESH_INTERVALS } ?: AUTO_REFRESH_OFF
+        prefs.edit { putString("${provider.name.lowercase()}_auto_refresh", normalized) }
+    }
+
+    fun autoRefreshInterval(provider: ConnectedLibraryProvider): String =
+        prefs.getString("${provider.name.lowercase()}_auto_refresh", AUTO_REFRESH_OFF) ?: AUTO_REFRESH_OFF
+
+    fun isAutoRefreshDue(provider: ConnectedLibraryProvider, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val intervalMs = when (autoRefreshInterval(provider)) {
+            AUTO_REFRESH_WEEKLY -> 7L * 24L * 60L * 60L * 1000L
+            AUTO_REFRESH_MONTHLY -> 30L * 24L * 60L * 60L * 1000L
+            else -> return false
+        }
+        val lastImportMs = prefs.getLong("${provider.name.lowercase()}_last_import_ms", 0L)
+        return lastImportMs <= 0L || nowMs - lastImportMs >= intervalMs
+    }
+
     /** Clear all imported data and tokens for a provider. */
     fun disconnect(provider: ConnectedLibraryProvider) {
         tokenStore.clear(provider)
         prefs.edit {
             remove("${provider.name.lowercase()}_connected")
             remove("${provider.name.lowercase()}_last_import")
+            remove("${provider.name.lowercase()}_last_import_ms")
             remove("${provider.name.lowercase()}_sync_likes")
+            remove("${provider.name.lowercase()}_auto_refresh")
             remove(providerLinksKey(provider))
         }
     }
@@ -240,9 +260,11 @@ class ConnectedLibraryManager(
     }
 
     private fun persistImport(provider: ConnectedLibraryProvider) {
-        val now = android.text.format.DateFormat.format("MMM d, h:mm a", System.currentTimeMillis()).toString()
+        val nowMs = System.currentTimeMillis()
+        val now = android.text.format.DateFormat.format("MMM d, h:mm a", nowMs).toString()
         prefs.edit {
             putString("${provider.name.lowercase()}_last_import", now)
+            putLong("${provider.name.lowercase()}_last_import_ms", nowMs)
             putBoolean("${provider.name.lowercase()}_connected", true)
         }
     }
@@ -289,6 +311,10 @@ class ConnectedLibraryManager(
 
     companion object {
         private const val PROVIDER_LINKS_KEY = "vanta_provider_links"
+        private const val AUTO_REFRESH_OFF = "off"
+        private const val AUTO_REFRESH_WEEKLY = "weekly"
+        private const val AUTO_REFRESH_MONTHLY = "monthly"
+        private val AUTO_REFRESH_INTERVALS = setOf(AUTO_REFRESH_OFF, AUTO_REFRESH_WEEKLY, AUTO_REFRESH_MONTHLY)
 
         private fun ConnectedLibraryProvider.displayName(): String = when (this) {
             ConnectedLibraryProvider.APPLE_MUSIC -> "Apple Music"

@@ -34,6 +34,7 @@ cmake-build-*/
 node_modules/
 workers/*/node_modules/
 station-backend/node_modules/
+station-backend/dist/
 
 # Logs
 *.log
@@ -76,6 +77,7 @@ venv/
 # Environment
 .env
 .env.local
+app/google-services.json
 
 # VANTA temporary / generated artifacts
 .refs/
@@ -101,3 +103,5 @@ window*.xml
 app/src/main/cpp/jdsp-repo/
 app/src/main/cpp/libjamesdsp-tmp/
 
+
+desktopApp/bin/

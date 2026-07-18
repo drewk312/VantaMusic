@@ -57,7 +57,6 @@ class SearchRepository(
                 )
             }
         val sourceResults = sourceRegistry.searchAll(textQuery)
-            .filterNot { it.status == SearchItemStatus.PREVIEW }
             .filter { result ->
                 ContentPurityFilter.isAllowed(
                     title = result.title,

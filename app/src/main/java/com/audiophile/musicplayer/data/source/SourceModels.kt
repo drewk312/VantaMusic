@@ -112,7 +112,9 @@ data class SourceSearchResult(
     val isDolbyAtmos: Boolean = false,
     val isSpatialAudio: Boolean = false,
     val isSurround: Boolean = false,
-    val isHiRes: Boolean = false
+    val isHiRes: Boolean = false,
+    /** Catalog/metadata discovery is useful, but it is not stream codec proof. */
+    val spatialEvidence: String? = null
 ) {
     val artworkUrl: String?
         get() {

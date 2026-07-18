@@ -13,14 +13,23 @@ import com.audiophile.musicplayer.audio.visualizer.AuraMode
 import com.audiophile.musicplayer.audio.visualizer.VantaAudioAnalyzer
 import com.audiophile.musicplayer.audio.visualizer.VantaAuraEngine
 import com.audiophile.musicplayer.audio.visualizer.VantaAuraState
+import com.audiophile.musicplayer.audio.visualizer.VantaAudioAnalyzerHolder
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+data class VantaVisualizerPreferences(
+    val mode: AuraMode = AuraMode.AMBIENT,
+    val audioReactiveEnabled: Boolean = true,
+    val reduceMotionInCar: Boolean = true
+)
 
 class VantaVisualizerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -58,13 +67,25 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
     private val visualPrefs =
         application.getSharedPreferences("vanta_settings", Application.MODE_PRIVATE)
 
+    private val _preferences = MutableStateFlow(
+        VantaVisualizerPreferences(
+            mode = visualPrefs.getString("aura_mode", null)
+                ?.let { saved -> runCatching { AuraMode.valueOf(saved) }.getOrNull() }
+                ?: AuraMode.AMBIENT,
+            audioReactiveEnabled = visualPrefs.getBoolean("aura_audio_reactive", true),
+            reduceMotionInCar = visualPrefs.getBoolean("aura_reduce_motion_car", true)
+        )
+    )
+    val preferences: StateFlow<VantaVisualizerPreferences> = _preferences.asStateFlow()
+
     init {
-        // Restore persisted aura preferences so Settings choices survive restarts.
-        visualPrefs.getString("aura_mode", null)?.let { saved ->
-            runCatching { AuraMode.valueOf(saved) }.getOrNull()?.let { engine.setMode(it) }
-        }
-        engine.setAudioReactive(visualPrefs.getBoolean("aura_audio_reactive", true))
-        engine.setReduceMotionInCar(visualPrefs.getBoolean("aura_reduce_motion_car", true))
+        // Keep user preferences separate from the high-frequency visualizer
+        // state so Settings and the app shell do not recompose for every frame.
+        val restored = _preferences.value
+        engine.setMode(restored.mode)
+        engine.setAudioReactive(restored.audioReactiveEnabled)
+        engine.setReduceMotionInCar(restored.reduceMotionInCar)
+        VantaAudioAnalyzerHolder.attach(analyzer)
     }
 
     fun attachToSession(sessionId: Int) {
@@ -113,6 +134,7 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
 
     fun setMode(mode: AuraMode) {
         engine.setMode(mode)
+        _preferences.value = _preferences.value.copy(mode = mode)
         visualPrefs.edit { putString("aura_mode", mode.name) }
     }
 
@@ -130,11 +152,13 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
 
     fun setAudioReactive(enabled: Boolean) {
         engine.setAudioReactive(enabled)
+        _preferences.value = _preferences.value.copy(audioReactiveEnabled = enabled)
         visualPrefs.edit { putBoolean("aura_audio_reactive", enabled) }
     }
 
     fun setReduceMotionInCar(reduce: Boolean) {
         engine.setReduceMotionInCar(reduce)
+        _preferences.value = _preferences.value.copy(reduceMotionInCar = reduce)
         visualPrefs.edit { putBoolean("aura_reduce_motion_car", reduce) }
     }
 
@@ -177,7 +201,9 @@ class VantaVisualizerViewModel(application: Application) : AndroidViewModel(appl
 
     override fun onCleared() {
         stopSpectrumPolling()
+        VantaAudioAnalyzerHolder.detach(analyzer)
         analyzer.release()
         super.onCleared()
     }
 }
+

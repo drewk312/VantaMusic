@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.audiophile.musicplayer.security.FailClosedSharedPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -145,6 +146,7 @@ class AppContainer(
     var sourceRegistry: SourceRegistry
         get() = sourceRegistryRef.get()
         private set(value) = sourceRegistryRef.set(value)
+    val newReleasesSource = com.audiophile.musicplayer.data.source.CloudflareGatewaySource()
     val pulseAiBrain = PulseAiBrain(resolverConfigStore)
     val pulseVoiceEngine = com.audiophile.musicplayer.data.voice.PulseVoiceEngine(
         appContext,
@@ -163,17 +165,8 @@ class AppContainer(
     val radioApiService: com.audiophile.musicplayer.radio.RadioApiService by lazy {
         val configuredUrl = resolverConfigStore.getStationBackendUrl()
         val baseUrl = configuredUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.STATION_BACKEND_URL.takeIf { it.isNotBlank() } ?: throw IllegalStateException("No station backend URL configured. Set STATION_BACKEND_URL in local.properties or via Settings.")
-        val authToken = resolverConfigStore.getStationAuthToken()
         val client = okhttp3.OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val token = authToken?.takeIf { it.isNotBlank() }
-                val request = if (token != null) {
-                    chain.request().newBuilder()
-                        .addHeader("Authorization", "Bearer $token")
-                        .build()
-                } else chain.request()
-                chain.proceed(request)
-            }
+            .addInterceptor(com.audiophile.musicplayer.account.FirebaseIdTokenInterceptor())
             .build()
         Retrofit.Builder()
             .baseUrl(baseUrl)
@@ -222,7 +215,8 @@ class AppContainer(
     val vantaSyncManager = VantaSyncManager(
         context = appContext,
         accountManager = accountManager,
-        trackRepository = trackRepository
+        trackRepository = trackRepository,
+        connectedLibraryTokenStore = connectedLibraryTokenStore
     )
     val vantaSocialManager = VantaSocialManager(
         context = appContext,
@@ -234,9 +228,10 @@ class AppContainer(
     val downloadManager = AndroidTrackDownloadManager(appContext)
     val localMediaImporter = LocalMediaImporter(appContext, trackRepository)
 
+    val knownWebLyricsProvider = com.audiophile.musicplayer.data.lyrics.KnownWebLyricsProvider()
     val lrclibLyricsProvider = com.audiophile.musicplayer.data.lyrics.LRCLibLyricsProvider()
     val lyricsRepository = com.audiophile.musicplayer.data.lyrics.LyricsRepository(
-        providers = listOf(lrclibLyricsProvider),
+        providers = listOf(knownWebLyricsProvider, lrclibLyricsProvider),
         lyricsCacheDao = musicDatabase.lyricsCacheDao()
     )
     val lyricsTranslationProvider = com.audiophile.musicplayer.data.lyrics.LyricsTranslationProvider(pulseAiBrain)
@@ -270,6 +265,7 @@ class AppContainer(
         eclipseApi = eclipsePlaylistApi,
         trackRepository = trackRepository,
         localLibraryRepository = localLibraryRepository,
+        sourceRegistry = sourceRegistry
     )
 
 
@@ -456,12 +452,14 @@ class ResolverConfigStore(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        Log.w("ResolverConfigStore", "Secure prefs unavailable, using legacy storage", e)
-        context.getSharedPreferences("resolver_config", Context.MODE_PRIVATE)
+        Log.e("ResolverConfigStore", "Secure prefs unavailable; credential persistence disabled", e)
+        FailClosedSharedPreferences
     }
 
     init {
-        migrateLegacyPrefs(appContext)
+        if (prefs !== FailClosedSharedPreferences) {
+            migrateLegacyPrefs(appContext)
+        }
     }
 
     private fun migrateLegacyPrefs(context: Context) {
@@ -522,7 +520,7 @@ class ResolverConfigStore(context: Context) {
 
     fun getLlmProvider(): com.audiophile.musicplayer.data.llm.AiProvider? {
         val name = prefs.getString("llm_provider", null) ?: return null
-        return try { com.audiophile.musicplayer.data.llm.AiProvider.valueOf(name) } catch (e: Exception) { null }
+        return try { com.audiophile.musicplayer.data.llm.AiProvider.valueOf(name) } catch (e: IllegalArgumentException) { null }
     }
 
     fun setLlmProvider(provider: com.audiophile.musicplayer.data.llm.AiProvider?) {

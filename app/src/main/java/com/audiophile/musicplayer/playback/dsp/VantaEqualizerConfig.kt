@@ -5,7 +5,12 @@ package com.audiophile.musicplayer.playback.dsp
 data class VantaEqualizerConfig(
     val eqEnabled: Boolean = false,
     val eqBands: List<Float> = List(BAND_COUNT) { 0f },
+    val eqBypassEnabled: Boolean = false,
+    val loudnessNormalizationEnabled: Boolean = false,
+    val replayGainDb: Float = 0f,
+    val autoHeadroomEnabled: Boolean = true,
     val spatialEnabled: Boolean = false,
+    val immersiveMode: VantaImmersiveMode = VantaImmersiveMode.OFF,
     val stereoWidenLevel: Float = 0f,
     val crossfeedEnabled: Boolean = false,
     val crossfeedMode: Int = 0,
@@ -34,30 +39,47 @@ data class VantaEqualizerConfig(
         const val BAND_COUNT = 31
         const val MIN_GAIN_DB = -12.0
         const val MAX_GAIN_DB = 12.0
+
+        /** Bundled impulse responses shipped in assets for the convolver. */
+        val BUNDLED_IR_PACK = mapOf(
+            "small_club" to "ir/small_club.wav",
+            "medium_hall" to "ir/medium_hall.wav",
+            "large_hall" to "ir/large_hall.wav",
+            "plate" to "ir/plate.wav",
+            "studio_a" to "ir/studio_a.wav",
+            "vintage_room" to "ir/vintage_room.wav"
+        )
     }
+}
+
+enum class VantaImmersiveMode(val label: String, val badge: String, val isRendered: Boolean) {
+    OFF("Off", "Stereo", true),
+    STEREO("Stereo Widened", "Rendered", true),
+    RENDERED("Immersive Rendered", "Rendered", true),
+    NATIVE_ATMOS("Dolby Atmos", "Verified Atmos", false);
 }
 
 enum class VantaEqualizerPreset(val label: String, val gains: List<Float>) {
     FLAT("Flat", List(31) { 0f }),
-    BASS_BOOST("Bass Boost", listOf(6f,6f,6f,6f,5f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    DEEP_BASS("Deep Bass", listOf(8f,8f,7f,7f,6f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    TREBLE_BOOST("Treble Boost", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,6f,6f,6f,6f,6f,6f)),
-    STUDIO("Studio", listOf(0f,0f,0f,0f,0f,0f,0f,2f,2f,3f,3f,2f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    CONCERT_HALL("Concert Hall", listOf(2f,2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,1f,2f,2f,2f,2f,2f,2f)),
-    CINEMA("Cinema", listOf(2f,2f,2f,2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f)),
-    INTIMATE("Intimate", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    VOCAL("Intimate Vocal", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
-    ELECTRONIC("Electronic Pulse", listOf(4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,-1f,-1f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,4f,4f,3f,2f,2f,1f,1f,0f,0f)),
-    HIP_HOP("Hip-Hop", listOf(5f,5f,5f,4f,4f,3f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,2f,2f,2f,2f,1f,1f,0f,0f,0f,0f,0f)),
-    ROCK("Rock", listOf(4f,4f,4f,3f,3f,2f,2f,1f,0f,0f,-1f,-1f,-1f,0f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,3f,3f,3f,2f,2f,2f,2f)),
-    JAZZ("Jazz Lounge", listOf(2f,2f,2f,2f,1f,1f,1f,0f,0f,0f,0f,1f,1f,2f,2f,2f,2f,1f,1f,0f,0f,0f,0f,0f,1f,1f,2f,2f,2f,1f,1f)),
-    CLASSICAL("Classical", listOf(3f,3f,3f,2f,2f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,3f,2f,2f)),
-    RNB("Velvet R&B", listOf(4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,0f,0f,1f,1f,2f,2f,2f,1f,1f,0f,0f,0f,1f,1f,1f,1f,1f,1f,0f,0f,0f)),
-    ACOUSTIC("Acoustic", listOf(2f,2f,2f,2f,1f,1f,1f,1f,0f,0f,0f,0f,1f,1f,1f,1f,2f,2f,2f,1f,1f,1f,2f,2f,2f,2f,2f,1f,1f,1f,1f)),
-    PODCAST("Podcast Voice", listOf(-4f,-4f,-4f,-3f,-3f,-2f,-2f,-1f,0f,0f,1f,2f,3f,4f,4f,4f,4f,4f,3f,3f,2f,2f,1f,1f,0f,0f,-1f,-1f,-2f,-2f,-3f)),
-    LOFI("Lo-Fi Cozy", listOf(3f,3f,3f,3f,2f,2f,2f,1f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,-2f,-2f,-3f,-3f,-4f,-4f,-5f,-5f,-6f,-7f,-8f)),
-    WARM("Warm Analog", listOf(3f,3f,3f,2f,2f,2f,1f,1f,1f,1f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-1f,-2f,-2f)),
-    LOUDNESS("Loudness", listOf(6f,6f,5f,5f,4f,4f,3f,2f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,1f,2f,2f,3f,3f,4f,4f,5f,5f,5f)),
+    BASS_BOOST("Bass Boost", listOf(3f,3f,3f,3f,3f,2.5f,2f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    DEEP_BASS("Deep Bass", listOf(4f,4f,4f,3.5f,3.5f,3f,2.5f,2f,1.5f,1f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    TREBLE_BOOST("Treble Boost", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,1f,1.5f,2f,2.5f,3f,3f,3f,3f,3f,3f,3f)),
+    STUDIO("Studio", listOf(0f,0f,0f,0f,0f,0f,0f,1f,1f,1.5f,1.5f,1f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    CONCERT_HALL("Concert Hall", listOf(1f,1f,1f,1f,1f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,0.5f,0.5f,1f,1f,1f,1f,1f,1f)),
+    CINEMA("Cinema", listOf(1f,1f,1f,1f,1f,1f,1f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,1f,1.5f,2f)),
+    INTIMATE("Intimate", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,1f,1.5f,2f,2f,2f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    VOCAL("Intimate Vocal", listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,1f,1.5f,2f,2.5f,2f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f)),
+    ELECTRONIC("Electronic Pulse", listOf(2f,2f,2f,1.5f,1.5f,1f,1f,0.5f,0.5f,0f,-0.5f,-0.5f,0f,0f,0f,0f,0f,0f,0.5f,1f,1.5f,2f,2f,2f,1.5f,1f,1f,0.5f,0.5f,0f,0f)),
+    HIP_HOP("Hip-Hop", listOf(2.5f,2.5f,2.5f,2f,2f,1.5f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1f,1f,0.5f,0.5f,0f,0f,0f,0f,0f)),
+    ROCK("Rock", listOf(2f,2f,2f,1.5f,1.5f,1f,1f,0.5f,0f,0f,-0.5f,-0.5f,-0.5f,0f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1.5f,1.5f,1.5f,1.5f,1.5f,1f,1f,1f,1f)),
+    JAZZ("Jazz Lounge", listOf(1f,1f,1f,1f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1f,1f,0.5f,0.5f,0f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1f,0.5f,0.5f)),
+    CLASSICAL("Classical", listOf(1.5f,1.5f,1.5f,1f,1f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-0.5f,-0.5f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1.5f,1.5f,1.5f,1f,1f)),
+    RNB("Velvet R&B", listOf(2f,2f,2f,1.5f,1.5f,1f,1f,0.5f,0.5f,0f,0f,0f,0.5f,0.5f,1f,1f,1f,0.5f,0.5f,0f,0f,0f,0.5f,0.5f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f)),
+    ACOUSTIC("Acoustic", listOf(1f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0.5f,0.5f,0.5f,0.5f,1f,1f,1f,0.5f,0.5f,0.5f,1f,1f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f)),
+    PODCAST("Podcast Voice", listOf(-2f,-2f,-2f,-1.5f,-1.5f,-1f,-1f,-0.5f,0f,0f,0.5f,1f,1.5f,2f,2f,2f,2f,2f,1.5f,1.5f,1f,1f,0.5f,0.5f,0f,0f,-0.5f,-0.5f,-1f,-1f,-1.5f)),
+    LOFI("Lo-Fi Cozy", listOf(1.5f,1.5f,1.5f,1.5f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,-0.5f,-0.5f,-1f,-1f,-1.5f,-1.5f,-2f,-2f,-2.5f,-2.5f,-3f,-3.5f,-4f)),
+    WARM("Warm Analog", listOf(1.5f,1.5f,1.5f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-1f,-1f)),
+    LOUDNESS("Loudness", listOf(3f,3f,2.5f,2.5f,2f,2f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1.5f,1.5f,2f,2f,2.5f,2.5f,2.5f)),
 }
 
 object VantaEqualizerHolder {

@@ -17,7 +17,6 @@ import com.audiophile.musicplayer.data.local.entities.PersonalizedMixTrackEntity
 import com.audiophile.musicplayer.data.local.entities.PersonalizedMixHistoryEntity
 import com.audiophile.musicplayer.data.local.entities.DiscoveryArtistCacheEntity
 import com.audiophile.musicplayer.data.local.entities.DiscoveryTrackCacheEntity
-import android.util.Log
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.audiophile.musicplayer.data.lyrics.LyricsCacheEntity
@@ -39,7 +38,7 @@ import com.audiophile.musicplayer.data.lyrics.LyricsCacheEntity
         DiscoveryTrackCacheEntity::class
     ],
     version = 7,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class MusicDatabase : RoomDatabase() {
@@ -160,29 +159,15 @@ abstract class MusicDatabase : RoomDatabase() {
         }
 
         private const val DB_NAME = "audiophile_music_library.db"
-        private const val TAG = "MusicDatabase"
-
         fun getDatabase(context: Context): MusicDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: openDatabase(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-
-        private fun openDatabase(appContext: Context): MusicDatabase {
-            return try {
-                buildDatabase(appContext)
-            } catch (e: Exception) {
-                Log.e(TAG, "Database open failed, deleting and retrying", e)
-                INSTANCE = null
-                appContext.deleteDatabase(DB_NAME)
-                buildDatabase(appContext)
+                INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
             }
         }
 
         private fun buildDatabase(appContext: Context): MusicDatabase =
             Room.databaseBuilder(appContext, MusicDatabase::class.java, DB_NAME)
                 .addMigrations(MIGRATION_5_6, MIGRATION_6_7)
-                .fallbackToDestructiveMigration()
                 .build()
     }
 }

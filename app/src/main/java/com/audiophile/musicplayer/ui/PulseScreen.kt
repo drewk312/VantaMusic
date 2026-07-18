@@ -55,15 +55,13 @@ fun PulseScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 24.dp)
+            .padding(top = appTopContentPadding())
             .padding(bottom = appBottomContentPadding(isMiniPlayerVisible = false)),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
         Text(
             "Radio",
-            color = AppText,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Black,
+            style = VantaType.pageTitle,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
 

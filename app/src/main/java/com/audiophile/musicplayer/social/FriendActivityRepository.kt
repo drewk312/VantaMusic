@@ -29,6 +29,26 @@ class FriendActivityRepository(
         localSource.updateEvents(events)
     }
 
+    fun addLikedTrack(friendId: String, track: FriendLikedTrack) {
+        localSource.addLikedTrack(friendId, track)
+    }
+
+    fun removeLikedTrack(friendId: String, trackId: String) {
+        localSource.removeLikedTrack(friendId, trackId)
+    }
+
+    fun updateFriendOnlineStatus(friendId: String, isOnline: Boolean, lastSeenAtMs: Long) {
+        localSource.updateFriendOnlineStatus(friendId, isOnline, lastSeenAtMs)
+    }
+
+    fun getFriendById(friendId: String): VantaFriend? {
+        return feed.value.friends.find { it.id == friendId }
+    }
+
+    fun getFriendEvents(friendId: String): List<FriendListeningEvent> {
+        return feed.value.events.filter { it.friendId == friendId }
+    }
+
     /**
      * Publish the current user's own listening activity.
      * If sharing is disabled in the account profile, the event is cleared.

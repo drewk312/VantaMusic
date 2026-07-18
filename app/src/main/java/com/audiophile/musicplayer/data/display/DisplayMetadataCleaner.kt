@@ -15,6 +15,7 @@ data class DisplayMetadata(
 data class PlaybackDisplay(
     val title: String,
     val artist: String,
+    val album: String? = null,
     val versionLabel: String? = null,
     val isAlternateVersion: Boolean = false,
     val featuredArtists: List<String> = emptyList()
@@ -57,8 +58,48 @@ object DisplayMetadataCleaner {
     }
 
 
+    private val whitespaceRegex = Regex("\\s+")
+
+    /**
+     * Premium underscore → space conversion for display strings.
+     *
+     * - Replaces filename/URL-style underscore separators with spaces
+     *   ("Song_Title_Here" → "Song Title Here").
+     * - Collapses runs of underscores/whitespace into a single space
+     *   ("Song__Title" → "Song Title").
+     * - Preserves an underscore that sits directly between two digits
+     *   (e.g. "8_000"), where it is usually intentional rather than a separator.
+     * - Trims leftover leading/trailing whitespace.
+     */
     private fun replaceUnderscoresWithSpaces(text: String): String {
-        return text.replace('_', ' ').trim()
+        if (text.isEmpty()) return text
+        val builder = StringBuilder(text.length)
+        for (i in text.indices) {
+            val current = text[i]
+            if (current == '_') {
+                val prev = text.getOrNull(i - 1)
+                val next = text.getOrNull(i + 1)
+                if (prev != null && next != null && prev.isDigit() && next.isDigit()) {
+                    builder.append('_')
+                } else {
+                    builder.append(' ')
+                }
+            } else {
+                builder.append(current)
+            }
+        }
+        return builder.toString().replace(whitespaceRegex, " ").trim()
+    }
+
+    /**
+     * Lightweight cleaner for album / playlist / artist display names that should
+     * NOT go through full title parsing or suffix stripping. Only normalizes
+     * underscores → spaces, collapses whitespace, and trims. Returns "" for
+     * null/blank input so callers can `.ifBlank { fallback }`.
+     */
+    fun cleanDisplayName(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        return replaceUnderscoresWithSpaces(raw)
     }
     private fun normalizeWord(word: String): String {
         val lower = word.lowercase().removeSurrounding("\"", "\"").removeSurrounding("'", "'")
@@ -121,7 +162,8 @@ object DisplayMetadataCleaner {
 
     fun cleanAlbumName(album: String?): String? {
         if (album.isNullOrBlank()) return null
-        val trimmed = album.trim()
+        val trimmed = replaceUnderscoresWithSpaces(album)
+        if (trimmed.isBlank()) return null
         for (platform in platformNames) {
             if (trimmed.equals(platform, ignoreCase = true)) return null
         }
@@ -296,6 +338,7 @@ object DisplayMetadataCleaner {
         return PlaybackDisplay(
             title = title,
             artist = display.artist,
+            album = display.album,
             versionLabel = versionLabel,
             isAlternateVersion = versionLabel != null,
             featuredArtists = display.featuredArtists

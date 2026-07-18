@@ -34,6 +34,7 @@ object CanonicalMapper {
                 isSpatialAudio = result.isSpatialAudio,
                 isSurround = result.isSurround,
                 isHiRes = result.isHiRes,
+                spatialEvidence = result.spatialEvidence,
                 sourceProviderId = result.providerId,
                 reason = when (result.status) {
                     SearchItemStatus.PREVIEW -> "preview_source"

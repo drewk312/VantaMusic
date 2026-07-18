@@ -52,7 +52,7 @@ object AutoMainStageLyrics {
             .setArtist(artistAlbumLine)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .apply {
-                album?.trim()?.takeIf { it.isNotEmpty() }?.let { setAlbumTitle(it) }
+                DisplayMetadataCleaner.cleanAlbumName(album)?.let { setAlbumTitle(it) }
                 durationMs?.takeIf { it > 0 }?.let { setDurationMs(it) }
                 description?.trim()?.takeIf { it.isNotEmpty() }?.let { setDescription(it) }
                 artworkUri(artworkUrl)?.let { setArtworkUri(it) }

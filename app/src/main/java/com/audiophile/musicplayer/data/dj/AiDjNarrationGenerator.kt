@@ -106,9 +106,16 @@ Brief transition into the next stretch. One or two sentences, or SILENT if unnec
         }
     }
 
-    fun generateEmptyLibraryMessage(): String {
-        return "Your library is empty. Add some music or search for songs to get started."
+        fun generateEmptyLibraryMessage(mode: AiDjMode? = null): String {
+        return when (mode) {
+            AiDjMode.LATE_NIGHT -> "Library is empty. Late night sessions need fuel - search an artist or drop a vibe."
+            AiDjMode.WORKOUT -> "Empty library. Workout mode needs heat - give me a seed track."
+            AiDjMode.CHILL_VIBES -> "Library is empty. Perfect time to discover something new."
+            AiDjMode.DEEP_CUTS -> "Empty library. Deep cuts need depth - search an artist you love."
+            else -> "Your library is empty. Add some music or search for songs to get started."
+        }
     }
+
 
     fun generateNoPlayableTracks(count: Int): String {
         return if (count == 0) {
@@ -145,3 +152,4 @@ Brief transition into the next stretch. One or two sentences, or SILENT if unnec
         }
     }
 }
+

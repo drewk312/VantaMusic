@@ -138,4 +138,15 @@ interface LibraryDao {
             }
         )
     }
+
+    @Query("""
+        SELECT s.* FROM local_songs s
+        INNER JOIN playlist_song_cross_ref ref ON ref.songId = s.id
+        WHERE ref.playlistId = :playlistId
+        ORDER BY ref.position ASC
+    """)
+    suspend fun getPlaylistSongs(playlistId: Long): List<LocalSongEntity>
+
+    @Query("DELETE FROM local_playlists WHERE id = :playlistId")
+    suspend fun deletePlaylist(playlistId: Long)
 }

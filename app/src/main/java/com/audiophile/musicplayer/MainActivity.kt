@@ -38,6 +38,8 @@ import com.audiophile.musicplayer.ui.PersonalizedMixViewModel
 import com.audiophile.musicplayer.ui.SharedImportPayload
 import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
 import com.audiophile.musicplayer.data.local.entities.SourceType
+import com.audiophile.musicplayer.data.importer.MAX_IMPORT_TEXT_CHARS
+import com.audiophile.musicplayer.data.importer.readBoundedText
 import com.audiophile.musicplayer.playback.NowPlayingState
 import com.audiophile.musicplayer.search.UnifiedSearchEngine
 import kotlinx.coroutines.CoroutineScope
@@ -457,6 +459,7 @@ class MainActivity : ComponentActivity() {
                 val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
                     ?.toString()
                     ?.trim()
+                    ?.takeIf { it.length <= MAX_IMPORT_TEXT_CHARS }
                     ?.takeIf { it.isNotBlank() }
                 if (sharedText != null) {
                     SharedImportPayload(name = "Shared Link", text = sharedText)
@@ -499,7 +502,7 @@ class MainActivity : ComponentActivity() {
         return runCatching {
             contentResolver.openInputStream(uri)
                 ?.bufferedReader(Charsets.UTF_8)
-                ?.use { it.readText() }
+                ?.use { it.readBoundedText() }
                 ?.takeIf { it.isNotBlank() }
         }.getOrNull()
     }

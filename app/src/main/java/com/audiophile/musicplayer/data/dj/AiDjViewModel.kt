@@ -69,10 +69,18 @@ class AiDjViewModel @Inject constructor(
 
     private val companionBrain = DjCompanionBrain(pulseAiBrain)
 
+    private val djPrefs = context.getSharedPreferences("vanta_dj", Context.MODE_PRIVATE)
+
     private val _state = MutableStateFlow(AiDjUiState())
     val state: StateFlow<AiDjUiState> = _state.asStateFlow()
 
     val nowPlayingState = playbackStateHolder.state
+
+    init {
+        if (djPrefs.getBoolean(KEY_WELCOME_DISMISSED, false)) {
+            _state.update { it.copy(liveCommentary = null) }
+        }
+    }
 
     private val spokenSegmentIndices = mutableSetOf<Int>()
     private var isAutoLoadingNextSegment = false
@@ -91,7 +99,6 @@ class AiDjViewModel @Inject constructor(
     private var currentVibeIndex = 0
 
     private var lastCommentaryTrackId: Long? = null
-    private val djPrefs = context.getSharedPreferences("vanta_dj", Context.MODE_PRIVATE)
     private val personaMemory = DjPersonaMemory(context)
     private val stationMemory = StationTasteMemory(context)
     private val customStationStore = CustomStationStore(context)
@@ -755,13 +762,40 @@ class AiDjViewModel @Inject constructor(
     }
 
     fun onDjScreenOpened() {
+        if (djPrefs.getBoolean(KEY_WELCOME_DISMISSED, false)) return
         val name = _state.value.listenerDisplayName?.trim().orEmpty()
         val greeting = if (name.isNotBlank()) {
             "Welcome back, $name. What are we listening to tonight?"
         } else {
             "Welcome to VANTA. What are we listening to tonight?"
         }
+        if (_state.value.liveCommentary == greeting) return
         postDjMoment(greeting)
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(WELCOME_AUTO_DISMISS_MS)
+            if (_state.value.liveCommentary == greeting) {
+                _state.update { it.copy(liveCommentary = null) }
+            }
+        }
+    }
+
+    fun dismissDjMoment() {
+        val current = _state.value.liveCommentary
+        _state.update {
+            it.copy(
+                liveCommentary = null,
+                commentaryFromPulseAi = false,
+                isGeneratingCommentary = false
+            )
+        }
+        if (current?.contains("welcome", ignoreCase = true) == true) {
+            djPrefs.edit { putBoolean(KEY_WELCOME_DISMISSED, true) }
+        }
+    }
+
+    companion object {
+        private const val KEY_WELCOME_DISMISSED = "welcome_dismissed"
+        private const val WELCOME_AUTO_DISMISS_MS = 12_000L
     }
 
     fun startForgottenFavorites() {
@@ -1265,7 +1299,8 @@ class AiDjViewModel @Inject constructor(
         val mergedPicks = mergedTracks.mapIndexed { index, t ->
             AiDjPick(
                 track = t,
-                reason = narrationGenerator.generatePickReason(t, index, mergedTracks.size),
+                reason = currentSegment.picks.find { it.track.track.trackId == t.track.trackId }?.moment?.humanReason()
+                    ?: narrationGenerator.generatePickReason(t, index, mergedTracks.size),
                 confidence = 1f - (index.toFloat() / mergedTracks.size.coerceAtLeast(1))
             )
         }
@@ -1400,3 +1435,4 @@ class AiDjViewModel @Inject constructor(
         super.onCleared()
     }
 }
+

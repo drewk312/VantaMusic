@@ -46,11 +46,11 @@ fun DiscoverScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 24.dp)
+            .padding(top = appTopContentPadding())
             .padding(bottom = appBottomContentPadding(isMiniPlayerVisible = false)),
         verticalArrangement = Arrangement.spacedBy(32.dp)
     ) {
-        Text("Discover", color = AppText, fontSize = 32.sp, fontWeight = FontWeight.Black,
+        Text("Discover", style = VantaType.pageTitle,
             modifier = Modifier.padding(horizontal = 24.dp))
 
         // Search field

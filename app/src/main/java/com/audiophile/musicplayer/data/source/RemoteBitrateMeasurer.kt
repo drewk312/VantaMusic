@@ -29,7 +29,7 @@ object RemoteBitrateMeasurer {
                 .takeIf { it in 16..10_000 }
             Log.d("VANTA_BITRATE_MEASURE", "bytes=$totalBytes durationMs=$durationMs averageKbps=${kbps ?: "invalid"}")
             kbps
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.d("VANTA_BITRATE_MEASURE", "measurement_failed reason='${e.message}'")
             null
         } finally {

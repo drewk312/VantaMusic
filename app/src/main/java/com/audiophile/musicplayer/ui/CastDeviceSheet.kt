@@ -80,7 +80,7 @@ fun CastDeviceSheet(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Cast to Device",
+                    text = "Sonos / Cast",
                     color = AppText,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
@@ -94,7 +94,7 @@ fun CastDeviceSheet(
         // Current status
         when (val state = castState) {
             is CastingState.Idle -> {
-                Text("Ready to discover devices", color = AppTextSecondary, fontSize = 14.sp)
+                Text("Ready to discover Sonos and DLNA speakers", color = AppTextSecondary, fontSize = 14.sp)
             }
             is CastingState.Discovering -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -162,9 +162,9 @@ fun CastDeviceSheet(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No devices found", color = AppTextMuted, fontSize = 15.sp)
+                    Text("No Sonos or cast devices found", color = AppTextMuted, fontSize = 15.sp)
                     Text(
-                        "Ensure your device is on the same WiFi network and tap Discover",
+                        "Make sure the speaker is on the same Wi-Fi network and tap Discover",
                         color = AppTextMuted.copy(alpha = 0.6f),
                         fontSize = 12.sp
                     )

@@ -31,7 +31,8 @@ data class AiDjSegment(
 data class AiDjPick(
     val track: UnifiedTrackWithSources,
     val reason: String,
-    val confidence: Float
+    val confidence: Float,
+    val moment: PulseMoment? = null
 )
 
 sealed class AiDjFeedback {

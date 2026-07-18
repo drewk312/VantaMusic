@@ -40,6 +40,83 @@ data class GenerateStationResponseV1(
     val tracks: List<TrackRecommendationV1>
 )
 
+object RadioBackendRequestPlanner {
+    fun buildGenerateStationRequest(
+        seed: StreamingStationSeed,
+        request: StreamingStationRequest,
+        recentHistory: List<SimpleTrackRef>
+    ): GenerateStationRequestV1 {
+        val prompt = backendSeedPrompt(seed, request.taste)
+        val hints = backendHintKeywords(seed, request.taste)
+        return GenerateStationRequestV1(
+            seed = prompt,
+            seedKind = seed.kind.name,
+            seedEraStart = seed.eraStart,
+            seedEraEnd = seed.eraEnd,
+            seedArtist = seed.seedArtist,
+            seedTitle = seed.seedTitle,
+            hintKeywords = hints.takeIf { it.isNotEmpty() },
+            recentHistory = recentHistory,
+            tasteProfile = request.taste.toBackendTasteProfile(),
+            count = request.targetCount
+        )
+    }
+
+    private fun backendSeedPrompt(seed: StreamingStationSeed, taste: StreamingStationTasteSignals): String {
+        if (seed.kind != StreamingStationKind.FREE_TEXT) return seed.displayName
+
+        val tasteAnchors = tasteAnchors(taste)
+        if (VibeTranslator.isPersonalTastePrompt(seed.primaryQuery)) {
+            return if (tasteAnchors.isNotEmpty()) {
+                "personal taste mix: ${tasteAnchors.take(6).joinToString(", ")}"
+            } else {
+                "personal taste mix"
+            }
+        }
+
+        return VibeTranslator.extractSearchQueries(seed.primaryQuery)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(6)
+            .joinToString(", ")
+            .ifBlank { StationQuerySanitizer.cleanStationMeta(seed.primaryQuery).ifBlank { "personal music mix" } }
+    }
+
+    private fun backendHintKeywords(seed: StreamingStationSeed, taste: StreamingStationTasteSignals): List<String> {
+        val translated = if (seed.kind == StreamingStationKind.FREE_TEXT) {
+            VibeTranslator.extractSearchQueries(seed.primaryQuery)
+        } else {
+            seed.hintKeywords
+        }
+        return (translated + tasteAnchors(taste))
+            .map { StationQuerySanitizer.cleanStationMeta(it.trim()) }
+            .filter { it.length >= 2 && !StationQuerySanitizer.isStationMetaPhrase(it) }
+            .distinct()
+            .take(12)
+    }
+
+    private fun StreamingStationTasteSignals.toBackendTasteProfile(): TasteProfile {
+        val likes = tasteAnchors(this).take(20)
+        val dislikes = (dislikedArtists + skippedArtists.filterValues { it >= 2 }.keys)
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+            .distinct()
+            .take(12)
+        return TasteProfile(likes = likes, dislikes = dislikes)
+    }
+
+    private fun tasteAnchors(taste: StreamingStationTasteSignals): List<String> {
+        val artists = taste.favoriteArtists
+            .map { it.trim() }
+            .filter { it.length >= 2 }
+        val genres = taste.genreAffinities.entries
+            .sortedByDescending { it.value }
+            .map { it.key.trim() }
+            .filter { it.length >= 2 && !StationQuerySanitizer.isStationMetaPhrase(it) }
+        return (artists + genres).distinct()
+    }
+}
+
 data class DjSegmentRequestV1(
     val stationName: String,
     val recentTracks: List<SimpleTrackRef>,

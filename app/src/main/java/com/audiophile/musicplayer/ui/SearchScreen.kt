@@ -975,6 +975,15 @@ private fun SearchSubtitleLine(
     }
 }
 
+/** A free catalog can identify a spatial release, but it cannot prove the relay's output codec. */
+private fun spatialBadgeLabel(base: String, evidence: String?): String = when (evidence?.lowercase()) {
+    "verified" -> base
+    "rendered" -> "Rendered Spatial"
+    "stereo" -> "Stereo"
+    "catalog" -> "$base catalog"
+    else -> "$base metadata"
+}
+
 @Composable
 private fun SearchIconAction(
     icon: ImageVector,
@@ -1079,9 +1088,9 @@ private fun TopResultCard(
                 if (cleaned.explicit == true) VantaExplicitBadge()
                 if (statusLabel != null) {
                     track.qualityInfo?.let { q ->
-                        if (q.isDolbyAtmos) VantaStatusBadge("Dolby Atmos", AppAccent)
-                        else if (q.isSpatialAudio) VantaStatusBadge("Spatial", AppAccent)
-                        else if (q.isSurround) VantaStatusBadge("Surround", AppAccent)
+                        if (q.isDolbyAtmos) VantaStatusBadge(spatialBadgeLabel("Dolby Atmos", q.spatialEvidence), AppAccent)
+                        else if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
+                        else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
                         if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
                     }
                     VantaStatusBadge(
@@ -1177,9 +1186,9 @@ private fun SearchSongRow(
                 if (cleaned.explicit == true) VantaExplicitBadge()
                 if (statusLabel != null) {
                     track.qualityInfo?.let { q ->
-                        if (q.isDolbyAtmos) VantaStatusBadge("Dolby Atmos", AppAccent)
-                        else if (q.isSpatialAudio) VantaStatusBadge("Spatial", AppAccent)
-                        else if (q.isSurround) VantaStatusBadge("Surround", AppAccent)
+                        if (q.isDolbyAtmos) VantaStatusBadge(spatialBadgeLabel("Dolby Atmos", q.spatialEvidence), AppAccent)
+                        else if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
+                        else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
                         if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
                     }
                     VantaStatusBadge(

@@ -4,7 +4,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import com.audiophile.musicplayer.data.lyrics.LyricsIdentity
+import com.audiophile.musicplayer.data.lyrics.LyricsIdentityGate
 import com.audiophile.musicplayer.data.lyrics.LyricsRepository
+import com.audiophile.musicplayer.data.lyrics.LyricsSyncPreferences
 import com.audiophile.musicplayer.data.lyrics.LyricsTranslationProvider
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
 import com.audiophile.musicplayer.data.llm.PulseAiBrain
@@ -13,7 +16,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewModelScope
@@ -34,8 +39,13 @@ class NowPlayingViewModel @Inject constructor(
     val lyricsTrackId: StateFlow<String?> = _lyricsTrackId.asStateFlow()
     private val _lyricsLoading = MutableStateFlow(false)
     val lyricsLoading: StateFlow<Boolean> = _lyricsLoading.asStateFlow()
+    private val _lyricsIdentity = MutableStateFlow<LyricsIdentity>(LyricsIdentity.Unavailable)
+    val lyricsIdentity: StateFlow<LyricsIdentity> = _lyricsIdentity.asStateFlow()
     private val _translationEnabled = MutableStateFlow(false)
     val translationEnabled: StateFlow<Boolean> = _translationEnabled.asStateFlow()
+
+    private val lyricsIdentityGate: LyricsIdentityGate? get() =
+        lyricsRepository?.let { LyricsIdentityGate(it) }
 
     private val _pulseInsight = MutableStateFlow<String?>(null)
     val pulseInsight: StateFlow<String?> = _pulseInsight.asStateFlow()
@@ -55,6 +65,21 @@ class NowPlayingViewModel @Inject constructor(
 
     val state: StateFlow<NowPlayingState> = playbackState.state
 
+    /**
+     * Playback metadata for the app shell. Progress and buffer positions update
+     * several times per second, but Home/navigation only need identity and
+     * transport state. Keeping those ticks out of the shell prevents broad
+     * recomposition while a song is playing.
+     */
+    val chromeState: StateFlow<NowPlayingState> = state
+        .map { it.withoutProgressTicks() }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            state.value.withoutProgressTicks()
+        )
+
     private var lastTrackId: String? = null
     private var lyricsFetchGeneration = 0
     private var pulseInsightGeneration = 0
@@ -70,6 +95,7 @@ class NowPlayingViewModel @Inject constructor(
                     _lyrics.value = null
                     _lyricsTrackId.value = null
                     _lyricsLoading.value = false
+                    _lyricsIdentity.value = LyricsIdentity.Unavailable
                     _pulseInsight.value = null
                     _pulseDeepInsight.value = null
                     _pulseInsightLoading.value = false
@@ -204,12 +230,10 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     private fun fetchLyrics(state: NowPlayingState) {
-        val repo = lyricsRepository ?: return
+        val gate = lyricsIdentityGate ?: return
         val rawTitle = state.title ?: return
         val rawArtist = state.artist ?: return
         val trackId = state.trackId ?: return
-        // Query with the same cleaned identity the UI shows. Raw titles carry
-        // "(feat. …)" clauses and uploader junk that skew LRCLib toward wrong matches.
         val cleaned = com.audiophile.musicplayer.data.display.DisplayMetadataCleaner.computeDisplayMetadata(
             rawTitle = rawTitle,
             rawArtist = rawArtist,
@@ -222,21 +246,23 @@ class NowPlayingViewModel @Inject constructor(
             _lyrics.value = null
             _lyricsTrackId.value = null
             _lyricsLoading.value = true
+            _lyricsIdentity.value = LyricsIdentity.Unavailable
 
-            val result = try {
-                repo.getLyrics(
-                    UnifiedTrack(
+            val identity = try {
+                gate.resolveIdentity(
+                    track = UnifiedTrack(
                         title = title,
                         artist = artist,
                         albumName = state.album,
                         coverArtUrl = state.artworkUrl,
                         durationMs = state.durationMs.takeIf { it > 0 }
                     ),
-                    state.isrc
+                    isrc = state.isrc,
+                    userQuery = state.userQuery
                 )
             } catch (e: Exception) {
-                Log.e("VANTA_LYRICS_TRUTH", "Lyrics fetch failed for trackId=$trackId", e)
-                null
+                Log.e("VANTA_IDENTITY", "Lyrics identity resolve failed for trackId=$trackId", e)
+                LyricsIdentity.Unavailable
             }
 
             if (generation != lyricsFetchGeneration) return@launch
@@ -244,29 +270,18 @@ class NowPlayingViewModel @Inject constructor(
             val currentState = playbackState.snapshot()
             val currentTrackId = currentState.trackId
             val identityMatch = currentTrackId == trackId
-            val isrcMatch = result != null && state.isrc != null && currentState.isrc != null && state.isrc == currentState.isrc
-            val accepted = identityMatch
+            val accepted = identityMatch && identity !is LyricsIdentity.Unavailable
 
-            val msg = buildString {
-                append("nowPlaying.trackId=$currentTrackId ")
-                append("nowPlaying.title='${currentState.title}' ")
-                append("nowPlaying.artist='${currentState.artist}' ")
-                append("lyricsTrackId=$trackId ")
-                append("lyricsTitle='${state.title}' ")
-                append("lyricsArtist='${state.artist}' ")
-                append("isrcMatch=$isrcMatch ")
-                append("accepted=$accepted ")
-                if (!accepted) append("rejectReason=stale_response currentTrackId=$currentTrackId lyricsTrackId=$trackId")
-                else append("rejectReason=none")
-            }
-            Log.d("VANTA_LYRICS_TRUTH", msg)
+            Log.d("VANTA_IDENTITY", "fetchLyrics trackId=$trackId currentTrackId=$currentTrackId identity=$identity accepted=$accepted")
 
             if (accepted) {
-                _lyrics.value = result
+                _lyrics.value = identity.lyricsData
                 _lyricsTrackId.value = trackId
+                _lyricsIdentity.value = identity
             } else {
                 _lyrics.value = null
                 _lyricsTrackId.value = null
+                _lyricsIdentity.value = LyricsIdentity.Unavailable
             }
             _lyricsLoading.value = false
         }
@@ -303,3 +318,9 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 }
+
+internal fun NowPlayingState.withoutProgressTicks(): NowPlayingState = copy(
+    positionMs = 0L,
+    bufferedMs = 0L,
+    sleepTimerRemainingMs = sleepTimerRemainingMs?.let { 1L }
+)

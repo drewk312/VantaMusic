@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,10 +63,11 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val accentColor = Color(0xFFFFB347)
-private val surfaceColor = Color(0xFF1A1A2E)
+private val eqBackground = Color(0xFF0C0B0D)
+private val surfaceColor = Color(0xFF151311)
 private val bandActive = Color(0xFFFFB347)
-private val bandInactive = Color(0xFF4A4A6A)
-private val gridColor = Color(0xFF2A2A4A)
+private val bandInactive = Color(0xFF4D4539)
+private val gridColor = Color(0xFF252019)
 private val spectrumFill = Color(0x20FFB347)
 private val spectrumLine = Color(0x40FFB347)
 
@@ -99,6 +101,14 @@ fun ParametricEqScreen(
     var crossfeedEnabled by remember { mutableStateOf(initialConfig.crossfeedEnabled) }
     var reverbEnabled by remember { mutableStateOf(initialConfig.reverbEnabled) }
     var currentPreset by remember { mutableStateOf(initialConfig.preset) }
+    val eqSwitchColors = SwitchDefaults.colors(
+        checkedThumbColor = Color(0xFF20170D),
+        checkedTrackColor = accentColor,
+        checkedBorderColor = accentColor,
+        uncheckedThumbColor = Color(0xFF5C554C),
+        uncheckedTrackColor = Color(0xFF27231F),
+        uncheckedBorderColor = Color(0xFF494138),
+    )
 
     val bandGains = remember {
         mutableStateListOf<Float>().apply {
@@ -181,20 +191,20 @@ fun ParametricEqScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1A1A2E))
+            .background(eqBackground)
             .verticalScroll(scrollState)
+            .padding(top = appTopContentPadding())
             .padding(horizontal = VantaSpacing.screenHorizontal)
             .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible)),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onBack) { Text("< BACK", color = accentColor, fontWeight = FontWeight.Bold) }
-            Text("AUDIO ENGINE", color = AppText.copy(alpha = 0.5f), letterSpacing = 2.sp)
-            Spacer(Modifier.width(48.dp))
+            TextButton(onClick = onBack) { Text("‹  Library", color = AppText, fontWeight = FontWeight.SemiBold) }
+            Text("AUDIO ENGINE", color = AppTextMuted, fontSize = 11.sp, letterSpacing = 1.6.sp)
         }
 
         Text("Vanta Equalizer", color = AppText, fontWeight = FontWeight.Bold, fontSize = 28.sp)
@@ -222,6 +232,7 @@ fun ParametricEqScreen(
             Switch(
                 checked = eqEnabled,
                 onCheckedChange = { eqEnabled = it; pushConfig(); uiTick++ },
+                colors = eqSwitchColors,
             )
         }
 
@@ -336,17 +347,17 @@ fun ParametricEqScreen(
                         Text("3D Spatial Audio", color = AppText, fontSize = 13.sp)
                         Text("HRTF + crossfeed simulation", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = spatialEnabled, onCheckedChange = { spatialEnabled = it; pushConfig(); uiTick++ })
+                    Switch(checked = spatialEnabled, onCheckedChange = { spatialEnabled = it; pushConfig(); uiTick++ }, colors = eqSwitchColors)
                 }
                 if (spatialEnabled) {
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Crossfeed", color = AppTextSecondary, fontSize = 12.sp)
-                        Switch(checked = crossfeedEnabled, onCheckedChange = { crossfeedEnabled = it; pushConfig() })
+                        Switch(checked = crossfeedEnabled, onCheckedChange = { crossfeedEnabled = it; pushConfig() }, colors = eqSwitchColors)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Concert Reverb", color = AppTextSecondary, fontSize = 12.sp)
-                        Switch(checked = reverbEnabled, onCheckedChange = { reverbEnabled = it; pushConfig() })
+                        Switch(checked = reverbEnabled, onCheckedChange = { reverbEnabled = it; pushConfig() }, colors = eqSwitchColors)
                     }
                 }
             }
@@ -360,7 +371,7 @@ fun ParametricEqScreen(
                         Text("Studio Warmth", color = AppText, fontSize = 13.sp)
                         Text("Tube amp simulation", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = tubeEnabled, onCheckedChange = { tubeEnabled = it; pushConfig() })
+                    Switch(checked = tubeEnabled, onCheckedChange = { tubeEnabled = it; pushConfig() }, colors = eqSwitchColors)
                 }
                 if (tubeEnabled) {
                     Spacer(Modifier.height(6.dp))
@@ -376,7 +387,7 @@ fun ParametricEqScreen(
                         Text("Bass Cannon", color = AppText, fontSize = 13.sp)
                         Text("Sub-harmonic synthesizer", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = bassCannonEnabled, onCheckedChange = { bassCannonEnabled = it; pushConfig() })
+                    Switch(checked = bassCannonEnabled, onCheckedChange = { bassCannonEnabled = it; pushConfig() }, colors = eqSwitchColors)
                 }
                 if (bassCannonEnabled) {
                     Spacer(Modifier.height(6.dp))
@@ -392,7 +403,7 @@ fun ParametricEqScreen(
                         Text("Treble Boost", color = AppText, fontSize = 13.sp)
                         Text("High-frequency enhancement", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = trebleEnabled, onCheckedChange = { trebleEnabled = it; pushConfig() })
+                    Switch(checked = trebleEnabled, onCheckedChange = { trebleEnabled = it; pushConfig() }, colors = eqSwitchColors)
                 }
                 if (trebleEnabled) {
                     Spacer(Modifier.height(6.dp))
@@ -412,7 +423,7 @@ fun ParametricEqScreen(
                         Text("Convolver", color = AppText, fontSize = 13.sp)
                         Text("IR-based spatial convolution", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = convolverEnabled, onCheckedChange = { convolverEnabled = it; pushConfig() })
+                    Switch(checked = convolverEnabled, onCheckedChange = { convolverEnabled = it; pushConfig() }, colors = eqSwitchColors)
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -420,7 +431,7 @@ fun ParametricEqScreen(
                         Text("Output Limiter", color = AppText, fontSize = 13.sp)
                         Text("Prevents clipping", color = AppTextSecondary, fontSize = 11.sp)
                     }
-                    Switch(checked = limiterEnabled, onCheckedChange = { limiterEnabled = it; pushConfig() })
+                    Switch(checked = limiterEnabled, onCheckedChange = { limiterEnabled = it; pushConfig() }, colors = eqSwitchColors)
                 }
             }
         }

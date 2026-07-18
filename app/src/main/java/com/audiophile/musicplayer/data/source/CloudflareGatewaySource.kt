@@ -25,6 +25,47 @@ class CloudflareGatewaySource(
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    /** Current editorial releases. These are catalog tracks, not codec claims. */
+    suspend fun editorialNewReleases(limit: Int = 18): List<SourceSearchResult> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$gatewayUrl/api/new-releases?limit=${limit.coerceIn(1, 30)}"
+            val body = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w("CloudflareGateway", "New releases failed: ${response.code}")
+                    return@withContext emptyList()
+                }
+                response.body?.string() ?: return@withContext emptyList()
+            }
+            val tracks = JsonParser.parseString(body)?.asJsonObject?.getAsJsonArray("tracks")
+                ?: return@withContext emptyList()
+            buildList {
+                for (item in tracks) {
+                    val track = item.asJsonObject
+                    val id = track.get("id")?.asString ?: continue
+                    val title = track.get("title")?.asString?.takeIf { it.isNotBlank() } ?: continue
+                    val artist = track.get("artist")?.asString?.takeIf { it.isNotBlank() } ?: continue
+                    add(
+                        SourceSearchResult(
+                            id = "deezer:$id",
+                            providerId = providerId,
+                            title = title,
+                            artist = artist,
+                            album = track.get("album")?.asString,
+                            coverSeed = track.get("artworkURL")?.asString ?: "$title-$artist",
+                            durationMs = track.get("duration")?.asLong?.times(1000L),
+                            isrc = track.get("isrc")?.asString,
+                            status = SearchItemStatus.SOURCE_FOUND,
+                            qualityLabel = "Catalog metadata"
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("CloudflareGateway", "New releases exception", e)
+            emptyList()
+        }
+    }
+
     override suspend fun search(query: String): List<SourceSearchResult> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         try {
@@ -108,7 +149,9 @@ class CloudflareGatewaySource(
                             isDolbyAtmos = isDolbyAtmos,
                             isSpatialAudio = isSpatialAudio,
                             isSurround = isSurround,
-                            isHiRes = isHiRes
+                            isHiRes = isHiRes,
+                            spatialEvidence = track.get("spatialEvidence")?.asString
+                                ?: if (isDolbyAtmos || isSpatialAudio || isSurround) "metadata" else null
                         )
                     )
                 } catch (e: Exception) {

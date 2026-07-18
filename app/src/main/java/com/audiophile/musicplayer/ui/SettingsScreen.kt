@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -118,10 +119,10 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
+            .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
             .verticalScroll(rememberScrollState())
+            .padding(top = appTopContentPadding(extra = 8.dp))
             .padding(horizontal = 16.dp)
-            .padding(top = 8.dp)
             .padding(
                 bottom = appOverlayBottomPadding(
                     miniPlayerVisible = miniPlayerVisible,
@@ -366,6 +367,8 @@ private fun ConnectedLibrariesSettingsGroup(
     var spotifySyncLikes by remember { mutableStateOf(prefs.getBoolean("spotify_sync_likes", false)) }
     var appleLastImport by remember { mutableStateOf(prefs.getString("apple_last_import", "Never") ?: "Never") }
     var spotifyLastImport by remember { mutableStateOf(prefs.getString("spotify_last_import", "Never") ?: "Never") }
+    var appleAutoRefresh by remember { mutableStateOf(prefs.getString("apple_music_auto_refresh", "off") ?: "off") }
+    var spotifyAutoRefresh by remember { mutableStateOf(prefs.getString("spotify_auto_refresh", "off") ?: "off") }
 
     fun saveBoolean(key: String, value: Boolean) {
         prefs.edit {
@@ -381,7 +384,20 @@ private fun ConnectedLibrariesSettingsGroup(
             ConnectedLibraryProvider.APPLE_MUSIC -> appleLastImport = now
             ConnectedLibraryProvider.SPOTIFY -> spotifyLastImport = now
         }
-        prefs.edit { putString("${provider.name.lowercase()}_last_import", now) }
+        prefs.edit {
+            putString("${provider.name.lowercase()}_last_import", now)
+            putLong("${provider.name.lowercase()}_last_import_ms", System.currentTimeMillis())
+        }
+    }
+
+    fun saveAutoRefresh(provider: ConnectedLibraryProvider, value: String) {
+        val key = "${provider.name.lowercase()}_auto_refresh"
+        when (provider) {
+            ConnectedLibraryProvider.APPLE_MUSIC -> appleAutoRefresh = value
+            ConnectedLibraryProvider.SPOTIFY -> spotifyAutoRefresh = value
+        }
+        connectedLibraryManager?.setAutoRefreshInterval(provider, value)
+        prefs.edit { putString(key, value) }
     }
 
     // Real connection state is derived from encrypted token presence.
@@ -403,14 +419,14 @@ private fun ConnectedLibrariesSettingsGroup(
             onSave = { devToken, userToken ->
                 val dev = devToken.trim()
                 val user = userToken.trim()
-                tokenStore?.storeTokens(
+                val stored = tokenStore?.storeTokens(
                     ConnectedLibraryProvider.APPLE_MUSIC,
                     accessToken = dev,
                     refreshToken = null,
                     musicUserToken = user
                 )
-                appleConnected = dev.isNotBlank() && user.isNotBlank()
-                appleStatus = statusText(appleConnected, "Apple Music")
+                appleConnected = stored == true && dev.isNotBlank() && user.isNotBlank()
+                appleStatus = if (stored == true) statusText(appleConnected, "Apple Music") else "Secure token storage is unavailable."
                 showAppleDialog = false
             }
         )
@@ -421,13 +437,13 @@ private fun ConnectedLibrariesSettingsGroup(
             onDismiss = { showSpotifyDialog = false },
             onSave = { accessToken ->
                 val token = accessToken.trim()
-                tokenStore?.storeTokens(
+                val stored = tokenStore?.storeTokens(
                     ConnectedLibraryProvider.SPOTIFY,
                     accessToken = token,
                     refreshToken = null
                 )
-                spotifyConnected = token.isNotBlank()
-                spotifyStatus = statusText(spotifyConnected, "Spotify")
+                spotifyConnected = stored == true && token.isNotBlank()
+                spotifyStatus = if (stored == true) statusText(spotifyConnected, "Spotify") else "Secure token storage is unavailable."
                 showSpotifyDialog = false
             }
         )
@@ -540,12 +556,14 @@ private fun ConnectedLibrariesSettingsGroup(
                 status = appleStatus,
                 lastImport = appleLastImport,
                 syncLikes = appleSyncLikes,
+                autoRefreshInterval = appleAutoRefresh,
                 onConnectToggle = { onConnectToggle(ConnectedLibraryProvider.APPLE_MUSIC) },
                 onImport = { onImport(ConnectedLibraryProvider.APPLE_MUSIC) },
                 onSyncLikesChange = {
                     appleSyncLikes = it
                     saveBoolean("apple_music_sync_likes", it)
                 },
+                onAutoRefreshChange = { saveAutoRefresh(ConnectedLibraryProvider.APPLE_MUSIC, it) },
                 onDeleteImportedData = {
                     appleLastImport = "Never"
                     prefs.edit { remove("apple_last_import") }
@@ -564,12 +582,14 @@ private fun ConnectedLibrariesSettingsGroup(
                 status = spotifyStatus,
                 lastImport = spotifyLastImport,
                 syncLikes = spotifySyncLikes,
+                autoRefreshInterval = spotifyAutoRefresh,
                 onConnectToggle = { onConnectToggle(ConnectedLibraryProvider.SPOTIFY) },
                 onImport = { onImport(ConnectedLibraryProvider.SPOTIFY) },
                 onSyncLikesChange = {
                     spotifySyncLikes = it
                     saveBoolean("spotify_sync_likes", it)
                 },
+                onAutoRefreshChange = { saveAutoRefresh(ConnectedLibraryProvider.SPOTIFY, it) },
                 onDeleteImportedData = {
                     spotifyLastImport = "Never"
                     prefs.edit { remove("spotify_last_import") }
@@ -694,9 +714,11 @@ private fun ConnectedLibraryCard(
     status: String,
     lastImport: String,
     syncLikes: Boolean,
+    autoRefreshInterval: String,
     onConnectToggle: () -> Unit,
     onImport: () -> Unit,
     onSyncLikesChange: (Boolean) -> Unit,
+    onAutoRefreshChange: (String) -> Unit,
     onDeleteImportedData: () -> Unit
 ) {
     Column(
@@ -738,6 +760,32 @@ private fun ConnectedLibraryCard(
                     }
                 }
                 Text("Last Import: $lastImport", color = AppTextMuted, fontSize = 12.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Auto-refresh imported playlists", color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ConnectedLibraryRefreshChip(
+                            label = "Off",
+                            selected = autoRefreshInterval == "off",
+                            onClick = { onAutoRefreshChange("off") }
+                        )
+                        ConnectedLibraryRefreshChip(
+                            label = "Weekly",
+                            selected = autoRefreshInterval == "weekly",
+                            onClick = { onAutoRefreshChange("weekly") }
+                        )
+                        ConnectedLibraryRefreshChip(
+                            label = "Monthly",
+                            selected = autoRefreshInterval == "monthly",
+                            onClick = { onAutoRefreshChange("monthly") }
+                        )
+                    }
+                    Text(
+                        "Refresh keeps imported Spotify or Apple Music playlists aligned with provider changes.",
+                        color = AppTextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -761,6 +809,33 @@ private fun ConnectedLibraryCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ConnectedLibraryRefreshChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) AppAccent.copy(alpha = 0.16f) else AppSurfaceRaised)
+            .border(
+                width = 0.5.dp,
+                color = if (selected) AppAccent.copy(alpha = 0.7f) else AppOutline.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (selected) AppAccent else AppTextSecondary,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        )
     }
 }
 
@@ -1021,14 +1096,15 @@ fun AdvancedSettingsScreen(
     var selectedCloudAccount by remember { mutableStateOf<CloudAccountKind?>(null) }
     var selectedPulseAiProvider by remember { mutableStateOf<AiProvider?>(null) }
     var showPulseAi by remember { mutableStateOf(false) }
-    var showAppleMusic by remember { mutableStateOf(false) }
     var expandedSourceId by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
             .verticalScroll(rememberScrollState())
-            .padding(18.dp)
+            .padding(top = appTopContentPadding(extra = 8.dp))
+            .padding(horizontal = 18.dp)
             .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible)),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1192,100 +1268,6 @@ fun AdvancedSettingsScreen(
                         ) {
                             Text("Save securely", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        // Source Health Summary
-        val healthyCount = externalSources.count { it.healthStatus == "Healthy" && it.enabled }
-        val failedCount = externalSources.count {
-            it.enabled && it.healthStatus in setOf("Failed", "Misconfigured", "Stream Unavailable")
-        }
-        val disabledCount = externalSources.count { !it.enabled }
-
-        VantaCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Connection Status", color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    HealthStat("Healthy", healthyCount.toString(), AppSuccess)
-                    HealthStat("Issues", failedCount.toString(), AppWarning)
-                    HealthStat("Disabled", disabledCount.toString(), AppTextMuted)
-                }
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { onTestAllSourceHealth() }.background(AppAccent.copy(alpha = 0.2f)).padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Check connections", color = AppAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                    Box(
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { onClearFailedSourceCache() }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(12.dp)).padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Reset status", color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-            }
-        }
-
-        // Connected Sources
-        VantaCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Playback Providers", color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Lossless Catalog, Qobuz, and Tidal gateways. Expand a provider to edit endpoints or run a health check.",
-                    color = AppTextSecondary,
-                    fontSize = 13.sp
-                )
-
-                externalSources.forEach { source ->
-                    SourceRow(
-                        source = source,
-                        isExpanded = expandedSourceId == source.id,
-                        isTesting = uiState.isTestingSource,
-                        onToggleExpand = {
-                            expandedSourceId = if (expandedSourceId == source.id) null else source.id
-                        },
-                        onToggle = { onToggleExternalSource(source.id, it) },
-                        onRemove = if (!com.audiophile.musicplayer.data.source.external.PlaybackProviderKind.isBundled(source.id)) {
-                            { onRemoveExternalSource(source.id) }
-                        } else {
-                            null
-                        },
-                        onTestHealth = { onTestSourceHealth(source.id) },
-                        onSaveUrls = { baseUrl, searchBaseUrl, streamEndpointUrl ->
-                            onUpdateExternalSourceUrls(source.id, baseUrl, searchBaseUrl, streamEndpointUrl)
-                        }
-                    )
-                }
-
-                TextButton(onClick = { showCustomProvider = !showCustomProvider }) {
-                    Text(if (showCustomProvider) "Hide custom provider" else "Add a custom provider", color = AppAccent)
-                }
-                if (showCustomProvider) {
-                    VantaTextField(
-                        value = newSourceUrl,
-                        onValueChange = { newSourceUrl = it },
-                        label = "Provider manifest URL"
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = newSourceUrl.isNotBlank()) { onTestExternalSource(newSourceUrl) }.background(AppAccent.copy(alpha = 0.2f)).padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Test", color = AppAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                    Box(
-                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = newSourceUrl.isNotBlank()) {
-                            onAddExternalSource(newSourceUrl)
-                            newSourceUrl = ""
-                        }.background(AppAccent).padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Add Source", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
                     }
                 }
             }
@@ -1553,43 +1535,6 @@ fun AdvancedSettingsScreen(
             }
         }
 
-        // Apple Music Metadata (optional)
-        VantaCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showAppleMusic = !showAppleMusic },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Apple Music Metadata", color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Optional richer artwork and catalog metadata", color = AppTextSecondary, fontSize = 13.sp)
-                    }
-                    Text(if (showAppleMusic) "−" else "+", color = AppTextSecondary, fontSize = 18.sp)
-                }
-
-                if (showAppleMusic) {
-                VantaTextField(
-                    value = form.appleMusicDeveloperToken,
-                    onValueChange = onAppleMusicDeveloperTokenChange,
-                    label = "Developer Token"
-                )
-                VantaTextField(
-                    value = form.appleMusicStorefront,
-                    onValueChange = onAppleMusicStorefrontChange,
-                    label = "Storefront (e.g. us, gb)"
-                )
-                Box(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onTestAppleMusicConnection).background(AppAccent.copy(alpha = 0.2f)).padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Test Connection", color = AppAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-                }
-            }
-        }
     }
 }
 
@@ -1979,60 +1924,34 @@ private fun VantaTextField(
 @Composable
 private fun AndroidAutoSettingsCard(context: android.content.Context) {
     val readiness = remember(context) { AndroidAutoHelper.checkReadiness(context) }
-    var showSetupSteps by remember { mutableStateOf(false) }
     SectionHeader("Android Auto")
     VantaCard {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsRow(
-                title = "Android Auto",
-                subtitle = if (readiness.codeReady) "Configured for car media" else "Setup incomplete",
-                onClick = { showSetupSteps = !showSetupSteps },
-                isLast = false
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Android Auto", color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (readiness.codeReady) "VANTA is ready to appear as a media app in your car."
+                else "VANTA's car media setup needs attention before it can appear in Android Auto.",
+                color = if (readiness.codeReady) AppTextSecondary else AppWarning,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
             )
-            if (showSetupSteps) {
-                Text(
-                    text = if (readiness.codeReady) "VANTA is configured for Android Auto media."
-                    else "Android Auto setup incomplete — check manifest/service.",
-                    color = if (readiness.codeReady) AppSuccess else AppWarning,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-                if (!readiness.gearheadInstalled) {
-                    Text(
-                        "Install Android Auto from the Play Store.",
-                        color = AppTextSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
-                AndroidAutoHelper.setupSteps().forEachIndexed { index, step ->
-                    Text(
-                        text = "${index + 1}. $step",
-                        color = AppTextSecondary,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
+            if (!readiness.gearheadInstalled) {
+                Text("Install Android Auto from the Play Store to use this feature.", color = AppTextMuted, fontSize = 12.sp)
             }
-            SettingsRow(
-                title = "Open Android Auto",
-                subtitle = "Customize launcher and media setup",
-                onClick = {
-                    AndroidAutoHelper.warmUpPlaybackService(context)
-                    if (!AndroidAutoHelper.openAndroidAutoApp(context)) {
-                        Log.w("VANTA_ANDROID_AUTO", "Could not launch gearhead")
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable {
+                        AndroidAutoHelper.warmUpPlaybackService(context)
+                        AndroidAutoHelper.openAndroidAutoApp(context)
                     }
-                },
-                accent = true
-            )
-            SettingsRow(
-                title = "Warm playback service",
-                subtitle = "Helps Android Auto detect VANTA before you plug in",
-                onClick = { AndroidAutoHelper.warmUpPlaybackService(context) },
-                isLast = true
-            )
+                    .background(AppAccent)
+                    .padding(vertical = 13.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Open Android Auto", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
         }
     }
 }

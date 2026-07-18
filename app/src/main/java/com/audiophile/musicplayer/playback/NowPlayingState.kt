@@ -31,6 +31,7 @@ data class NowPlayingState(
     val liveStationName: String? = null,
     val preferredProviderId: String? = null,
     val preferredExternalTrackId: String? = null,
+    val streamUrl: String? = null,
     val userQuery: String? = null,
     val featuredArtists: List<String> = emptyList()
 ) {
@@ -70,6 +71,7 @@ data class NowPlayingState(
                 isLiveRadio = false,
                 preferredProviderId = preferredProviderId ?: bestSource?.externalProviderId,
                 preferredExternalTrackId = preferredExternalTrackId ?: bestSource?.externalTrackId,
+                streamUrl = bestSource?.streamUrl?.takeIf { it.isNotBlank() },
                 userQuery = userQuery
             )
         }

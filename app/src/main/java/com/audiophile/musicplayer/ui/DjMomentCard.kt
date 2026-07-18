@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -25,7 +26,8 @@ fun DjMomentCard(
     modifier: Modifier = Modifier,
     accentLabel: String = "VANTA DJ",
     onOpenDj: (() -> Unit)? = null,
-    onCycleMode: (() -> Unit)? = null
+    onCycleMode: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -33,7 +35,7 @@ fun DjMomentCard(
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF1E1E1E).copy(alpha = 0.92f))
             .then(if (onOpenDj != null) Modifier.clickable(onClick = onOpenDj) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -79,6 +81,16 @@ fun DjMomentCard(
                 modifier = Modifier
                     .size(22.dp)
                     .clickable(onClick = onCycleMode)
+            )
+        }
+        if (onDismiss != null) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Dismiss",
+                tint = AppTextMuted,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable(onClick = onDismiss)
             )
         }
     }

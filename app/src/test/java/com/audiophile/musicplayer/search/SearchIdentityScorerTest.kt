@@ -148,6 +148,27 @@ class SearchIdentityScorerTest {
     }
 
     @Test
+    fun parseDownJaySeanDash() {
+        val intent = UnifiedSearchEngine.parse("Down - Jay Sean")
+        assertEquals("down", intent.songTitle?.lowercase())
+        assertEquals("jay sean", intent.primaryArtist?.lowercase())
+    }
+
+    @Test
+    fun processDownJaySeanDashSelectsCorrectRecording() {
+        val response = UnifiedSearchEngine.process(
+            "Down - Jay Sean",
+            listOf(
+                track("Down", "Random Cover Artist"),
+                track("Down", "Jay-Z"),
+                track("Down", "Jay Sean", album = "All or Nothing")
+            )
+        )
+        assertEquals("Jay Sean", response.topResult?.artist)
+        assertEquals("Down", response.topResult?.title)
+    }
+
+    @Test
     fun allOfTheLights_kanyeWestWins() {
         val intent = UnifiedSearchEngine.parse("all of the lights kanye west")
         val correct = track("All of the Lights", "Kanye West")
@@ -159,4 +180,126 @@ class SearchIdentityScorerTest {
         assertEquals("Kanye West", top.artist)
         assertEquals("All of the Lights", top.title)
     }
+
+    @Test
+    fun spiritInTheSky_prioritizesNormanGreenbaum() {
+        val response = UnifiedSearchEngine.process(
+            "Spirit in the Sky",
+            listOf(
+                track("Spirit in the Sky", "Doctor and the Medics"),
+                track("Spirit in the Sky", "Norman Greenbaum"),
+                track("Spirit In The Sky Karaoke", "Karaoke Artist"),
+                track("Spirit in the Sky", "Classic Rock Tribute Band")
+            )
+        )
+
+        assertEquals("Norman Greenbaum", response.topResult?.artist)
+        assertEquals("Spirit in the Sky", response.topResult?.title)
+    }
+
+    @Test
+    fun tearsForFears_exactTitleAndArtistBeatsLooseSameArtistMatches() {
+        val response = UnifiedSearchEngine.process(
+            "Everybody Wants to Rule the World Tears for Fears",
+            listOf(
+                track("Shout", "Tears for Fears"),
+                track("Everybody Wants To Rule The World", "Cover Band"),
+                track("Everybody Wants To Rule The World (Live)", "Tears for Fears"),
+                track("Everybody Wants To Rule The World", "Tears for Fears")
+            )
+        )
+
+        assertEquals("Tears for Fears", response.topResult?.artist)
+        assertEquals("Everybody Wants To Rule The World", response.topResult?.title)
+    }
+
+    @Test
+    fun sweetChildOMine_prioritizesGunsNRosesAndRejectsGospelKaraoke() {
+        val response = UnifiedSearchEngine.process(
+            "Sweet Child O Mine",
+            listOf(
+                track("Sweet Child O Mine", "Guns N Roses"),
+                track("Sweet Child O Mine", "Jesus Loves Me Worship Band"),
+                track("Sweet Child O Mine (Karaoke Version)", "Karaoke Hits"),
+                track("Sweet Child O Mine (Instrumental)", "Rock Instrumentals")
+            )
+        )
+        assertEquals("Guns N Roses", response.topResult?.artist)
+        assertEquals("Sweet Child O Mine", response.topResult?.title)
+    }
+
+    @Test
+    fun sweetChildOMineWithArtist_requiresArtistMatch() {
+        val response = UnifiedSearchEngine.process(
+            "Sweet Child O Mine Guns N Roses",
+            listOf(
+                track("Sweet Child O Mine", "Guns N Roses"),
+                track("Sweet Child O Mine", "Tribute Band"),
+                track("Sweet Child O Mine", "Gospel Choir")
+            )
+        )
+        assertEquals("Guns N Roses", response.topResult?.artist)
+    }
+
+    @Test
+    fun blindingLights_prioritizesTheWeekndAndRejectsVariants() {
+        val response = UnifiedSearchEngine.process(
+            "Blinding Lights The Weeknd",
+            listOf(
+                track("Blinding Lights", "The Weeknd"),
+                track("Blinding Lights (Cover)", "Piano Tribute Players"),
+                track("Blinding Lights (Karaoke)", "Karaoke Stars"),
+                track("Blinding Lights Remix", "DJ Remix"),
+                track("Blinding Lights", "Some Random Artist")
+            )
+        )
+        assertEquals("The Weeknd", response.topResult?.artist)
+        assertEquals("Blinding Lights", response.topResult?.title)
+    }
+
+    @Test
+    fun elPaso_prioritizesMartyRobbinsAndRejectsTravelVideos() {
+        val response = UnifiedSearchEngine.process(
+            "El Paso Marty Robbins",
+            listOf(
+                track("El Paso", "Marty Robbins"),
+                track("El Paso Travel Guide", "Travel Channel"),
+                track("El Paso News Report", "News Channel"),
+                track("El Paso", "Cover Artist")
+            )
+        )
+        assertEquals("Marty Robbins", response.topResult?.artist)
+        assertEquals("El Paso", response.topResult?.title)
+    }
+
+    @Test
+    fun theLessIKnowTheBetter_prioritizesTameImpalaAndRejectsLullabies() {
+        val response = UnifiedSearchEngine.process(
+            "The Less I Know The Better Tame Impala",
+            listOf(
+                track("The Less I Know The Better", "Tame Impala"),
+                track("The Less I Know The Better", "Lullaby Players"),
+                track("The Less I Know The Better (Cover)", "Acoustic Covers"),
+                track("The Less I Know The Better", "Unknown Artist")
+            )
+        )
+        assertEquals("Tame Impala", response.topResult?.artist)
+        assertEquals("The Less I Know The Better", response.topResult?.title)
+    }
+
+    @Test
+    fun victoryLap_prioritizesNipseyHussleAndRejectsSportsMotivation() {
+        val response = UnifiedSearchEngine.process(
+            "Victory Lap Nipsey Hussle",
+            listOf(
+                track("Victory Lap", "Nipsey Hussle"),
+                track("Victory Lap", "Motivational Speaker"),
+                track("Victory Lap Sports Highlights", "Sports Channel"),
+                track("Victory Lap", "Cover Band")
+            )
+        )
+        assertEquals("Nipsey Hussle", response.topResult?.artist)
+        assertEquals("Victory Lap", response.topResult?.title)
+    }
+
 }

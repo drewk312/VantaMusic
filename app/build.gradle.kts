@@ -7,11 +7,43 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localProperties = Properties().apply {
     val localFile = rootProject.file("local.properties")
     if (localFile.exists()) {
         localFile.inputStream().use { load(it) }
     }
+}
+
+fun configValue(name: String): String =
+    providers.gradleProperty(name).orNull
+        ?: System.getenv(name)
+        ?: localProperties.getProperty(name)
+        ?: ""
+
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val musicKitAuthAar = file("libs/musickitauth-release-1.1.2.aar")
+val stationBackendUrl = configValue("STATION_BACKEND_URL")
+val releaseStoreFile = configValue("VANTA_RELEASE_STORE_FILE")
+val releaseStorePassword = configValue("VANTA_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = configValue("VANTA_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = configValue("VANTA_RELEASE_KEY_PASSWORD")
+val releaseSigningReady = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all(String::isNotBlank)
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
+    arg("room.generateKotlin", "true")
 }
 
 android {
@@ -26,8 +58,10 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        buildConfigField("String", "STATION_BACKEND_URL", "\"${localProperties.getProperty("STATION_BACKEND_URL") ?: ""}\"")
-        buildConfigField("String", "TORBOX_BASE_URL", "\"${localProperties.getProperty("TORBOX_BASE_URL") ?: ""}\"")
+        buildConfigField("String", "STATION_BACKEND_URL", buildConfigString(stationBackendUrl))
+        buildConfigField("String", "TORBOX_BASE_URL", buildConfigString(configValue("TORBOX_BASE_URL")))
+        buildConfigField("boolean", "MUSICKIT_AUTH_AVAILABLE", musicKitAuthAar.exists().toString())
+        manifestPlaceholders["musicKitAuthEnabled"] = musicKitAuthAar.exists().toString()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -53,9 +87,21 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -74,6 +120,22 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+tasks.register("verifyProductionConfig") {
+    group = "verification"
+    description = "Fails unless required Android production endpoints, Firebase config, and signing credentials are present."
+    doLast {
+        val missing = buildList {
+            if (!stationBackendUrl.startsWith("https://")) add("STATION_BACKEND_URL (HTTPS)")
+            if (!file("google-services.json").isFile) add("app/google-services.json")
+            if (!releaseSigningReady) add("VANTA_RELEASE_STORE_FILE/PASSWORD and VANTA_RELEASE_KEY_ALIAS/PASSWORD")
+            if (releaseStoreFile.isNotBlank() && !rootProject.file(releaseStoreFile).isFile) add("release keystore file")
+        }
+        check(missing.isEmpty()) {
+            "Missing production configuration: ${missing.joinToString(", ")}"
+        }
     }
 }
 
@@ -121,6 +183,12 @@ dependencies {
     // Encrypted credential storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Official Apple MusicKit authentication SDK (provided by Apple as an AAR).
+    // It obtains a per-listener Music User Token; VANTA never asks users to paste one.
+    if (musicKitAuthAar.exists()) {
+        implementation(files(musicKitAuthAar))
+    }
+
     // Palette (artwork color extraction)
     implementation("androidx.palette:palette-ktx:1.0.0")
 
@@ -129,6 +197,10 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+
+    // Firebase Auth stays inactive until app/google-services.json is supplied.
+    implementation("com.google.firebase:firebase-auth:22.3.1")
 
     implementation(project(":shared"))
     testImplementation("junit:junit:4.13.2")

@@ -180,8 +180,12 @@ class ImportViewModel @Inject constructor(
     }
 
     private fun importAppleMusicLibrary() {
-        val userToken = container.accountManager.profile.value.appleMusicUserToken
-        val devToken = container.resolverConfigStore.getAppleMusicDeveloperToken()
+        val userToken = container.connectedLibraryTokenStore.musicUserToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        )
+        val devToken = container.connectedLibraryTokenStore.accessToken(
+            com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider.APPLE_MUSIC
+        ) ?: container.resolverConfigStore.getAppleMusicDeveloperToken()
         if (devToken.isNullOrBlank() || userToken.isNullOrBlank()) {
             _uiState.update { it.copy(statusMessage = "Connect Apple Music in Settings first") }
             return

@@ -11,8 +11,8 @@ import java.util.UUID
 /**
  * Manages the local user profile / account state.
  *
- * VANTA must work without an account — playback is never blocked behind sign-in.
- * This lightweight manager stores a local display name, a stable anonymous VANTA
+ * VANTA works fully offline and anonymously — playback is never blocked behind
+ * sign-in. This manager stores a local display name, a stable anonymous VANTA
  * user ID, and social/sync preferences. The ID can later be linked to a cloud
  * auth provider (Firebase, Apple, Google) for cross-device sync.
  */
@@ -30,18 +30,39 @@ class AccountManager(context: Context) {
         val email: String = "",
         val isOnboarded: Boolean = false,
         val avatarSeed: String = "",
+        val isCloudAuthenticated: Boolean = false,
+        val authProvider: String? = null,
         val sourceSyncEnabled: Boolean = false,
         val historySyncEnabled: Boolean = false,
-        val shareListeningActivity: Boolean = false,
-        val appleMusicUserToken: String? = null,
-        val appleMusicStorefront: String? = null
+        val shareListeningActivity: Boolean = false
     )
 
     /**
      * Whether the user has completed basic onboarding (set a display name).
      */
     val isSignedIn: Boolean
-        get() = _profile.value.isOnboarded && _profile.value.displayName.isNotBlank()
+        get() = _profile.value.isCloudAuthenticated
+
+    val cloudUserIdOrNull: String?
+        get() = _profile.value.vantaUserId.takeIf { _profile.value.isCloudAuthenticated && it.isNotBlank() }
+
+    fun linkCloudIdentity(userId: String, email: String?, displayName: String?, provider: String) {
+        if (userId.isBlank()) return
+        val existing = _profile.value
+        val resolvedName = displayName?.trim().takeIf { !it.isNullOrBlank() }
+            ?: existing.displayName.ifBlank { email?.substringBefore('@').orEmpty() }
+        val updated = existing.copy(
+            vantaUserId = userId,
+            displayName = resolvedName,
+            email = email.orEmpty(),
+            isOnboarded = resolvedName.isNotBlank(),
+            avatarSeed = resolvedName.take(2).uppercase(),
+            isCloudAuthenticated = true,
+            authProvider = provider
+        )
+        saveProfile(updated)
+        _profile.value = updated
+    }
 
     /**
      * Returns the stable VANTA user ID, generating one if necessary.
@@ -102,15 +123,6 @@ class AccountManager(context: Context) {
         _profile.value = UserProfile()
     }
 
-    fun setAppleMusicSession(userToken: String?, storefront: String?) {
-        val updated = _profile.value.copy(
-            appleMusicUserToken = userToken,
-            appleMusicStorefront = storefront
-        )
-        saveProfile(updated)
-        _profile.value = updated
-    }
-
     private fun loadProfile(): UserProfile {
         return UserProfile(
             vantaUserId = prefs.getString("vanta_user_id", "") ?: "",
@@ -118,11 +130,11 @@ class AccountManager(context: Context) {
             email = prefs.getString("email", "") ?: "",
             isOnboarded = prefs.getBoolean("is_onboarded", false),
             avatarSeed = prefs.getString("avatar_seed", "") ?: "",
+            isCloudAuthenticated = prefs.getBoolean("cloud_authenticated", false),
+            authProvider = prefs.getString("auth_provider", null),
             sourceSyncEnabled = prefs.getBoolean("source_sync_enabled", false),
             historySyncEnabled = prefs.getBoolean("history_sync_enabled", false),
-            shareListeningActivity = prefs.getBoolean("share_listening_activity", false),
-            appleMusicUserToken = prefs.getString("apple_music_user_token", null),
-            appleMusicStorefront = prefs.getString("apple_music_storefront", null)
+            shareListeningActivity = prefs.getBoolean("share_listening_activity", false)
         )
     }
 
@@ -133,11 +145,13 @@ class AccountManager(context: Context) {
             putString("email", profile.email)
             putBoolean("is_onboarded", profile.isOnboarded)
             putString("avatar_seed", profile.avatarSeed)
+            putBoolean("cloud_authenticated", profile.isCloudAuthenticated)
+            putString("auth_provider", profile.authProvider)
             putBoolean("source_sync_enabled", profile.sourceSyncEnabled)
             putBoolean("history_sync_enabled", profile.historySyncEnabled)
             putBoolean("share_listening_activity", profile.shareListeningActivity)
-            putString("apple_music_user_token", profile.appleMusicUserToken)
-            putString("apple_music_storefront", profile.appleMusicStorefront)
+            remove("apple_music_user_token")
+            remove("apple_music_storefront")
         }
     }
 

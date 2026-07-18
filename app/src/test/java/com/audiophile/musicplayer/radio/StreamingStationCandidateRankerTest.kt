@@ -77,6 +77,26 @@ class StreamingStationCandidateRankerTest {
     }
 
     @Test
+    fun rankCandidates_capsArtistWithinSingleBatch() {
+        val ranked = StreamingStationCandidateRanker.rankCandidates(
+            results = listOf(
+                sampleResult(id = "1", title = "Blinding Lights", artist = "The Weeknd"),
+                sampleResult(id = "2", title = "Save Your Tears", artist = "The Weeknd"),
+                sampleResult(id = "3", title = "Starboy", artist = "The Weeknd"),
+                sampleResult(id = "4", title = "Levitating", artist = "Dua Lipa")
+            ),
+            seed = seed,
+            taste = StreamingStationTasteSignals(),
+            seenNormKeys = emptySet(),
+            artistCounts = emptyMap(),
+            maxPerArtist = 2
+        )
+
+        assertTrue(ranked.count { it.artist == "The Weeknd" } <= 2)
+        assertTrue(ranked.any { it.artist == "Dua Lipa" })
+    }
+
+    @Test
     fun isStationJunk_rejectsEdmInCountryStation() {
         val seed = StreamingStationSeed(
             id = "genre_country",
@@ -104,9 +124,13 @@ class StreamingStationCandidateRankerTest {
         assertFalse(StreamingStationCandidateRanker.isStationJunk(track, seed))
     }
 
-    private fun sampleResult(title: String, artist: String): SourceSearchResult =
+    private fun sampleResult(
+        title: String,
+        artist: String,
+        id: String = "123"
+    ): SourceSearchResult =
         SourceSearchResult(
-            id = "123",
+            id = id,
             providerId = "deezer_gateway",
             title = title,
             artist = artist,

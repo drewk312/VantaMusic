@@ -1,6 +1,5 @@
 package com.audiophile.musicplayer.ui
 
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,15 +12,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -31,12 +35,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.display.TrackDisplayResolver
 import com.audiophile.musicplayer.data.dj.JukeboxTrackEligibility
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
@@ -77,6 +84,7 @@ fun HomeScreen(
 
     onOpenAccount: (() -> Unit)? = null,
     onPlayFriendTrack: (title: String, artist: String) -> Unit = { _, _ -> },
+    onOpenFriendProfile: (friendId: String) -> Unit = { _ -> },
     miniPlayerVisible: Boolean = false
 ) {
     val libraryTracks = uiState.library
@@ -123,6 +131,12 @@ fun HomeScreen(
     val usedHomeIds = recentlyPlayedIds + forYouTracks.map { it.track.trackId }
 
     val nowPlayingArtwork = if (hasNowPlaying) nowPlayingState.artworkUrl else null
+    // A premium home never leads with empty recommendation shells. Keep cards
+    // visible while generating, but hide completed zero-track mixes and let the
+    // first real listening surface take visual priority.
+    val readyMixCards = personalizedMixState.cards.filter { card ->
+        card.isLoading || (!card.isEmpty && card.trackCount > 0)
+    }
 
     Column(
         modifier = Modifier
@@ -195,52 +209,33 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.height(20.dp))
-        Box(
-            modifier = Modifier
-                .padding(horizontal = VantaSpacing.screenHorizontal)
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            AppAccent.copy(alpha = 0.35f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        Spacer(Modifier.height(20.dp))
+
+        // ===== SEASONAL MOMENT =====
+        val moment = remember { CalendarMomentProvider.currentMoment() }
+        if (moment != null) {
+            SeasonalMomentCard(
+                moment = moment,
+                artworkUrls = recentlyPlayed.mapNotNull { TrackDisplayResolver.resolve(it.track, emptySet()).artworkUrl }.take(4),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = VantaSpacing.screenHorizontal)
+            )
+            Spacer(Modifier.height(VantaSpacing.sectionVertical))
+        }
 
         // #region agent log
-        androidx.compose.runtime.LaunchedEffect(Unit) {
+        LaunchedEffect(Unit) {
             com.audiophile.musicplayer.debug.Debug80b070.log(
                 hypothesisId = "A",
                 location = "HomeScreen",
                 message = "home_layout",
-                data = mapOf("driveModeCardShown" to false)
+                data = mapOf("driveModeCardShown" to false, "moment" to (moment?.id ?: "none"))
             )
         }
         // #endregion
 
-        if (personalizedMixState.cards.isNotEmpty()) {
-            VantaSectionHeader("Made For You", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
-            Spacer(Modifier.height(12.dp))
-            personalizedMixState.cards.forEach { card ->
-                PersonalizedMixCard(
-                    card = card,
-                    onPlay = { onPlayPersonalizedMix(card.kind) },
-                    onRefresh = { onRefreshPersonalizedMix(card.kind) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = VantaSpacing.screenHorizontal, vertical = 6.dp)
-                )
-            }
-            Spacer(Modifier.height(VantaSpacing.sectionVertical))
-        }
-
         if (!validTracks.isEmpty() || hasNowPlaying) {
-            // ===== FEATURED CARD =====
+            // ===== NOW PLAYING HERO =====
             if (hasNowPlaying) {
                 FeaturedNowPlayingCard(
                     artworkUrl = nowPlayingArtwork,
@@ -254,15 +249,52 @@ fun HomeScreen(
                 Spacer(Modifier.height(VantaSpacing.sectionVertical))
             }
 
-            // ===== CONTINUE LISTENING =====
+            if (readyMixCards.isNotEmpty()) {
+                VantaSectionHeader("Made For You", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
+                Spacer(Modifier.height(12.dp))
+                readyMixCards.forEach { card ->
+                    PersonalizedMixCard(
+                        card = card,
+                        onPlay = { onPlayPersonalizedMix(card.kind) },
+                        onRefresh = { onRefreshPersonalizedMix(card.kind) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = VantaSpacing.screenHorizontal, vertical = 6.dp)
+                    )
+                }
+                Spacer(Modifier.height(VantaSpacing.sectionVertical))
+            }
+
+            // ===== RECENTLY PLAYED =====
             if (recentlyPlayed.isNotEmpty()) {
-                VantaSectionHeader("Continue Listening", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
+                VantaSectionHeader("Recently Played", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
                 Spacer(Modifier.height(12.dp))
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
                 ) {
-                    items(recentlyPlayed) { track ->
+                    items(recentlyPlayed, key = { it.track.trackId }) { track ->
+                        ArtworkCard(
+                            track = track,
+                            onPlay = { onPlayTrack(track) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(VantaSpacing.sectionVertical))
+            }
+
+            // ===== HEAVY ROTATION =====
+            val heavyRotation = validTracks
+                .sortedByDescending { it.track.lastPlayedAt ?: 0L }
+                .take(10)
+            if (heavyRotation.isNotEmpty() && heavyRotation != recentlyPlayed.take(10)) {
+                VantaSectionHeader("Heavy Rotation", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
+                Spacer(Modifier.height(12.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
+                ) {
+                    items(heavyRotation, key = { it.track.trackId }) { track ->
                         ArtworkCard(
                             track = track,
                             onPlay = { onPlayTrack(track) }
@@ -283,31 +315,49 @@ fun HomeScreen(
                 Spacer(Modifier.height(VantaSpacing.sectionVertical))
             }
 
-            // ===== EDITORIAL PICKS =====
-            val editorialTrack = validTracks.firstOrNull { it.track.trackId !in usedHomeIds }
-            if (editorialTrack != null) {
-                VantaSectionHeader("Editorial Picks", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
+            // ===== BECAUSE YOU PLAYED =====
+            val lastArtist = recentlyPlayed.firstOrNull()?.track?.artist
+            val becauseYouPlayed = if (lastArtist != null) {
+                validTracks.filter { it.track.artist.equals(lastArtist, ignoreCase = true) && it.track.trackId !in usedHomeIds }.take(10)
+            } else emptyList()
+            if (becauseYouPlayed.isNotEmpty()) {
+                VantaSectionHeader("Because You Played ${DisplayMetadataCleaner.cleanDisplayName(lastArtist ?: "")}", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
                 Spacer(Modifier.height(12.dp))
-                EditorialCard(
-                    track = editorialTrack,
-                    onPlay = { onPlayTrack(editorialTrack) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = VantaSpacing.screenHorizontal)
-                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
+                ) {
+                    items(becauseYouPlayed, key = { it.track.trackId }) { track ->
+                        ArtworkCard(
+                            track = track,
+                            onPlay = { onPlayTrack(track) }
+                        )
+                    }
+                }
                 Spacer(Modifier.height(VantaSpacing.sectionVertical))
             }
 
-            // ===== FRIENDS ARE LISTENING =====
-            VantaSectionHeader("Friends Are Listening", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
-            Spacer(Modifier.height(12.dp))
-            FriendsListeningRow(
-                feed = friendFeed,
-                onAddFriends = { onOpenAccount?.invoke() },
-                onPlayFriendTrack = onPlayFriendTrack,
-                modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal)
+            // ===== START A STATION =====
+            StartStationStrip(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = VantaSpacing.screenHorizontal)
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(VantaSpacing.sectionVertical))
+
+            // ===== FRIENDS ARE LISTENING =====
+            if (friendFeed.friends.isNotEmpty()) {
+                VantaSectionHeader("Friends Are Listening", modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal))
+                Spacer(Modifier.height(12.dp))
+                FriendsListeningRow(
+                    feed = friendFeed,
+                    onAddFriends = { onOpenAccount?.invoke() },
+                    onPlayFriendTrack = onPlayFriendTrack,
+                    onOpenFriendProfile = onOpenFriendProfile,
+                    modifier = Modifier.padding(horizontal = VantaSpacing.screenHorizontal)
+                )
+                Spacer(Modifier.height(32.dp))
+            }
         } else {
             // ===== EMPTY STATE =====
             EmptyOnboardingSection(onOpenSearch = onOpenSearch)
@@ -323,6 +373,9 @@ private fun FeaturedNowPlayingCard(
     onPlay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val (cleanTitle, cleanArtist) = remember(title, artist) {
+        DisplayMetadataCleaner.computeDisplayTitleArtist(title.orEmpty(), artist.orEmpty())
+    }
     val heroShape = RoundedCornerShape(24.dp)
     Box(
         modifier = modifier
@@ -407,7 +460,7 @@ private fun FeaturedNowPlayingCard(
 
             if (title != null) {
                 Text(
-                    text = title,
+                    text = cleanTitle.ifBlank { title },
                     style = VantaType.songTitle.copy(
                         fontSize = 23.sp,
                         lineHeight = 27.sp,
@@ -421,7 +474,7 @@ private fun FeaturedNowPlayingCard(
             }
             if (artist != null) {
                 Text(
-                    text = artist,
+                    text = cleanArtist.ifBlank { artist },
                     style = VantaType.subtitle,
                     color = Color.White.copy(alpha = 0.65f),
                     maxLines = 1,
@@ -465,10 +518,6 @@ private fun ArtworkCard(
 ) {
     val display = remember(track.track) {
         TrackDisplayResolver.resolve(track.track, emptySet())
-    }
-    SideEffect {
-        val hasArtwork = display.artworkUrl != null
-        Log.d("VANTA_HOME_ARTWORK", "section=continue_listening trackId=${track.track.trackId} title='${display.title}' artist='${display.artist}' coverArtUrl=${display.artworkUrl ?: "null"} usedFallback=${!hasArtwork} reason=${if (!hasArtwork) "no_cover_art_url" else "ok"}")
     }
     Column(
         modifier = Modifier
@@ -575,129 +624,13 @@ private fun MixCard(
 }
 
 @Composable
-private fun EditorialCard(
-    track: UnifiedTrackWithSources,
-    onPlay: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val display = remember(track.track) {
-        TrackDisplayResolver.resolve(track.track, emptySet())
-    }
-    val notes = listOf(
-        "A quiet masterpiece that rewards every listen.",
-        "The kind of song that stops time for four minutes.",
-        "An essential track from an essential artist.",
-        "Hauntingly beautiful. Press play and disappear.",
-        "This one lives in the space between genres."
-    )
-    val note = remember(track.track.trackId) { notes.random() }
-
-    Box(
-        modifier = modifier
-            .height(200.dp)
-            .clip(RoundedCornerShape(VantaRadius.largeCard))
-            .clickable(onClick = onPlay)
-    ) {
-        NetworkArtwork(
-            artworkUrl = display.artworkUrl,
-            seed = track.track.title,
-            modifier = Modifier.fillMaxSize()
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f)),
-                        startY = 0.3f
-                    )
-                )
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(16.dp)
-        ) {
-            Text(
-                "Editorial Note",
-                style = VantaType.caption,
-                color = AppAccent
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                note,
-                style = VantaType.editorialBody,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${display.title} \u2014 ${display.artist}",
-                style = VantaType.subtitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(12.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(AppAccentSoft)
-                .clickable(onClick = onPlay)
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        ) {
-            Text(
-                "Play",
-                color = AppAccent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-    }
-}
-
-@Composable
 private fun FriendsListeningRow(
     feed: FriendFeed,
     onAddFriends: () -> Unit,
     onPlayFriendTrack: (title: String, artist: String) -> Unit,
+    onOpenFriendProfile: (friendId: String) -> Unit = { _ -> },
     modifier: Modifier = Modifier
 ) {
-    if (feed.friends.isEmpty()) {
-        // Warm empty state that invites, instead of fake avatars.
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(AppSurface)
-                .border(0.5.dp, AppAccent.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
-                .clickable(onClick = onAddFriends)
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                "Listen together",
-                color = AppText,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                "Share your friend code and add friends to see what they're playing, live.",
-                style = VantaType.caption,
-                color = AppTextMuted
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Add friends →",
-                color = AppAccent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-        return
-    }
-
     val latestByFriend = feed.events
         .sortedByDescending { it.startedAtMs }
         .distinctBy { it.friendId }
@@ -716,8 +649,8 @@ private fun FriendsListeningRow(
                 modifier = Modifier
                     .width(84.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .clickable(enabled = event != null) {
-                        event?.let { onPlayFriendTrack(it.title, it.artist) }
+                    .clickable {
+                        onOpenFriendProfile(friend.id)
                     }
                     .padding(vertical = 4.dp)
             ) {
@@ -761,11 +694,12 @@ private fun FriendsListeningRow(
                 )
                 if (event != null) {
                     Text(
-                        event.title,
+                        DisplayMetadataCleaner.cleanDisplayName(event.title).ifBlank { event.title },
                         style = VantaType.caption.copy(fontSize = 10.sp),
                         color = AppTextMuted,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { onPlayFriendTrack(event.title, event.artist) }
                     )
                 }
             }
@@ -837,26 +771,159 @@ private fun EmptyOnboardingSection(
 }
 
 @Composable
+private fun SeasonalMomentCard(
+    moment: CalendarMoment,
+    artworkUrls: List<String> = emptyList(),
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        modifier = modifier
+            .height(220.dp)
+            .clip(shape)
+            .background(Brush.verticalGradient(moment.heroGradient))
+            .border(0.5.dp, moment.accentColor.copy(alpha = 0.15f), shape)
+    ) {
+        if (moment.id == "july4") {
+            FireworksOverlay(modifier = Modifier.matchParentSize())
+        }
+        if (artworkUrls.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                artworkUrls.take(4).forEachIndexed { i, url ->
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .graphicsLayer {
+                                rotationZ = when (i) { 0 -> -4f; 1 -> 2f; 2 -> -2f; else -> 4f }
+                                translationY = when (i) { 0 -> 4f; 1 -> 0f; 2 -> 2f; else -> 6f }
+                                alpha = 0.85f
+                            }
+                            .shadow(6.dp, RoundedCornerShape(10.dp), clip = true)
+                            .clip(RoundedCornerShape(10.dp))
+                    ) {
+                        NetworkArtwork(
+                            artworkUrl = url,
+                            seed = "seasonal",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                moment.title,
+                color = moment.accentColor,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                moment.subtitle,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                moment.playlists.take(3).forEach { playlist ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            playlist.title,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StartStationStrip(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        AppAccent.copy(alpha = 0.08f),
+                        AppAccent.copy(alpha = 0.03f)
+                    )
+                )
+            )
+            .border(0.5.dp, AppAccent.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
+            .clickable { }
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(AppAccent.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = AppAccent,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Start a Station",
+                color = AppText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Let VANTA curate based on your current mood",
+                color = AppTextSecondary,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(
+            Icons.Filled.Shuffle,
+            contentDescription = null,
+            tint = AppAccent,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
 fun PersonalizedMixCard(
     card: PersonalizedMixCardState,
     onPlay: () -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val statusText = when {
-        card.isLoading -> "Refreshing…"
-        card.error != null -> card.error
-        card.isEmpty -> "Ready when you are"
-        card.lastRefreshedLabel != null -> card.lastRefreshedLabel
-        else -> "${card.trackCount} tracks ready"
-    }
-    val statusColor = when {
-        card.error != null -> AppError
-        card.isStale -> AppWarning
-        else -> AppTextSecondary
-    }
-
-    val capsuleShape = RoundedCornerShape(28.dp)
+    val capsuleShape = RoundedCornerShape(20.dp)
     Box(
         modifier = modifier
             .clip(capsuleShape)
@@ -875,38 +942,59 @@ fun PersonalizedMixCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Artwork (or gradient fallback)
             Box(
                 modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(VantaRadius.artwork))
-                    .shadow(
-                        elevation = 4.dp,
-                        shape = RoundedCornerShape(VantaRadius.artwork),
-                        ambientColor = Color.Black.copy(alpha = 0.3f),
-                        spotColor = AppAccent.copy(alpha = 0.15f)
-                    )
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                AppAccent.copy(alpha = 0.12f),
-                                AppAccent.copy(alpha = 0.04f)
-                            )
-                        )
-                    )
-                    .border(0.5.dp, AppAccent.copy(alpha = 0.1f), RoundedCornerShape(VantaRadius.artwork))
-                    .clickable(enabled = !card.isLoading, onClick = onPlay),
-                contentAlignment = Alignment.Center
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .shadow(4.dp, RoundedCornerShape(14.dp), ambientColor = Color.Black.copy(alpha = 0.3f))
             ) {
-                Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = "Play ${card.title}",
-                    tint = AppAccent,
-                    modifier = Modifier.size(28.dp)
-                )
+                if (card.artworkUrl != null) {
+                    NetworkArtwork(
+                        artworkUrl = card.artworkUrl,
+                        seed = card.title,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        AppAccent.copy(alpha = 0.15f),
+                                        AppAccent.copy(alpha = 0.05f)
+                                    )
+                                )
+                            )
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = "Play ${card.title}",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -925,27 +1013,56 @@ fun PersonalizedMixCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = statusText.orEmpty(),
-                    style = VantaType.caption,
-                    color = statusColor,
-                    maxLines = 2,
+                    text = "${card.trackCount} tracks",
+                    style = VantaType.caption.copy(fontSize = 11.sp),
+                    color = AppTextMuted,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (card.lastRefreshedLabel != null) {
+                    Text(
+                        text = card.lastRefreshedLabel,
+                        style = VantaType.caption.copy(fontSize = 10.sp),
+                        color = AppTextMuted.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(AppSurfaceRaised)
-                    .clickable(enabled = !card.isLoading, onClick = onRefresh),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "Refresh ${card.title}",
-                    tint = if (card.isLoading) AppTextMuted else AppAccent,
-                    modifier = Modifier.size(20.dp)
-                )
+            if (card.isLoading) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(AppSurfaceRaised),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Loading",
+                        tint = AppTextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else {
+                // The card itself is the primary play target. Keep only one
+                // quiet secondary action instead of a competing stack of icons.
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(AppSurfaceRaised)
+                        .border(0.5.dp, AppOutline, CircleShape)
+                        .clickable(onClickLabel = "Refresh ${card.title}", onClick = onRefresh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Refresh ${card.title}",
+                        tint = if (card.isStale) AppWarning else AppAccent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }

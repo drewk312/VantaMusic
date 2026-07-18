@@ -13,20 +13,39 @@ class LyricsRepository(
     private val lyricsCacheDao: LyricsCacheDao,
     private val gson: Gson = Gson()
 ) {
+    companion object {
+        private const val STRICT_LRCLIB_CACHE_CUTOFF_MS = 1_783_468_800_000L // 2026-07-08T00:00:00Z
+    }
+
     suspend fun getLyrics(track: UnifiedTrack, isrc: String? = null): LyricsData? = withContext(Dispatchers.IO) {
         if (!VocalRecordingClassifier.lyricsExpected(track.title, track.artist, track.albumName)) {
             return@withContext null
         }
 
         val cacheKey = CanonicalIdentityResolver.generateCanonicalId(isrc, null, track.title, track.artist, track.albumName, track.durationMs)
+        val titleVariants = buildTitleVariants(track.title)
+
+        // Known exact web fallbacks are intentionally checked before cache so an older
+        // LRCLib row for a nearby title cannot resurrect the wrong lyrics.
+        for (provider in providers.filter { it.providerId == "known_web" }) {
+            val lyrics = tryTitleVariants(provider, track, isrc, titleVariants)
+            if (lyrics != null) return@withContext lyrics
+        }
+        if (KnownWebLyricsProvider.hasKnownSource(track)) {
+            return@withContext null
+        }
         
         // 1. Check cache by ISRC — only trust synced rows; upgrade plain cache later
         if (!isrc.isNullOrBlank()) {
             val cachedByIsrc = lyricsCacheDao.getLyricsByIsrc(isrc.trim().uppercase())
             if (cachedByIsrc != null) {
-                val cached = deserialize(cachedByIsrc, track.durationMs)
-                if (cached.isSynced && cached.lines.any { it.startTimeMs != null }) {
-                    return@withContext cached
+                if (isStrictCacheUsable(cachedByIsrc)) {
+                    val cached = deserialize(cachedByIsrc, track.durationMs)
+                    if (cached.isSynced && cached.lines.any { it.startTimeMs != null }) {
+                        return@withContext cached
+                    }
+                } else {
+                    lyricsCacheDao.deleteLyricsByIsrc(isrc.trim().uppercase())
                 }
             }
         }
@@ -34,17 +53,18 @@ class LyricsRepository(
         // 2. Check cache by strict cacheKey — upgrade plain cache when synced lyrics may exist
         val cachedByKey = lyricsCacheDao.getLyrics(cacheKey)
         if (cachedByKey != null) {
-            val cached = deserialize(cachedByKey, track.durationMs)
-            if (cached.isSynced && cached.lines.any { it.startTimeMs != null }) {
-                return@withContext cached
+            if (isStrictCacheUsable(cachedByKey)) {
+                val cached = deserialize(cachedByKey, track.durationMs)
+                if (cached.isSynced && cached.lines.any { it.startTimeMs != null }) {
+                    return@withContext cached
+                }
+            } else {
+                lyricsCacheDao.deleteLyrics(cacheKey)
             }
         }
         
-        // 3. Build title variants to try (handles "Victory Lap" -> "Victory Lap Five", etc.)
-        val titleVariants = buildTitleVariants(track.title)
-        
         // 4. Fetch from providers in priority order, trying title variants
-        for (provider in providers) {
+        for (provider in providers.filterNot { it.providerId == "known_web" }) {
             val lyrics = tryTitleVariants(provider, track, isrc, titleVariants)
             if (lyrics != null) return@withContext lyrics
         }
@@ -66,14 +86,11 @@ class LyricsRepository(
             // Try exact match
             var lyrics = provider.getLyrics(variantTrack, isrc)
             
-            // Fallback strip duration
-            if (lyrics == null && variantTrack.durationMs != null) {
-                lyrics = provider.getLyrics(variantTrack.copy(durationMs = null), isrc)
-            }
-            
-            // Fallback strip album
-            if (lyrics == null && (!variantTrack.albumName.isNullOrBlank() || variantTrack.durationMs != null)) {
-                lyrics = provider.getLyrics(variantTrack.copy(albumName = null, durationMs = null), isrc)
+            // Fallback strip album metadata, but keep duration as a hard sync guard.
+            // Dropping duration lets nearby LRCLib rows pass for songs with similar titles,
+            // which is exactly how wrong/off-sync lyrics become trusted.
+            if (lyrics == null && !variantTrack.albumName.isNullOrBlank()) {
+                lyrics = provider.getLyrics(variantTrack.copy(albumName = null), isrc)
             }
 
             if (lyrics != null) {
@@ -83,11 +100,10 @@ class LyricsRepository(
                         LrcParser.estimatePlainLyricTimings(lyrics.lines, track.durationMs)
                     else -> lyrics.lines
                 }
-                val hasTimings = timedLines.any { it.startTimeMs != null }
                 val keyedLyrics = lyrics.copy(
                     trackKey = cacheKey,
                     lines = timedLines,
-                    isSynced = lyrics.isSynced || hasTimings
+                    isSynced = lyrics.isSynced
                 )
                 val entity = LyricsCacheEntity(
                     lyricsKey = cacheKey,
@@ -103,6 +119,11 @@ class LyricsRepository(
             }
         }
         return null
+    }
+
+    private fun isStrictCacheUsable(entity: LyricsCacheEntity): Boolean {
+        if (entity.providerId != "lrclib") return true
+        return entity.lastUpdatedAt >= STRICT_LRCLIB_CACHE_CUTOFF_MS
     }
 
     private fun buildTitleVariants(title: String): List<String> {

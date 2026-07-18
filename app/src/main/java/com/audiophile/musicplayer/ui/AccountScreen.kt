@@ -1,5 +1,14 @@
+
 package com.audiophile.musicplayer.ui
 
+import android.content.Context
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,16 +26,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,24 +46,33 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.account.AccountManager
-import kotlin.random.Random
+import com.audiophile.musicplayer.account.FirebaseAuthSessionManager
+import com.audiophile.musicplayer.social.FriendFeed
+import com.audiophile.musicplayer.social.VantaSocialManager
+import kotlinx.coroutines.launch
 
 private val avatarColors = listOf(
     Color(0xFF66D9EF), Color(0xFF93C5FD), Color(0xFFF5B971),
@@ -59,11 +80,15 @@ private val avatarColors = listOf(
     Color(0xFFFB923C), Color(0xFF34D399)
 )
 
+private enum class AccountTab(val label: String, val icon: ImageVector) {
+    Profile("Profile", Icons.Default.Person),
+    Account("Account", Icons.Default.Lock),
+    Social("Social", Icons.Default.Groups)
+}
+
 /**
- * Account onboarding / profile screen.
- *
- * Designed to be lightweight: just a display name and opt-in sync toggles.
- * No mandatory sign-in — VANTA works fully offline and anonymously.
+ * Account screen with a tabbed layout so sign-in, profile, and social are no
+ * longer crammed into one scrolling sheet. VANTA is free; there is no paywall.
  */
 @Composable
 fun AccountScreen(
@@ -71,19 +96,30 @@ fun AccountScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     mainViewModel: MainViewModel? = null,
-    vantaSocialManager: com.audiophile.musicplayer.social.VantaSocialManager? = null
+    vantaSocialManager: VantaSocialManager? = null,
+    onOpenFriendProfile: (friendId: String) -> Unit = { _ -> }
 ) {
     val profile by accountManager.profile.collectAsState()
+    val context = LocalContext.current
+    val authSession = remember(accountManager) {
+        FirebaseAuthSessionManager(context.applicationContext, accountManager)
+    }
+    val authState by authSession.state.collectAsState()
+    val authScope = rememberCoroutineScope()
+    DisposableEffect(authSession) {
+        onDispose { authSession.close() }
+    }
 
+    var selectedTab by remember { mutableStateOf(AccountTab.Profile) }
     var displayNameInput by remember { mutableStateOf(profile.displayName) }
-    var showSignedInView by remember { mutableStateOf(profile.isOnboarded) }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+            .padding(top = appTopContentPadding())
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Top bar
         Row(
@@ -95,76 +131,218 @@ fun AccountScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AppText)
             }
             Text(
-                text = if (showSignedInView) "Profile" else "Welcome to VANTA",
+                text = "Account",
                 color = AppText,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.width(48.dp)) // balance
+            Spacer(modifier = Modifier.width(48.dp))
         }
 
-        if (showSignedInView && profile.isOnboarded) {
-            // Signed-in profile view
-            SignedInProfile(
-                profile = profile,
-                vantaSocialManager = vantaSocialManager,
-                onSignOut = {
-                    accountManager.signOut()
-                    showSignedInView = false
-                },
-                onToggleSourceSync = { accountManager.setSourceSyncEnabled(it) },
-                onToggleHistorySync = { accountManager.setHistorySyncEnabled(it) },
-                onImportAppleMusic = { mainViewModel?.importAppleMusicLibrary() },
-                onConnectAppleMusic = {
-                    // In a real app, this would trigger the system Music Auth flow.
-                    // For this environment, we'll simulate a successful connection
-                    // if the developer token is already present in config.
-                    accountManager.setAppleMusicSession("simulated_user_token", "us")
-                }
-            )
-        } else {
-            // Onboarding / sign-in view
-            OnboardingView(
-                displayNameInput = displayNameInput,
-                onDisplayNameChange = { displayNameInput = it },
-                onComplete = {
-                    if (displayNameInput.isNotBlank()) {
-                        accountManager.completeOnboarding(displayNameInput)
-                        showSignedInView = true
+        // Tab row
+        AccountTabRow(
+            selected = selectedTab,
+            onSelect = { selectedTab = it }
+        )
+
+        // Tab content
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                (slideInHorizontally(tween(240)) { it / 5 * direction } + fadeIn(tween(240)))
+                    .togetherWith(slideOutHorizontally(tween(240)) { it / 5 * direction } + fadeOut(tween(240)))
+            },
+            label = "account_tab_content"
+        ) { tab ->
+            when (tab) {
+                AccountTab.Profile -> ProfileTab(
+                    profile = profile,
+                    displayNameInput = displayNameInput,
+                    onDisplayNameChange = { displayNameInput = it },
+                    onCompleteOnboarding = {
+                        if (displayNameInput.isNotBlank()) {
+                            accountManager.completeOnboarding(displayNameInput)
+                        }
+                    },
+                    onSignOut = {
+                        authSession.signOut()
+                        displayNameInput = ""
                     }
-                }
-            )
+                )
+                AccountTab.Account -> AccountTabContent(
+                    profile = profile,
+                    authState = authState,
+                    onSignIn = { email, password ->
+                        authScope.launch { authSession.signIn(email, password) }
+                    },
+                    onRegister = { email, password ->
+                        authScope.launch { authSession.register(email, password) }
+                    },
+                    onSignOut = { authSession.signOut() }
+                )
+                AccountTab.Social -> SocialTab(
+                    profile = profile,
+                    socialManager = vantaSocialManager,
+                    onOpenFriendProfile = onOpenFriendProfile,
+                    onToggleShareListening = { accountManager.setShareListeningActivity(it) }
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun OnboardingView(
+private fun AccountTabRow(
+    selected: AccountTab,
+    onSelect: (AccountTab) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AppSurface)
+            .border(0.5.dp, AppOutline, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        AccountTab.entries.forEach { tab ->
+            val isSelected = tab == selected
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSelected) AppAccent.copy(alpha = 0.12f) else Color.Transparent)
+                    .clickable(onClick = { onSelect(tab) })
+                    .padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = tab.icon,
+                    contentDescription = null,
+                    tint = if (isSelected) AppAccent else AppTextMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = tab.label,
+                    color = if (isSelected) AppAccent else AppTextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileTab(
+    profile: AccountManager.UserProfile,
+    displayNameInput: String,
+    onDisplayNameChange: (String) -> Unit,
+    onCompleteOnboarding: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (profile.isCloudAuthenticated) {
+            SignedInHeader(profile = profile)
+            Text(
+                text = "Music services are managed securely in Settings.",
+                color = AppTextSecondary,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = onSignOut,
+                colors = ButtonDefaults.textButtonColors(contentColor = AppDestructive)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Sign out", fontWeight = FontWeight.SemiBold)
+            }
+        } else {
+            AnonymousOnboarding(
+                displayNameInput = displayNameInput,
+                onDisplayNameChange = onDisplayNameChange,
+                onComplete = onCompleteOnboarding
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun SignedInHeader(profile: AccountManager.UserProfile) {
+    val avatarColor = remember(profile.avatarSeed) {
+        val index = profile.avatarSeed.hashCode().let { (it and Int.MAX_VALUE) % avatarColors.size }
+        avatarColors[if (index < 0) 0 else index]
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(88.dp)
+                .clip(CircleShape)
+                .background(avatarColor.copy(alpha = 0.18f))
+                .border(2.dp, avatarColor.copy(alpha = 0.4f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = profile.avatarSeed.ifBlank { "??" },
+                color = avatarColor,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            text = profile.displayName,
+            color = AppText,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
+        if (profile.email.isNotBlank()) {
+            Text(profile.email, color = AppTextSecondary, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun AnonymousOnboarding(
     displayNameInput: String,
     onDisplayNameChange: (String) -> Unit,
     onComplete: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "One library. Every source.",
-            color = AppAccent,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
+            text = "Welcome to VANTA",
+            color = AppText,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Choose a display name to personalize your experience.\nYou can change this anytime.",
+            text = "Set a display name to personalize your experience.\nYou can sign in later to sync across devices.",
             color = AppTextSecondary,
             fontSize = 14.sp,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(32.dp))
-
         OutlinedTextField(
             value = displayNameInput,
             onValueChange = { if (it.length <= 32) onDisplayNameChange(it) },
@@ -182,22 +360,14 @@ private fun OnboardingView(
                 focusedContainerColor = AppSurface,
                 unfocusedContainerColor = AppSurface
             ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+            modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(20.dp))
-
         Button(
             onClick = onComplete,
             enabled = displayNameInput.isNotBlank(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AppAccent,
-                contentColor = AppBackgroundTop
-            ),
+            colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
                 .height(52.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -205,8 +375,6 @@ private fun OnboardingView(
             Spacer(modifier = Modifier.width(8.dp))
             Text("Get Started", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "No account required. Your library stays on this device.",
             color = AppTextMuted,
@@ -217,298 +385,354 @@ private fun OnboardingView(
 }
 
 @Composable
-private fun SignedInProfile(
+private fun AccountTabContent(
     profile: AccountManager.UserProfile,
-    vantaSocialManager: com.audiophile.musicplayer.social.VantaSocialManager?,
-    onSignOut: () -> Unit,
-    onToggleSourceSync: (Boolean) -> Unit,
-    onToggleHistorySync: (Boolean) -> Unit,
-    onImportAppleMusic: () -> Unit,
-    onConnectAppleMusic: () -> Unit
+    authState: FirebaseAuthSessionManager.State,
+    onSignIn: (String, String) -> Unit,
+    onRegister: (String, String) -> Unit,
+    onSignOut: () -> Unit
 ) {
-    // Avatar
-    val avatarColor = remember(profile.avatarSeed) {
-        val index = profile.avatarSeed.hashCode().let { (it and Int.MAX_VALUE) % avatarColors.size }
-        avatarColors[if (index < 0) 0 else index]
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (profile.isCloudAuthenticated) {
+            SignedInHeader(profile = profile)
+            Text(
+                "You are signed in with ${profile.authProvider?.replaceFirstChar { it.uppercaseChar() } ?: "cloud"}.",
+                color = AppTextSecondary,
+                fontSize = 14.sp
+            )
+            Button(
+                onClick = onSignOut,
+                colors = ButtonDefaults.buttonColors(containerColor = AppSurfaceRaised, contentColor = AppDestructive),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Sign out")
+            }
+        } else {
+            Text(
+                "Sign in or create an account to sync your library across devices.",
+                color = AppTextSecondary,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            FirebaseEmailSignIn(
+                state = authState,
+                onSignIn = onSignIn,
+                onRegister = onRegister
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
     }
+}
 
+@Composable
+private fun FirebaseEmailSignIn(
+    state: FirebaseAuthSessionManager.State,
+    onSignIn: (String, String) -> Unit,
+    onRegister: (String, String) -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf(true) } // true = sign in, false = create account
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        when (state) {
+            FirebaseAuthSessionManager.State.Unavailable -> Text(
+                "Cloud sign-in needs this app's Firebase configuration.",
+                color = AppTextSecondary,
+                fontSize = 13.sp
+            )
+            else -> {
+                Text(
+                    if (mode) "Sign in with email" else "Create your account",
+                    color = AppText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email", color = AppTextMuted) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = AppText,
+                        unfocusedTextColor = AppText,
+                        cursorColor = AppAccent,
+                        focusedBorderColor = AppAccent,
+                        unfocusedBorderColor = AppSurfaceRaised,
+                        focusedContainerColor = AppSurface,
+                        unfocusedContainerColor = AppSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password", color = AppTextMuted) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (email.isNotBlank() && password.length >= 6) {
+                            if (mode) onSignIn(email, password) else onRegister(email, password)
+                        }
+                    }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = AppText,
+                        unfocusedTextColor = AppText,
+                        cursorColor = AppAccent,
+                        focusedBorderColor = AppAccent,
+                        unfocusedBorderColor = AppSurfaceRaised,
+                        focusedContainerColor = AppSurface,
+                        unfocusedContainerColor = AppSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (state is FirebaseAuthSessionManager.State.Failed) {
+                    Text(state.message, color = AppDestructive, fontSize = 13.sp)
+                }
+                Button(
+                    onClick = { if (mode) onSignIn(email, password) else onRegister(email, password) },
+                    enabled = email.isNotBlank() && password.length >= 6,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(if (mode) "Sign in" else "Create account", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (mode) "Need an account? " else "Already have one? ",
+                        color = AppTextMuted,
+                        fontSize = 13.sp
+                    )
+                    TextButton(onClick = { mode = !mode }) {
+                        Text(if (mode) "Create account" else "Sign in", color = AppAccent, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SocialTab(
+    profile: AccountManager.UserProfile,
+    socialManager: VantaSocialManager?,
+    onOpenFriendProfile: (friendId: String) -> Unit,
+    onToggleShareListening: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (socialManager != null) {
+            FriendsSection(
+                profile = profile,
+                socialManager = socialManager,
+                onOpenFriendProfile = onOpenFriendProfile,
+                onToggleShareListening = onToggleShareListening
+            )
+        } else {
+            EmptySocialState()
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun EmptySocialState() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .padding(vertical = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(avatarColor.copy(alpha = 0.2f))
-                .border(2.dp, avatarColor.copy(alpha = 0.4f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = profile.avatarSeed.ifBlank { "??" },
-                color = avatarColor,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Text(
-            text = profile.displayName,
-            color = AppText,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
-        )
-        if (profile.email.isNotBlank()) {
-            Text(profile.email, color = AppTextSecondary, fontSize = 14.sp)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Apple Music Integration
-        Text(
-            text = "Connected Services",
-            color = AppTextSecondary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(AppSurface)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.Sync,
-                contentDescription = null,
-                tint = if (profile.appleMusicUserToken != null) AppAccentSoft else AppTextMuted,
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Apple Music", color = AppText, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Text(
-                    text = if (profile.appleMusicUserToken != null) "Connected • US Storefront" else "Connect to import your library",
-                    color = AppTextMuted,
-                    fontSize = 12.sp
-                )
-            }
-            if (profile.appleMusicUserToken == null) {
-                Button(
-                    onClick = onConnectAppleMusic,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppAccent),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Text("Connect", fontSize = 12.sp)
-                }
-            } else {
-                Button(
-                    onClick = onImportAppleMusic,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppSurfaceVariant),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Text("Import", fontSize = 12.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Sync preferences
-        Text(
-            text = "Sync Preferences",
-            color = AppTextSecondary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.fillMaxWidth()
-        )
-        SyncToggle(
-            title = "Sync Sources",
-            subtitle = "Save your source configuration for backup",
-            checked = profile.sourceSyncEnabled,
-            onCheckedChange = onToggleSourceSync
-        )
-        SyncToggle(
-            title = "Sync History",
-            subtitle = "Backup listening history across devices",
-            checked = profile.historySyncEnabled,
-            onCheckedChange = onToggleHistorySync,
-            isLast = true
-        )
-
-        if (vantaSocialManager != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            FriendsSection(
-                profile = profile,
-                socialManager = vantaSocialManager
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "Sign Out",
-            color = AppDestructive,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onSignOut)
-                .padding(horizontal = 24.dp, vertical = 12.dp)
-        )
-        Spacer(modifier = Modifier.height(24.dp))
+        Icon(Icons.Default.Groups, contentDescription = null, tint = AppTextMuted, modifier = Modifier.size(48.dp))
+        Text("Social features are unavailable", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text("Make sure the app finished startup and try again.", color = AppTextMuted, fontSize = 13.sp, textAlign = TextAlign.Center)
     }
 }
 
 @Composable
 private fun FriendsSection(
     profile: AccountManager.UserProfile,
-    socialManager: com.audiophile.musicplayer.social.VantaSocialManager
+    socialManager: VantaSocialManager,
+    onOpenFriendProfile: (friendId: String) -> Unit = { _ -> },
+    onToggleShareListening: (Boolean) -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val feed by socialManager.feed.collectAsState(initial = com.audiophile.musicplayer.social.FriendFeed())
+    val context = LocalContext.current
+    val feed by socialManager.feed.collectAsState(initial = FriendFeed())
     val friendCode = remember { socialManager.friendCode() }
     var friendCodeInput by remember { mutableStateOf("") }
     var copied by remember { mutableStateOf(false) }
 
     Text(
         text = "Friends",
-        color = AppTextSecondary,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.SemiBold,
+        color = AppText,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
         modifier = Modifier.fillMaxWidth()
     )
 
-    // Friend code card — tap to copy.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(AppSurface)
-            .clickable {
-                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                    as android.content.ClipboardManager
-                clipboard.setPrimaryClip(
-                    android.content.ClipData.newPlainText("VANTA Friend Code", friendCode)
-                )
-                copied = true
-            }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.Default.Person, contentDescription = null, tint = AppAccentSoft, modifier = Modifier.size(22.dp))
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Your Friend Code", color = AppText, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(friendCode, color = AppTextMuted, fontSize = 12.sp)
-        }
-        Text(
-            text = if (copied) "Copied" else "Copy",
-            color = AppAccent,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-
-    SyncToggle(
-        title = "Share Listening Activity",
-        subtitle = "Let friends see what you're playing",
-        checked = profile.shareListeningActivity,
-        onCheckedChange = { socialManager.setShareListeningActivity(it) }
-    )
-
-    // Add friend by code
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedTextField(
-            value = friendCodeInput,
-            onValueChange = { friendCodeInput = it },
-            label = { Text("Friend code", color = AppTextMuted, fontSize = 12.sp) },
-            placeholder = { Text("vanta_…", color = AppTextMuted.copy(alpha = 0.5f)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = {
-                if (friendCodeInput.isNotBlank()) {
-                    socialManager.addFriendByHandle(friendCodeInput)
-                    friendCodeInput = ""
-                }
-            }),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = AppText,
-                unfocusedTextColor = AppText,
-                cursorColor = AppAccent,
-                focusedBorderColor = AppAccent,
-                unfocusedBorderColor = AppSurfaceRaised,
-                focusedContainerColor = AppSurface,
-                unfocusedContainerColor = AppSurface
-            ),
-            modifier = Modifier.weight(1f)
-        )
-        Button(
-            onClick = {
-                if (friendCodeInput.isNotBlank()) {
-                    socialManager.addFriendByHandle(friendCodeInput)
-                    friendCodeInput = ""
-                }
-            },
-            enabled = friendCodeInput.isNotBlank(),
-            colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.height(48.dp)
-        ) {
-            Text("Add", fontWeight = FontWeight.SemiBold)
-        }
-    }
-
-    // Friends list
-    feed.friends.forEach { friend ->
-        Row(
+    VantaCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(AppSurface)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(
+            // Friend code row
+            Row(
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(AppSurfaceRaised)
-                    .border(1.dp, AppAccent.copy(alpha = 0.25f), CircleShape),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(AppSurface)
+                    .clickable {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("VANTA Friend Code", friendCode))
+                        copied = true
+                    }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = AppAccentSoft, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Your Friend Code", color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(friendCode, color = AppTextMuted, fontSize = 12.sp)
+                }
                 Text(
-                    friend.avatarSeed.take(2).uppercase(),
+                    text = if (copied) "Copied" else "Copy",
                     color = AppAccent,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(friend.displayName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(friend.id, color = AppTextMuted, fontSize = 11.sp, maxLines = 1)
-            }
-            Text(
-                text = "Remove",
-                color = AppDestructive.copy(alpha = 0.85f),
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { socialManager.removeFriend(friend.id) }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+
+            SyncToggle(
+                title = "Share Listening Activity",
+                subtitle = "Let friends see what you're playing",
+                checked = profile.shareListeningActivity,
+                onCheckedChange = onToggleShareListening
             )
+
+            // Add friend
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = friendCodeInput,
+                    onValueChange = { friendCodeInput = it },
+                    label = { Text("Friend code", color = AppTextMuted, fontSize = 12.sp) },
+                    placeholder = { Text("vanta_...", color = AppTextMuted.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (friendCodeInput.isNotBlank()) {
+                            socialManager.addFriendByHandle(friendCodeInput)
+                            friendCodeInput = ""
+                        }
+                    }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = AppText,
+                        unfocusedTextColor = AppText,
+                        cursorColor = AppAccent,
+                        focusedBorderColor = AppAccent,
+                        unfocusedBorderColor = AppSurfaceRaised,
+                        focusedContainerColor = AppSurface,
+                        unfocusedContainerColor = AppSurface
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+                Button(
+                    onClick = {
+                        if (friendCodeInput.isNotBlank()) {
+                            socialManager.addFriendByHandle(friendCodeInput)
+                            friendCodeInput = ""
+                        }
+                    },
+                    enabled = friendCodeInput.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Text("Add", fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            // Friends list
+            if (feed.friends.isEmpty()) {
+                Text(
+                    "Add friends to see what they're listening to.",
+                    color = AppTextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            } else {
+                feed.friends.forEach { friend ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AppSurface)
+                            .clickable { onOpenFriendProfile(friend.id) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(AppSurfaceRaised)
+                                .border(1.dp, AppAccent.copy(alpha = 0.25f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                friend.avatarSeed.take(2).uppercase(),
+                                color = AppAccent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(friend.displayName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(friend.id, color = AppTextMuted, fontSize = 11.sp, maxLines = 1)
+                        }
+                        Text(
+                            text = "Remove",
+                            color = AppDestructive.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { socialManager.removeFriend(friend.id) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -551,7 +775,7 @@ private fun SyncToggle(
             )
         )
     }
+    if (!isLast) {
+        HorizontalDivider(color = AppOutline, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 14.dp))
+    }
 }
-
-
-

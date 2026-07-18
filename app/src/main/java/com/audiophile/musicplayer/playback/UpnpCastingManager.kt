@@ -289,7 +289,7 @@ class UpnpCastingManager(
             repeat(3) {
                 try {
                     socket.send(searchPacket)
-                } catch (e: Exception) {
+                } catch (e: java.io.IOException) {
                     Log.w(TAG, "M-SEARCH send #$it failed: ${e.message}")
                 }
                 Thread.sleep(200)
@@ -326,7 +326,7 @@ class UpnpCastingManager(
                 } catch (e: SocketTimeoutException) {
                     // Timeout reached — done collecting
                     break
-                } catch (e: Exception) {
+                } catch (e: java.io.IOException) {
                     if (isDiscovering) {
                         Log.w(TAG, "SSDP receive error: ${e.message}")
                     }
@@ -519,7 +519,7 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
                 Log.w(TAG, "SOAP $action failed on $serviceType: HTTP $responseCode — $responseBody")
                 false
             }
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.e(TAG, "SOAP $action error: ${e.message}")
             false
         }
@@ -564,7 +564,7 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
                 ?.filter { it.isUp && !it.isLoopback && it.name.startsWith("wlan") }
                 ?.flatMap { it.inetAddresses.asSequence() }
                 ?.firstOrNull { it is java.net.Inet4Address }
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.w(TAG, "Failed to get local IP: ${e.message}")
             null
         }

@@ -53,8 +53,7 @@ fun resolveNowPlayingDisplaySnapshot(
             if (featured.isEmpty()) full
             else full.replace(Regex("""\s+(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "").trim().ifBlank { full }
         }
-    val album = nowPlayingState.album?.takeIf { it.isNotBlank() }
-        ?: enhancedMetadata?.album?.takeIf { it.isNotBlank() }
+    val album = cleaned.album?.takeIf { it.isNotBlank() }
     val source = when {
         !nowPlayingState.title.isNullOrBlank() || !nowPlayingState.artist.isNullOrBlank() -> "now_playing"
         enhancedMetadata != null -> "enhanced_metadata_fallback"

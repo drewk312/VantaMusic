@@ -60,7 +60,7 @@ class LRCLibLyricsProvider : LyricsProvider {
     private fun durationAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
         if (response.duration == null || track.durationMs == null || track.durationMs <= 0L) return true
         val diffSec = kotlin.math.abs(response.duration - track.durationMs / 1000.0)
-        return diffSec <= 10.0
+        return diffSec <= 5.0
     }
 
     private fun artistAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
@@ -77,9 +77,9 @@ class LRCLibLyricsProvider : LyricsProvider {
             both.toFloat() / maxOf(targetTokens.size, resultTokens.size)
         } else 0f
         // Strong: result contains target artist exactly (handles featured artists)
-        // Medium: >= 50% token overlap with at least one shared meaningful token
+        // Medium: >= 70% token overlap with at least one shared meaningful token
         return resultContainsTarget || targetContainsResult ||
-            (overlapRatio >= 0.5f && targetTokens.any { it in resultArtist })
+            (overlapRatio >= 0.7f && targetTokens.any { it in resultArtist })
     }
 
     private fun titleAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
@@ -109,7 +109,7 @@ class LRCLibLyricsProvider : LyricsProvider {
         }
 
         return resultContainsTarget || targetContainsResult ||
-            (targetTokens.any { it in resultTitle } && overlapRatio >= 0.6f)
+            (targetTokens.any { it in resultTitle } && overlapRatio >= 0.75f)
     }
 
     private fun isCommonTitleSuffix(word: String): Boolean {
@@ -176,7 +176,7 @@ class LRCLibLyricsProvider : LyricsProvider {
                 if (!response.isSuccessful) return null
                 response.body?.string()?.takeIf { it.isNotBlank() }
             }
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             null
         }
     }
@@ -198,13 +198,12 @@ class LRCLibLyricsProvider : LyricsProvider {
             val timedLines = track.durationMs?.takeIf { it > 0L }?.let { durationMs ->
                 LrcParser.estimatePlainLyricTimings(plainLines, durationMs)
             } ?: plainLines
-            val hasTimings = timedLines.any { it.startTimeMs != null }
             return LyricsData(
                 trackKey = track.trackId.toString(),
-                isSynced = hasTimings,
+                isSynced = false,
                 lines = timedLines,
                 providerId = providerId,
-                sourceLabel = if (hasTimings) "LRCLib (estimated sync)" else "LRCLib"
+                sourceLabel = "LRCLib [Static]"
             )
         }
 

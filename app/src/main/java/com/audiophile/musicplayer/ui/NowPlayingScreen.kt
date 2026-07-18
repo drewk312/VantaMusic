@@ -45,9 +45,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.metadata.EnhancedMetadata
 import com.audiophile.musicplayer.data.lyrics.LyricsData
+import com.audiophile.musicplayer.data.lyrics.LyricsIdentity
 import com.audiophile.musicplayer.playback.NowPlayingState
 import com.audiophile.musicplayer.playback.QueueSnapshot
 import com.audiophile.musicplayer.ui.nowplaying.*
@@ -57,12 +59,16 @@ import com.audiophile.musicplayer.ui.visualizer.VantaAuraBackground
 import com.audiophile.musicplayer.ui.visualizer.VantaBeatProgressBar
 import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
 import com.audiophile.musicplayer.ui.VantaType
-import com.audiophile.musicplayer.ui.visualizer.VantaBeatOrb
+import com.audiophile.musicplayer.ui.nowplaying.TrackMood
+import com.audiophile.musicplayer.ui.nowplaying.TrackMoodEngine
+import com.audiophile.musicplayer.ui.nowplaying.LivingArtworkBackdrop
+import com.audiophile.musicplayer.ui.nowplaying.StoryMomentChip
 import com.audiophile.musicplayer.playback.UpnpCastingHolder
 import com.audiophile.musicplayer.ui.AppTextMuted
 import com.audiophile.musicplayer.ui.AppTextSecondary
 import com.audiophile.musicplayer.audio.visualizer.AuraPalette
 import com.audiophile.musicplayer.ui.VantaCompactQualityChip
+import com.audiophile.musicplayer.ui.livinglyrics.LivingLyricsMetadataRow
 
 fun formatDuration(valueMs: Long): String = com.audiophile.musicplayer.ui.nowplaying.formatDuration(valueMs)
 
@@ -75,6 +81,7 @@ fun NowPlayingScreen(
     lyricsData: LyricsData?,
     lyricsTrackId: String?,
     lyricsLoading: Boolean = false,
+    lyricsIdentity: LyricsIdentity = LyricsIdentity.Unavailable,
     translationEnabled: Boolean = false,
     onToggleTranslation: () -> Unit = {},
     onRetryLyrics: () -> Unit = {},
@@ -96,11 +103,13 @@ fun NowPlayingScreen(
     onOpenQueueTrackSheet: ((com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources) -> Unit)? = null,
     animatedArtworkEnabled: Boolean = true,
     statusMessage: String = "",
-    auraState: VantaAuraState? = null,
-    audioFrame: VantaAudioFrame? = null,
     visualizerViewModel: VantaVisualizerViewModel? = null,
     nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null
 ) {
+    // Audio frames update many times per second. Read them inside this screen so
+    // they cannot invalidate the root navigation tree while users browse.
+    val auraState = visualizerViewModel?.auraState?.collectAsState()?.value
+    val audioFrame = visualizerViewModel?.audioFrame?.collectAsState()?.value
     var mode by rememberSaveable { mutableStateOf(NowPlayingMode.ARTWORK) }
     var showQualityDetails by remember { mutableStateOf(false) }
     var showCastSheet by remember { mutableStateOf(false) }
@@ -162,12 +171,27 @@ fun NowPlayingScreen(
     val artworkSeed = "${nowPlayingState.title ?: ""} ${nowPlayingState.artist ?: ""}"
     val artworkColors = rememberArtworkGradientColors(artworkUrl = resolvedArtworkUrl, seed = artworkSeed)
     val screenAccent = if (hasArtwork) artworkColors.accentColor else Color(0xFFB8A77F)
-    val screenTopColor = if (hasArtwork) artworkColors.topColor else Color(0xFF1A1218)
-    val screenMidColor = if (hasArtwork) artworkColors.midColor else Color(0xFF0D0A0C)
+    val screenTopColor = if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else if (hasArtwork) artworkColors.topColor else Color(0xFF1A1218)
+    val screenMidColor = if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else if (hasArtwork) artworkColors.midColor else Color(0xFF0D0A0C)
 
     val animatedAccentColor by animateColorAsState(targetValue = screenAccent, animationSpec = tween(900), label = "ambientAccentColor")
     val animatedTopColorForBg by animateColorAsState(targetValue = screenTopColor, animationSpec = tween(900), label = "ambientTopColor")
     val animatedMidColorForBg by animateColorAsState(targetValue = screenMidColor, animationSpec = tween(900), label = "ambientMidColor")
+
+    val trackMood = remember(displayTitle, displayArtist, enhancedMetadata?.genres) {
+        val genre = enhancedMetadata?.genres?.firstOrNull()
+        val energy = audioFrame?.let { it.rms * 0.5f + it.midEnergy * 0.3f + it.bassEnergy * 0.2f } ?: 0.5f
+        val bass = audioFrame?.bassEnergy ?: 0.5f
+        val inference = TrackMoodEngine.infer(
+            title = displayTitle,
+            artist = displayArtist,
+            album = displayAlbum,
+            genre = genre,
+            energy = energy,
+            bassEnergy = bass
+        )
+        inference.mood
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // Cover-art-reactive immersive background
@@ -213,12 +237,17 @@ fun NowPlayingScreen(
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            LuxuryBlurredArtworkBackground(
-                artworkUrl = resolvedArtworkUrl, seed = artworkSeed,
-                topColor = animatedTopColorForBg, midColor = animatedMidColorForBg, accentColor = animatedAccentColor,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (auraState != null && audioFrame != null && auraState.isActive && auraState.audioReactiveEnabled) {
+            if (mode != NowPlayingMode.LYRICS) {
+                LivingArtworkBackdrop(
+                    artworkUrl = resolvedArtworkUrl,
+                    seed = artworkSeed,
+                    audioFrame = audioFrame,
+                    mood = trackMood,
+                    moodEnergy = audioFrame?.let { it.rms } ?: 0.5f,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (mode != NowPlayingMode.LYRICS && auraState != null && audioFrame != null && auraState.isActive && auraState.audioReactiveEnabled) {
                 VantaAuraBackground(
                     palette = effectiveAuraPalette,
                     audioFrame = audioFrame,
@@ -232,28 +261,7 @@ fun NowPlayingScreen(
                 WideNowPlayingContent(
                     nowPlayingState = nowPlayingState, enhancedMetadata = enhancedMetadata,
                     lyricsData = lyricsData, lyricsTrackId = lyricsTrackId, lyricsLoading = lyricsLoading,
-                    translationEnabled = translationEnabled, onToggleTranslation = onToggleTranslation,
-                    onRetryLyrics = onRetryLyrics,
-                    queueSnapshot = queueSnapshot, mode = mode, onModeChange = { mode = it },
-                    onBack = onBack, onToggleFavorite = onToggleFavorite, onTogglePlayPause = onTogglePlayPause,
-                    onPrevious = onPrevious, onNext = onNext, onSeekTo = onSeekTo,
-                    onMoveQueueItem = onMoveQueueItem, onRemoveQueueItem = onRemoveQueueItem,
-                    onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
-                    onOpenTrackSheet = onOpenTrackSheet, onOpenDj = onOpenDj, onOpenEqualizer = onOpenEqualizer,
-                    onOpenQueueTrackSheet = onOpenQueueTrackSheet,
-                    onOpenCast = { showCastSheet = true },
-                    displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
-                    hasArtwork = hasArtwork,
-                    animatedArtworkEnabled = animatedArtworkEnabled, posterAccentColor = screenAccent,
-                    displaySnapshot = displaySnapshot, onOpenQualityDetails = { showQualityDetails = true },
-                    audioFrame = audioFrame, auraEnabled = auraState?.isActive == true, reducedMotion = auraState?.reducedMotion == true,
-                    auraState = auraState, effectiveAuraPalette = effectiveAuraPalette,
-                    nowPlayingViewModel = nowPlayingViewModel
-                )
-            } else {
-                PortraitNowPlayingContent(
-                    nowPlayingState = nowPlayingState, enhancedMetadata = enhancedMetadata,
-                    lyricsData = lyricsData, lyricsTrackId = lyricsTrackId, lyricsLoading = lyricsLoading,
+                    lyricsIdentity = lyricsIdentity,
                     translationEnabled = translationEnabled, onToggleTranslation = onToggleTranslation,
                     onRetryLyrics = onRetryLyrics,
                     queueSnapshot = queueSnapshot, mode = mode, onModeChange = { mode = it },
@@ -271,7 +279,32 @@ fun NowPlayingScreen(
                     audioFrame = audioFrame, auraEnabled = auraState?.isActive == true, reducedMotion = auraState?.reducedMotion == true,
                     auraState = auraState, effectiveAuraPalette = effectiveAuraPalette,
                     nowPlayingViewModel = nowPlayingViewModel,
-                    isCompact = isCompact
+                    trackMood = trackMood
+                )
+            } else {
+                PortraitNowPlayingContent(
+                    nowPlayingState = nowPlayingState, enhancedMetadata = enhancedMetadata,
+                    lyricsData = lyricsData, lyricsTrackId = lyricsTrackId, lyricsLoading = lyricsLoading,
+                    lyricsIdentity = lyricsIdentity,
+                    translationEnabled = translationEnabled, onToggleTranslation = onToggleTranslation,
+                    onRetryLyrics = onRetryLyrics,
+                    queueSnapshot = queueSnapshot, mode = mode, onModeChange = { mode = it },
+                    onBack = onBack, onToggleFavorite = onToggleFavorite, onTogglePlayPause = onTogglePlayPause,
+                    onPrevious = onPrevious, onNext = onNext, onSeekTo = onSeekTo,
+                    onMoveQueueItem = onMoveQueueItem, onRemoveQueueItem = onRemoveQueueItem,
+                    onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
+                    onOpenTrackSheet = onOpenTrackSheet, onOpenDj = onOpenDj, onOpenEqualizer = onOpenEqualizer,
+                    onOpenQueueTrackSheet = onOpenQueueTrackSheet,
+                    onOpenCast = { showCastSheet = true },
+                    displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
+                    hasArtwork = hasArtwork,
+                    animatedArtworkEnabled = animatedArtworkEnabled, posterAccentColor = screenAccent,
+                    displaySnapshot = displaySnapshot, onOpenQualityDetails = { showQualityDetails = true },
+                    audioFrame = audioFrame, auraEnabled = auraState?.isActive == true, reducedMotion = auraState?.reducedMotion == true,
+                    auraState = auraState, effectiveAuraPalette = effectiveAuraPalette,
+                    nowPlayingViewModel = nowPlayingViewModel,
+                    isCompact = isCompact,
+                    trackMood = trackMood
                 )
             }
         }
@@ -294,7 +327,7 @@ fun NowPlayingScreen(
                 ) {
                     CastDeviceSheet(
                         castingManager = castingManager,
-                        streamUrl = null,
+                        streamUrl = nowPlayingState.streamUrl,
                         onDismiss = { showCastSheet = false }
                     )
                 }
@@ -307,6 +340,7 @@ fun NowPlayingScreen(
 private fun WideNowPlayingContent(
     nowPlayingState: NowPlayingState, enhancedMetadata: EnhancedMetadata?,
     lyricsData: LyricsData?, lyricsTrackId: String?, lyricsLoading: Boolean,
+    lyricsIdentity: LyricsIdentity = LyricsIdentity.Unavailable,
     translationEnabled: Boolean = false, onToggleTranslation: () -> Unit = {},
     onRetryLyrics: () -> Unit,
     queueSnapshot: QueueSnapshot, mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
@@ -322,11 +356,13 @@ private fun WideNowPlayingContent(
     displaySnapshot: NowPlayingDisplaySnapshot, onOpenQualityDetails: () -> Unit,
     audioFrame: VantaAudioFrame? = null, auraEnabled: Boolean = false, reducedMotion: Boolean = true,
     auraState: VantaAuraState? = null, effectiveAuraPalette: AuraPalette? = null,
-    nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null
+    nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null,
+    trackMood: TrackMood = TrackMood.UNKNOWN
 ) {
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
     val effectiveLyricsData = lyricsData?.takeIf { displaySnapshot.canDisplayLyrics }
+    var lyricsControlsVisible by remember { mutableStateOf(true) }
     val topInsetDp = with(LocalDensity.current) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     val bottomInsetDp = with(LocalDensity.current) { WindowInsets.systemBars.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
 
@@ -335,15 +371,6 @@ private fun WideNowPlayingContent(
         horizontalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Box(modifier = Modifier.weight(0.62f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            if (mode == NowPlayingMode.ARTWORK && auraState != null && auraState.isActive) {
-                VantaBeatOrb(
-                    palette = effectiveAuraPalette ?: AuraPalette(),
-                    audioFrame = audioFrame,
-                    isPlaying = nowPlayingState.isPlaying,
-                    reducedMotion = auraState.reducedMotion,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
             when (mode) {
                 NowPlayingMode.ARTWORK -> VantaArtworkStage(
                     coverArtUrl = displaySnapshot.artworkUrl, seed = displayTitle, hasArtwork = hasArtwork,
@@ -354,11 +381,15 @@ private fun WideNowPlayingContent(
                 NowPlayingMode.LYRICS -> VantaLyricsStage(
                     lyricsData = effectiveLyricsData,
                     lyricsLoading = lyricsLoading || lyricsTrackId != null && !displaySnapshot.canDisplayLyrics,
+                    lyricsIdentity = lyricsIdentity,
                     nowPlayingState = nowPlayingState, displayTitle = displayTitle, displayArtist = displayArtist,
                     displayAlbum = displayAlbum, qualityInfo = displaySnapshot.qualityInfo,
                     translationEnabled = translationEnabled, onToggleTranslation = onToggleTranslation,
                     onSeekTo = onSeekTo, onRetryLyrics = onRetryLyrics,
-                    onOpenQualityDetails = onOpenQualityDetails, modifier = Modifier.fillMaxSize()
+                    onOpenQualityDetails = onOpenQualityDetails, modifier = Modifier.fillMaxSize(),
+                    energy = audioFrame?.let { it.bassEnergy * 0.5f + it.midEnergy * 0.3f + it.rms * 0.2f } ?: 0.5f,
+                    controlsVisible = lyricsControlsVisible,
+                    onToggleControls = { lyricsControlsVisible = !lyricsControlsVisible }
                 )
                 NowPlayingMode.QUEUE -> Box(modifier = Modifier.fillMaxSize()) {
                     QueueView(queueSnapshot = queueSnapshot, onMoveQueueItem = onMoveQueueItem,
@@ -367,6 +398,7 @@ private fun WideNowPlayingContent(
             }
         }
 
+        if (mode != NowPlayingMode.LYRICS || lyricsControlsVisible) {
         Column(modifier = Modifier.weight(0.38f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
             VantaSceneHeaderRow(centerLabel = "VANTA LISTENING", titleForMenu = displaySnapshot.title,
                 onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet, onOpenCast = onOpenCast)
@@ -388,7 +420,7 @@ private fun WideNowPlayingContent(
                             )
                         }
                     }
-                    val albumText = (displayAlbum ?: enhancedMetadata?.album)?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
+                    val albumText = (displayAlbum ?: DisplayMetadataCleaner.cleanDisplayName(enhancedMetadata?.album).takeIf { it.isNotBlank() })?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
                     if (albumText != null) {
                         Spacer(Modifier.width(8.dp))
                         Text("•", style = VantaType.caption.copy(color = Color.White.copy(alpha = 0.3f)))
@@ -408,6 +440,7 @@ private fun WideNowPlayingContent(
                 PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
             }
         }
+        }
     }
 }
 
@@ -415,6 +448,7 @@ private fun WideNowPlayingContent(
 private fun PortraitNowPlayingContent(
     nowPlayingState: NowPlayingState, enhancedMetadata: EnhancedMetadata?,
     lyricsData: LyricsData?, lyricsTrackId: String?, lyricsLoading: Boolean,
+    lyricsIdentity: LyricsIdentity = LyricsIdentity.Unavailable,
     translationEnabled: Boolean = false, onToggleTranslation: () -> Unit = {},
     onRetryLyrics: () -> Unit,
     queueSnapshot: QueueSnapshot, mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
@@ -431,11 +465,13 @@ private fun PortraitNowPlayingContent(
     audioFrame: VantaAudioFrame? = null, auraEnabled: Boolean = false, reducedMotion: Boolean = true,
     auraState: VantaAuraState? = null, effectiveAuraPalette: AuraPalette? = null,
     nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    trackMood: TrackMood = TrackMood.UNKNOWN
 ) {
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
     val effectiveLyricsData = lyricsData?.takeIf { displaySnapshot.canDisplayLyrics }
+    var lyricsControlsVisible by remember { mutableStateOf(true) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenMaxHeight = maxHeight; val compact = screenMaxHeight < 720.dp
@@ -449,7 +485,9 @@ private fun PortraitNowPlayingContent(
             VantaSceneHeaderRow(centerLabel = "NOW PLAYING", titleForMenu = displaySnapshot.title,
                 onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet,
                 onOpenCast = onOpenCast,
-                modifier = Modifier.padding(horizontal = horizontalPadding))
+                modifier = Modifier
+                    .background(if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else Color.Transparent)
+                    .padding(horizontal = horizontalPadding))
 
             val stageModifier = if (mode == NowPlayingMode.ARTWORK) {
                 Modifier
@@ -460,16 +498,16 @@ private fun PortraitNowPlayingContent(
                     .weight(1f)
                     .fillMaxWidth()
             }
-            Box(modifier = stageModifier.padding(horizontal = horizontalPadding).padding(top = stageTopPadding, bottom = 4.dp)) {
-                if (mode == NowPlayingMode.ARTWORK && auraState != null && auraState.isActive) {
-                    VantaBeatOrb(
-                        palette = effectiveAuraPalette ?: AuraPalette(),
-                        audioFrame = audioFrame,
-                        isPlaying = nowPlayingState.isPlaying,
-                        reducedMotion = auraState.reducedMotion,
-                        modifier = Modifier.fillMaxSize()
+            val stageHorizontalPadding = if (mode == NowPlayingMode.LYRICS) 0.dp else horizontalPadding
+            val stageVerticalPadding = if (mode == NowPlayingMode.LYRICS) 0.dp else 4.dp
+            Box(
+                modifier = stageModifier
+                    .padding(horizontal = stageHorizontalPadding)
+                    .padding(
+                        top = if (mode == NowPlayingMode.LYRICS) 0.dp else stageTopPadding,
+                        bottom = stageVerticalPadding
                     )
-                }
+            ) {
                 when (mode) {
                     NowPlayingMode.ARTWORK -> VantaArtworkStage(
                         coverArtUrl = displaySnapshot.artworkUrl, seed = displayTitle, hasArtwork = hasArtwork,
@@ -480,11 +518,15 @@ private fun PortraitNowPlayingContent(
                     NowPlayingMode.LYRICS -> VantaLyricsStage(
                         lyricsData = effectiveLyricsData,
                         lyricsLoading = lyricsLoading || lyricsTrackId != null && !displaySnapshot.canDisplayLyrics,
+                        lyricsIdentity = lyricsIdentity,
                         nowPlayingState = nowPlayingState, displayTitle = displayTitle, displayArtist = displayArtist,
                         displayAlbum = displayAlbum, qualityInfo = displaySnapshot.qualityInfo,
                         translationEnabled = translationEnabled, onToggleTranslation = onToggleTranslation,
                         onSeekTo = onSeekTo, onRetryLyrics = onRetryLyrics,
-                        onOpenQualityDetails = onOpenQualityDetails, modifier = Modifier.fillMaxSize()
+                        onOpenQualityDetails = onOpenQualityDetails, modifier = Modifier.fillMaxSize(),
+                        energy = audioFrame?.let { it.bassEnergy * 0.5f + it.midEnergy * 0.3f + it.rms * 0.2f } ?: 0.5f,
+                        controlsVisible = lyricsControlsVisible,
+                        onToggleControls = { lyricsControlsVisible = !lyricsControlsVisible }
                     )
                     NowPlayingMode.QUEUE -> Box(modifier = Modifier.fillMaxSize()) {
                         QueueView(queueSnapshot = queueSnapshot, onMoveQueueItem = onMoveQueueItem,
@@ -493,50 +535,139 @@ private fun PortraitNowPlayingContent(
                 }
             }
 
-            Column(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = horizontalPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Spacer(Modifier.weight(1f))
-                CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
-                Spacer(Modifier.height(16.dp))
-                Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 24.sp else 30.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(displayArtist, style = VantaType.sectionTitle.copy(color = Color.White.copy(alpha = 0.75f), fontSize = if (compact) 15.sp else 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
-                        if (displaySnapshot.featuredArtists.isNotEmpty()) {
-                            Text(
-                                "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
-                                style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.45f), fontSize = if (compact) 12.sp else 14.sp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    val albumText = (displayAlbum ?: enhancedMetadata?.album)?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
-                    if (albumText != null) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("•", style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.3f)))
-                        Spacer(Modifier.width(8.dp))
-                        Text(albumText, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.5f), fontSize = if (compact) 13.sp else 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_album' result='tap'"); onNavigateToAlbum(albumText, enhancedMetadata?.artist ?: displayArtist, enhancedMetadata?.artworkUrl, enhancedMetadata?.releaseYear, enhancedMetadata?.genres?.firstOrNull(), enhancedMetadata?.explicit ?: false) })
-                    }
-                    val pq = nowPlayingState.qualityInfo
-                    if (pq != null && shouldShowQualityChip(pq)) {
-                        Spacer(Modifier.width(10.dp))
-                        NowPlayingQualitySignal(qualityInfo = pq, onClick = onOpenQualityDetails)
-                    }
+            if (mode == NowPlayingMode.LYRICS && lyricsControlsVisible) {
+                LyricsInfoSection(
+                    displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
+                    displaySnapshot = displaySnapshot, enhancedMetadata = enhancedMetadata,
+                    nowPlayingState = nowPlayingState, posterAccentColor = posterAccentColor,
+                    onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled,
+                    reducedMotion = reducedMotion, compact = compact,
+                    onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
+                    onOpenQualityDetails = onOpenQualityDetails,
+                    onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext,
+                    mode = mode, onModeChange = onModeChange
+                )
+            } else {
+                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    ArtworkInfoSection(
+                        displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
+                        displaySnapshot = displaySnapshot, enhancedMetadata = enhancedMetadata,
+                        nowPlayingState = nowPlayingState, posterAccentColor = posterAccentColor,
+                        onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled,
+                        reducedMotion = reducedMotion, compact = compact,
+                        onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
+                        onOpenQualityDetails = onOpenQualityDetails,
+                        onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext,
+                        mode = mode, onModeChange = onModeChange
+                    )
                 }
-                Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
-                LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = canPlayPrevious, canPlayNext = canPlayNext, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
-                Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
-                PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
-                Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
             }
         }
     }
 }
 
 
+
+@Composable
+private fun LyricsInfoSection(
+    displayTitle: String, displayArtist: String, displayAlbum: String?,
+    displaySnapshot: NowPlayingDisplaySnapshot, enhancedMetadata: EnhancedMetadata?,
+    nowPlayingState: NowPlayingState, posterAccentColor: Color,
+    onSeekTo: (Long) -> Unit, audioFrame: VantaAudioFrame?, auraEnabled: Boolean, reducedMotion: Boolean,
+    compact: Boolean,
+    onNavigateToArtist: (String, String?) -> Unit,
+    onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
+    onOpenQualityDetails: () -> Unit,
+    onPrevious: () -> Unit, onTogglePlayPause: () -> Unit, onNext: () -> Unit,
+    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit
+) {
+    val pq = nowPlayingState.qualityInfo
+    val qualityLabel = if (pq != null && shouldShowQualityChip(pq)) pq.bestQualityLabel() else null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF0C0B0D))
+            .padding(horizontal = if (compact) 18.dp else 24.dp)
+    ) {
+        LivingLyricsMetadataRow(
+            title = displayTitle,
+            artist = displayArtist,
+            album = displayAlbum?.takeIf { it.isNotBlank() },
+            qualityLabel = qualityLabel,
+            accentColor = posterAccentColor
+        )
+        Spacer(Modifier.height(6.dp))
+        CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
+        Spacer(Modifier.height(14.dp))
+        LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = nowPlayingState.queuePosition > 0, canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
+        Spacer(Modifier.height(12.dp))
+        PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ArtworkInfoSection(
+    displayTitle: String, displayArtist: String, displayAlbum: String?,
+    displaySnapshot: NowPlayingDisplaySnapshot, enhancedMetadata: EnhancedMetadata?,
+    nowPlayingState: NowPlayingState, posterAccentColor: Color,
+    onSeekTo: (Long) -> Unit, audioFrame: VantaAudioFrame?, auraEnabled: Boolean, reducedMotion: Boolean,
+    compact: Boolean,
+    onNavigateToArtist: (String, String?) -> Unit,
+    onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
+    onOpenQualityDetails: () -> Unit,
+    onPrevious: () -> Unit, onTogglePlayPause: () -> Unit, onNext: () -> Unit,
+    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit
+) {
+    val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
+    val canPlayPrevious = nowPlayingState.queuePosition > 0
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = if (compact) 18.dp else 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Spacer(Modifier.weight(1f))
+        CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
+        Spacer(Modifier.height(16.dp))
+        Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 24.sp else 30.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(displayArtist, style = VantaType.sectionTitle.copy(color = Color.White.copy(alpha = 0.75f), fontSize = if (compact) 15.sp else 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
+                if (displaySnapshot.featuredArtists.isNotEmpty()) {
+                    Text(
+                        "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
+                        style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.45f), fontSize = if (compact) 12.sp else 14.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            val albumText = (displayAlbum ?: DisplayMetadataCleaner.cleanDisplayName(enhancedMetadata?.album).takeIf { it.isNotBlank() })?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
+            if (albumText != null) {
+                Spacer(Modifier.width(8.dp))
+                Text("•", style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.3f)))
+                Spacer(Modifier.width(8.dp))
+                Text(albumText, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.5f), fontSize = if (compact) 13.sp else 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_album' result='tap'"); onNavigateToAlbum(albumText, enhancedMetadata?.artist ?: displayArtist, enhancedMetadata?.artworkUrl, enhancedMetadata?.releaseYear, enhancedMetadata?.genres?.firstOrNull(), enhancedMetadata?.explicit ?: false) })
+            }
+            val pq = nowPlayingState.qualityInfo
+            if (pq != null && shouldShowQualityChip(pq)) {
+                Spacer(Modifier.width(10.dp))
+                NowPlayingQualitySignal(qualityInfo = pq, onClick = onOpenQualityDetails)
+            }
+        }
+        Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
+        LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = canPlayPrevious, canPlayNext = canPlayNext, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
+        Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
+        PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
+        Spacer(Modifier.height(8.dp))
+        StoryMomentChip(
+            nowPlayingState = nowPlayingState,
+            audioFrame = audioFrame,
+            visible = true,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+        Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
+    }
+}
 
 @Composable
 private fun VantaSceneHeaderRow(centerLabel: String, titleForMenu: String, onBack: () -> Unit, onOpenEqualizer: () -> Unit, onOpenTrackSheet: () -> Unit, modifier: Modifier = Modifier, onOpenCast: () -> Unit = {}) {

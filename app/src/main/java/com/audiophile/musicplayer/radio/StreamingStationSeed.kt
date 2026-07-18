@@ -242,16 +242,6 @@ object StreamingStationSeedResolver {
             )
         }
 
-        if (looksLikeArtistOnly(trimmed)) {
-            return StreamingStationSeed(
-                id = slug("artist_$trimmed"),
-                displayName = "$trimmed Radio",
-                kind = StreamingStationKind.ARTIST,
-                queryPhrases = listOf("$trimmed songs", "$trimmed greatest hits"),
-                seedArtist = trimmed
-            )
-        }
-
         val activity = detectActivity(trimmed)
         if (activity != null) {
             return StreamingStationSeed(
@@ -264,6 +254,19 @@ object StreamingStationSeedResolver {
         }
 
         detectGenreStation(trimmed)?.let { return it }
+
+        val identityText = StationQuerySanitizer.cleanStationMeta(trimmed)
+        if (identityText.isNotBlank() &&
+            !VibeTranslator.isPersonalTastePrompt(identityText) &&
+            !VibeTranslator.isVibePrompt(identityText) &&
+            looksLikeArtistOnly(identityText)
+        ) {
+            return artistSeed(identityText)
+        }
+
+        if (looksLikeArtistOnly(trimmed)) {
+            return artistSeed(trimmed)
+        }
 
         return StreamingStationSeed(
             id = slug("text_$trimmed"),
@@ -311,6 +314,15 @@ object StreamingStationSeedResolver {
         }
         return null
     }
+
+    private fun artistSeed(artist: String): StreamingStationSeed =
+        StreamingStationSeed(
+            id = slug("artist_$artist"),
+            displayName = "$artist Radio",
+            kind = StreamingStationKind.ARTIST,
+            queryPhrases = listOf("$artist songs", "$artist greatest hits"),
+            seedArtist = artist
+        )
 
     fun fromJukeboxStation(station: JukeboxStation): StreamingStationSeed {
         val genreKey = station.genreKeywords.firstOrNull().orEmpty()
@@ -487,3 +499,13 @@ fun StreamingSeedParams.toStationSeed(): StreamingStationSeed {
         hintKeywords = hintKeywords
     )
 }
+
+fun StreamingStationSeed.toStreamingSeedParams(): StreamingSeedParams = StreamingSeedParams(
+    seedText = displayName,
+    seedKind = kind.name,
+    eraStart = eraStart,
+    eraEnd = eraEnd,
+    artistName = seedArtist,
+    trackTitle = seedTitle,
+    hintKeywords = hintKeywords
+)

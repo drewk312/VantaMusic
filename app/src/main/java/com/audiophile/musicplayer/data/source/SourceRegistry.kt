@@ -105,13 +105,22 @@ class SourceRegistry(
     /**
      * Resolve stream using priority-based fallback.
      * Attempts providers in order, skipping those that fail or time out.
+     *
+     * NOTE: each provider is resolved with the SAME [trackId]. Provider ID
+     * namespaces differ (gateways strip the prefix and look the bare id up in a
+     * different catalog), so a successful resolution may still belong to a *different*
+     * recording. We therefore reject any stream whose reported providerId does not
+     * match the provider that produced it (a cross-namespace collision signal).
      */
     suspend fun resolveStreamWithFallback(trackId: String, providerIds: List<String>, timeoutMs: Long = 10000L): ResolvedStream? {
         for (providerId in providerIds) {
             val provider = providers.find { it.providerId == providerId } ?: continue
             try {
                 val resolved = withTimeout(timeoutMs) { provider.resolveStream(trackId) }
-                if (resolved != null && resolved.streamUrl.isNotBlank()) {
+                if (resolved != null &&
+                    resolved.streamUrl.isNotBlank() &&
+                    (resolved.providerId == null || resolved.providerId == providerId)
+                ) {
                     Log.d("VANTA_SEARCH", "SourceRegistry fallback success for ${provider.providerId}:$trackId")
                     return resolved
                 }

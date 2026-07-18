@@ -53,7 +53,7 @@ class PulseVoiceRelayClient {
                 bodyBytes
             } ?: return@withContext null
             bytes
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.e("VANTA_PULSE_VOICE", "Relay request failed", e)
             null
         }

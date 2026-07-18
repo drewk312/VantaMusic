@@ -32,6 +32,8 @@ class AndroidAutoController(
     private val player: Player,
     private val onToggleFavorite: () -> Unit,
     private val isFavoriteProvider: () -> Boolean,
+    private val canToggleFavoriteProvider: () -> Boolean,
+    private val hasActiveTrackProvider: () -> Boolean,
     private val ensureLibraryAccess: (MediaSession.ControllerInfo) -> Boolean,
     private val onSongRadio: () -> Unit = {},
     private val onMoreLikeThis: () -> Unit = {},
@@ -116,6 +118,9 @@ class AndroidAutoController(
         val result = Bundle()
         when (customAction.customAction) {
             ACTION_TOGGLE_FAVORITE -> {
+                if (!canToggleFavoriteProvider()) {
+                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                }
                 onToggleFavorite()
                 result.putBoolean("isFavorite", isFavoriteProvider())
                 session.setCustomLayout(buildCommandButtons())
@@ -135,10 +140,16 @@ class AndroidAutoController(
                 result.putInt("repeatMode", player.repeatMode)
             }
             ACTION_SONG_RADIO -> {
+                if (!hasActiveTrackProvider()) {
+                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                }
                 onSongRadio()
                 result.putBoolean("action", true)
             }
             ACTION_MORE_LIKE_THIS -> {
+                if (!hasActiveTrackProvider()) {
+                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                }
                 onMoreLikeThis()
                 result.putBoolean("action", true)
             }
@@ -151,6 +162,9 @@ class AndroidAutoController(
                 result.putBoolean("action", true)
             }
             ACTION_LYRICS -> {
+                if (!hasActiveTrackProvider()) {
+                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                }
                 onShowLyrics()
                 result.putBoolean("action", true)
             }
@@ -165,14 +179,14 @@ class AndroidAutoController(
             .setDisplayName("Favorite")
             .setIconResId(if (isFavoriteProvider()) R.drawable.ic_favorite_filled else android.R.drawable.star_off)
             .setSessionCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle()))
-            .setEnabled(true)
+            .setEnabled(canToggleFavoriteProvider())
             .build())
 
         buttons.add(CommandButton.Builder()
             .setDisplayName("Shuffle")
             .setIconResId(R.drawable.ic_shuffle)
             .setSessionCommand(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle()))
-            .setEnabled(player.shuffleModeEnabled)
+            .setEnabled(true)
             .build())
 
         val repeatIcon = when (player.repeatMode) {
@@ -191,14 +205,14 @@ class AndroidAutoController(
             .setDisplayName("Song Radio")
             .setIconResId(android.R.drawable.ic_menu_share)
             .setSessionCommand(SessionCommand(ACTION_SONG_RADIO, Bundle()))
-            .setEnabled(true)
+            .setEnabled(hasActiveTrackProvider())
             .build())
 
         buttons.add(CommandButton.Builder()
             .setDisplayName("More Like This")
             .setIconResId(android.R.drawable.ic_menu_search)
             .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle()))
-            .setEnabled(true)
+            .setEnabled(hasActiveTrackProvider())
             .build())
 
         buttons.add(CommandButton.Builder()
@@ -209,19 +223,13 @@ class AndroidAutoController(
             .build())
 
         buttons.add(CommandButton.Builder()
-            .setDisplayName("AI DJ")
-            .setIconResId(android.R.drawable.ic_menu_compass)
-            .setSessionCommand(SessionCommand(ACTION_AI_DJ, Bundle()))
-            .setEnabled(true)
-            .build())
-
-        buttons.add(CommandButton.Builder()
             .setDisplayName("Lyrics")
             .setIconResId(android.R.drawable.ic_menu_gallery)
             .setSessionCommand(SessionCommand(ACTION_LYRICS, Bundle()))
-            .setEnabled(true)
+            .setEnabled(hasActiveTrackProvider())
             .build())
 
         return buttons
     }
 }
+

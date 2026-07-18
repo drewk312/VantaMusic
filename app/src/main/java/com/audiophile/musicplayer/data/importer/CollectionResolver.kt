@@ -58,9 +58,14 @@ class CollectionResolver(
     suspend fun resolve(url: String): CollectionResult? = withContext(Dispatchers.IO) {
         val platform = platformName(url) ?: return@withContext null
         return@withContext when (platform) {
-            "Apple Music" -> resolveAppleMusicAlbum(url)
+            "Apple Music" -> {
+                // albums via iTunes lookup; playlists via Songlink metadata
+                resolveAppleMusicAlbum(url) ?: resolveAppleMusicPlaylist(url)
+            }
             "Pandora"     -> resolvePandoraCollection(url)
             "Spotify"     -> resolveSpotifyAlbumViaSonglink(url)
+            "Tidal"       -> null
+            "Deezer"      -> resolveDeezerAlbum(url)
             else          -> null
         }
     }
@@ -70,7 +75,6 @@ class CollectionResolver(
     private suspend fun resolveAppleMusicAlbum(url: String): CollectionResult? {
         val albumId = numericPathId(url) ?: return null
         return runCatching {
-            // iTunes lookup with entity=song returns the album + all its tracks
             val response = itunesClient.lookupByIdNoEntity(albumId)
             val all = response.results
             if (all.isEmpty()) return null
@@ -102,6 +106,26 @@ class CollectionResolver(
         }.onFailure {
             Log.w("VANTA_COLLECTION", "apple_album_failed id=$albumId error='${it.message}'")
         }.getOrNull()
+    }
+
+    private suspend fun resolveAppleMusicPlaylist(url: String): CollectionResult? {
+        val path = runCatching { URI(url).path.orEmpty() }.getOrNull() ?: return null
+        val segments = path.split('/').filter { it.isNotBlank() }
+        val playlistIndex = segments.indexOfLast { it.equals("playlist", ignoreCase = true) }
+        if (playlistIndex < 0) return null
+        val playlistName = segments.getOrNull(playlistIndex + 1)
+            ?.replace('-', ' ')?.replace('_', ' ')
+            ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }
+            ?: return null
+        Log.d("VANTA_COLLECTION", "Apple playlist name='$playlistName'")
+        return CollectionResult(
+            collectionTitle = playlistName,
+            collectionArtist = null,
+            platform = "Apple Music",
+            collectionType = CollectionType.PLAYLIST,
+            tracks = emptyList(),
+            sourceUrl = url
+        )
     }
 
     // ─── Pandora ───────────────────────────────────────────────────────────────
@@ -182,7 +206,7 @@ class CollectionResolver(
 
     // ─── Spotify ───────────────────────────────────────────────────────────────
 
-    private fun resolveSpotifyAlbumViaSonglink(url: String): CollectionResult? {
+    private suspend fun resolveSpotifyAlbumViaSonglink(url: String): CollectionResult? {
         // Songlink supports album lookups; returns the entity and links but not the full track list.
         // We use it to get album metadata, then search iTunes for the track listing.
         val encoded = URLEncoder.encode(url, "UTF-8")
@@ -208,13 +232,58 @@ class CollectionResolver(
                 // Now search iTunes to get the actual track list
                 // (Songlink doesn't provide individual tracks for albums)
                 Log.d("VANTA_COLLECTION", "Spotify album via Songlink title='$title' artist='$artist'")
-                null // Will be populated by the iTunes fallback below
+                searchItunesByAlbum(artist, title, CollectionType.ALBUM, url) ?: null
             }
         }.onFailure {
             Log.w("VANTA_COLLECTION", "spotify_songlink_failed error='${it.message}'")
         }.getOrNull()
         // Note: full Spotify track listing requires API access; we return null and let
         // the caller fallback to iTunes search with the slug.
+    }
+
+    // ─── Deezer ────────────────────────────────────────────────────────────────
+
+    private suspend fun resolveDeezerAlbum(url: String): CollectionResult? {
+        val albumId = numericPathId(url) ?: return null
+        return runCatching {
+            val request = Request.Builder()
+                .url("https://api.deezer.com/album/$albumId")
+                .header("Accept", "application/json")
+                .header("User-Agent", "VANTA/1.0 Android")
+                .build()
+            val json = httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                response.body?.string()?.takeIf { it.isNotBlank() }
+            } ?: return@runCatching null
+            val root = JsonParser.parseString(json).asJsonObject
+            val title = root.get("title")?.asString?.takeIf { it.isNotBlank() } ?: return@runCatching null
+            val artist = root.getAsJsonObject("artist")?.get("name")?.asString
+            val cover = root.get("cover_medium")?.asString ?: root.get("cover")?.asString
+            val tracksArray = root.getAsJsonObject("tracks")?.getAsJsonArray("data") ?: return@runCatching null
+            val tracks = tracksArray.mapNotNull { elem ->
+                val track = elem.asJsonObject
+                val trackTitle = track.get("title")?.asString?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                CollectionTrack(
+                    title = trackTitle,
+                    artist = track.getAsJsonObject("artist")?.get("name")?.asString ?: artist ?: "Unknown",
+                    album = title,
+                    durationMs = track.get("duration")?.asLong?.times(1000),
+                    trackNumber = track.get("track_position")?.asInt
+                )
+            }
+            Log.d("VANTA_COLLECTION", "Deezer album id=$albumId title='$title' tracks=${tracks.size}")
+            CollectionResult(
+                collectionTitle = title,
+                collectionArtist = artist,
+                platform = "Deezer",
+                artworkUrl = cover,
+                collectionType = CollectionType.ALBUM,
+                tracks = tracks,
+                sourceUrl = url
+            )
+        }.onFailure {
+            Log.w("VANTA_COLLECTION", "deezer_album_failed id=$albumId error='${it.message}'")
+        }.getOrNull()
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -276,7 +345,7 @@ class CollectionResolver(
             val path = uri.path.orEmpty().lowercase(Locale.US)
             return when {
                 "music.apple.com" in host ->
-                    "/album/" in path && uri.rawQuery?.contains("i=") != true
+                    ("/album/" in path && uri.rawQuery?.contains("i=") != true) || "/playlist/" in path
                 "pandora.com" in host ->
                     "/album/" in path || "/playlist/" in path || "/station/" in path
                 "open.spotify.com" in host ->

@@ -34,6 +34,28 @@ class StreamingStationSeedResolverTest {
     }
 
     @Test
+    fun fromUserInput_artistRadioUsesCleanArtistSeed() {
+        val seed = StreamingStationSeedResolver.fromUserInput("The Weeknd radio")
+        assertEquals(StreamingStationKind.ARTIST, seed.kind)
+        assertEquals("The Weeknd", seed.seedArtist)
+        assertFalse(seed.queryPhrases.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun fromUserInput_vibeRadioStaysFreeTextIntent() {
+        val seed = StreamingStationSeedResolver.fromUserInput("quiet car ride radio")
+        assertEquals(StreamingStationKind.FREE_TEXT, seed.kind)
+        assertTrue(seed.queryPhrases.any { it.contains("quiet car ride", ignoreCase = true) })
+    }
+
+    @Test
+    fun fromUserInput_activityPromptDoesNotBecomeArtist() {
+        val seed = StreamingStationSeedResolver.fromUserInput("workout")
+        assertNotEquals(StreamingStationKind.ARTIST, seed.kind)
+        assertFalse(seed.seedArtist.equals("workout", ignoreCase = true))
+    }
+
+    @Test
     fun fromJukeboxStation_mapsPreset() {
         val station = com.audiophile.musicplayer.data.dj.JukeboxCatalog.findStation("yacht_rock")
         requireNotNull(station)
@@ -110,5 +132,141 @@ class StreamingStationQueryPlannerTest {
         val queries = StreamingStationQueryPlanner.planInitialQueries(seed)
         assertTrue(queries.any { it.contains("Johnny Cash", ignoreCase = true) })
         assertFalse(queries.any { it.equals("country", ignoreCase = true) })
+    }
+
+    @Test
+    fun planInitialQueries_favoritesRadioDoesNotSearchLiteralFavorite() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val queries = StreamingStationQueryPlanner.planInitialQueries(seed)
+
+        assertTrue(queries.isNotEmpty())
+        assertFalse(queries.any { it.contains("favorite", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("favorites", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planInitialQueries_favoritesRadioUsesTasteAnchorsWhenAvailable() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val taste = StreamingStationTasteSignals(
+            favoriteArtists = setOf("the weeknd", "dua lipa"),
+            genreAffinities = mapOf("r&b" to 4f, "pop" to 2f)
+        )
+        val queries = StreamingStationQueryPlanner.planInitialQueries(seed, taste)
+
+        assertTrue(queries.any { it.contains("the weeknd", ignoreCase = true) })
+        assertTrue(queries.any { it.contains("dua lipa", ignoreCase = true) })
+        assertTrue(queries.any { it.contains("r&b", ignoreCase = true) || it.contains("pop", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("favorite", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planInitialQueries_freeTextVibeDoesNotSearchPromptAsTrackTitle() {
+        val seed = StreamingStationSeedResolver.fromUserInput("quiet car ride radio")
+        val queries = StreamingStationQueryPlanner.planInitialQueries(seed)
+
+        assertTrue(queries.any { it.contains("acoustic", ignoreCase = true) || it.contains("ambient", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("quiet car ride", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planExpansionQueries_favoritesRadioDoesNotSearchLiteralFavorite() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val queries = listOf(
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 0),
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 2),
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 3)
+        ).flatten()
+
+        assertTrue(queries.isNotEmpty())
+        assertFalse(queries.any { it.contains("favorite", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("favorites", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planExpansionQueries_favoritesRadioUsesTasteAnchorsWhenAvailable() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val taste = StreamingStationTasteSignals(
+            favoriteArtists = setOf("Sade", "The Weeknd"),
+            genreAffinities = mapOf("r&b" to 5f)
+        )
+
+        val queries = StreamingStationQueryPlanner.planExpansionQueries(
+            seed = seed,
+            discoveredArtists = emptyList(),
+            pass = 2,
+            taste = taste
+        )
+
+        assertTrue(queries.any { it.contains("Sade", ignoreCase = true) })
+        assertTrue(queries.any { it.contains("The Weeknd", ignoreCase = true) })
+        assertTrue(queries.any { it.contains("r&b", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("favorite", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planExpansionQueries_freeTextVibeDoesNotSearchPromptAsTrackTitle() {
+        val seed = StreamingStationSeedResolver.fromUserInput("quiet car ride radio")
+        val queries = listOf(
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 0),
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 2),
+            StreamingStationQueryPlanner.planExpansionQueries(seed, emptyList(), pass = 3)
+        ).flatten()
+
+        assertTrue(queries.any { it.contains("acoustic", ignoreCase = true) || it.contains("ambient", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("quiet car ride", ignoreCase = true) })
+        assertFalse(queries.any { it.contains("radio", ignoreCase = true) })
+    }
+
+    @Test
+    fun planExpansionQueries_isDeterministicForDiscoveredArtists() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val artists = listOf("Sade", "The Weeknd", "Sade", "Dua Lipa")
+
+        val first = StreamingStationQueryPlanner.planExpansionQueries(seed, artists, pass = 2)
+        val second = StreamingStationQueryPlanner.planExpansionQueries(seed, artists, pass = 2)
+
+        assertEquals(first, second)
+    }
+
+    @Test
+    fun backendRequest_favoritesRadioUsesTasteIntentNotLiteralPrompt() {
+        val seed = StreamingStationSeedResolver.fromUserInput("favorites radio")
+        val request = StreamingStationRequest(
+            seed = seed,
+            taste = StreamingStationTasteSignals(
+                favoriteArtists = setOf("Sade", "The Weeknd"),
+                genreAffinities = mapOf("r&b" to 4f, "soul" to 2f),
+                dislikedArtists = setOf("test artist"),
+                skippedArtists = mapOf("skip artist" to 2)
+            )
+        )
+
+        val payload = RadioBackendRequestPlanner.buildGenerateStationRequest(seed, request, emptyList())
+
+        assertTrue(payload.seed.contains("personal taste", ignoreCase = true))
+        assertFalse(payload.seed.contains("favorites radio", ignoreCase = true))
+        assertFalse(payload.seed.contains("radio", ignoreCase = true))
+        assertTrue(payload.tasteProfile.likes.any { it.equals("Sade", ignoreCase = true) })
+        assertTrue(payload.tasteProfile.likes.any { it.equals("r&b", ignoreCase = true) })
+        assertTrue(payload.tasteProfile.dislikes.any { it.equals("test artist", ignoreCase = true) })
+        assertTrue(payload.tasteProfile.dislikes.any { it.equals("skip artist", ignoreCase = true) })
+    }
+
+    @Test
+    fun backendRequest_freeTextVibeUsesTranslatedVibeNotLiteralPrompt() {
+        val seed = StreamingStationSeedResolver.fromUserInput("quiet car ride radio")
+        val request = StreamingStationRequest(seed = seed)
+
+        val payload = RadioBackendRequestPlanner.buildGenerateStationRequest(seed, request, emptyList())
+
+        assertTrue(payload.seed.contains("acoustic", ignoreCase = true) || payload.seed.contains("ambient", ignoreCase = true))
+        assertFalse(payload.seed.contains("quiet car ride", ignoreCase = true))
+        assertFalse(payload.seed.contains("radio", ignoreCase = true))
+        assertTrue(payload.hintKeywords.orEmpty().any { it.contains("acoustic", ignoreCase = true) || it.contains("ambient", ignoreCase = true) })
     }
 }

@@ -30,7 +30,7 @@ class PersonalizedMixManager(
         withContext(Dispatchers.IO) {
             val spec = registry.get(kind) ?: error("Unknown mix kind: $kind")
             val existing = dao.getMix(kind.id, variant)
-            if (existing != null) return@withContext existing.toRecord(kind)
+            if (existing != null) return@withContext toRecord(existing, kind)
             val now = System.currentTimeMillis()
             val entity = PersonalizedMixEntity(
                 kind = kind.id,
@@ -41,8 +41,8 @@ class PersonalizedMixManager(
                 updatedAt = now
             )
             val id = dao.insertMix(entity)
-            dao.getMix(kind.id, variant)?.copy(id = id)?.toRecord(kind)
-                ?: entity.copy(id = id).toRecord(kind)
+            dao.getMix(kind.id, variant)?.copy(id = id)?.let { toRecord(it, kind) }
+                ?: toRecord(entity.copy(id = id), kind)
         }
 
     suspend fun getSnapshot(kind: PersonalizedMixKind, variant: String = ""): PersonalizedMixSnapshot? =
@@ -61,7 +61,7 @@ class PersonalizedMixManager(
                     normKey = row.normKey
                 )
             }
-            PersonalizedMixSnapshot(entity.toRecord(kind), tracks)
+            PersonalizedMixSnapshot(toRecord(entity, kind), tracks)
         }
 
     suspend fun listSnapshots(): List<PersonalizedMixSnapshot> = withContext(Dispatchers.IO) {
@@ -148,7 +148,7 @@ class PersonalizedMixManager(
         }
 
         Log.d(TAG, "refreshed kind=${kind.id} tracks=${playable.size}")
-        dao.getMix(kind.id, variant)?.toRecord(kind) ?: record
+        dao.getMix(kind.id, variant)?.let { toRecord(it, kind) } ?: record
     }
 
     suspend fun loadPlayableTracks(kind: PersonalizedMixKind, variant: String = ""): List<UnifiedTrackWithSources> =
@@ -170,18 +170,18 @@ class PersonalizedMixManager(
         return candidates.filter { it.normKey !in exclude }
     }
 
-    private fun PersonalizedMixEntity.toRecord(kind: PersonalizedMixKind): PersonalizedMixRecord =
+    private fun toRecord(entity: PersonalizedMixEntity, kind: PersonalizedMixKind): PersonalizedMixRecord =
         PersonalizedMixRecord(
-            id = id,
+            id = entity.id,
             kind = kind,
-            variant = variant,
-            name = name,
-            config = PersonalizedMixConfig.fromJson(configJson),
-            trackCount = trackCount,
-            lastGeneratedAt = lastGeneratedAt,
-            lastGenerationError = lastGenerationError,
-            isStale = isStale,
-            createdAt = createdAt,
-            updatedAt = updatedAt
+            variant = entity.variant,
+            name = entity.name,
+            config = PersonalizedMixConfig.fromJson(entity.configJson),
+            trackCount = entity.trackCount,
+            lastGeneratedAt = entity.lastGeneratedAt,
+            lastGenerationError = entity.lastGenerationError,
+            isStale = entity.isStale,
+            createdAt = entity.createdAt,
+            updatedAt = entity.updatedAt
         )
 }

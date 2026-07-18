@@ -4,7 +4,10 @@ import android.content.Context
 import android.os.Build
 import com.audiophile.musicplayer.BuildConfig
 import com.audiophile.musicplayer.account.AccountManager
+import com.audiophile.musicplayer.account.FirebaseIdTokenInterceptor
 import com.audiophile.musicplayer.data.repository.TrackRepository
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryTokenStore
 import com.audiophile.musicplayer.social.FriendListeningEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,35 +25,36 @@ class VantaSyncManager(
     context: Context,
     private val accountManager: AccountManager,
     private val trackRepository: TrackRepository,
+    private val connectedLibraryTokenStore: ConnectedLibraryTokenStore,
     private val identityStore: SyncIdentityStore = SyncIdentityStore(context),
-    gatewayApi: VantaGatewayApi? = createGatewayApi()
+    gatewayApi: VantaGatewayApi? = null
 ) {
     private val appContext = context.applicationContext
-    private val gatewayApi = gatewayApi
+    private val gatewayApi = gatewayApi ?: createGatewayApi(appContext)
 
     val isSyncEnabled: Boolean
-        get() = accountManager.profile.value.sourceSyncEnabled
+        get() = accountManager.profile.value.sourceSyncEnabled && accountManager.isSignedIn
 
     /**
      * Ensure the user has a stable VANTA ID. This is the iCloud-like anonymous identity
      * that follows the user even before they link an external account.
      */
-    fun ensureIdentity(): SyncIdentity {
-        val userId = accountManager.ensureUserId()
+    fun ensureIdentity(): SyncIdentity? {
+        val userId = accountManager.cloudUserIdOrNull ?: return null
         val profile = accountManager.profile.value
         return SyncIdentity(
             vantaUserId = userId,
             displayName = profile.displayName.takeIf { it.isNotBlank() },
             email = profile.email.takeIf { it.isNotBlank() },
-            linkedProviders = linkedProviders(profile)
+            linkedProviders = linkedProviders()
         )
     }
 
     /**
      * Build a library snapshot from the local Room database.
      */
-    suspend fun buildLibrarySnapshot(): LibrarySnapshot = withContext(Dispatchers.IO) {
-        val identity = ensureIdentity()
+    suspend fun buildLibrarySnapshot(): LibrarySnapshot? = withContext(Dispatchers.IO) {
+        val identity = ensureIdentity() ?: return@withContext null
         val tracks = trackRepository.getAllTracks()
         val snapshotTracks = tracks.map { it.toLibrarySnapshotTrack() }
         LibrarySnapshot(
@@ -71,7 +75,7 @@ class VantaSyncManager(
      */
     suspend fun pushLibrarySnapshot(): SyncPushResult = withContext(Dispatchers.IO) {
         val api = gatewayApi ?: return@withContext SyncPushResult()
-        val snapshot = buildLibrarySnapshot()
+        val snapshot = buildLibrarySnapshot() ?: return@withContext SyncPushResult()
         val dto = snapshot.toDto()
         val response = api.pushLibrarySnapshot(snapshot.vantaUserId, dto)
         if (response.isSuccessful) {
@@ -94,7 +98,7 @@ class VantaSyncManager(
      */
     suspend fun fetchFriendActivity(): List<FriendListeningEvent> = withContext(Dispatchers.IO) {
         val api = gatewayApi ?: return@withContext emptyList()
-        val identity = ensureIdentity()
+        val identity = ensureIdentity() ?: return@withContext emptyList()
         val response = runCatching { api.getActivityFeed(identity.vantaUserId) }.getOrNull()
             ?: return@withContext emptyList()
         if (response.isSuccessful) {
@@ -110,7 +114,7 @@ class VantaSyncManager(
      */
     suspend fun postOwnActivity(event: FriendListeningEvent): Boolean = withContext(Dispatchers.IO) {
         val api = gatewayApi ?: return@withContext false
-        val identity = ensureIdentity()
+        val identity = ensureIdentity() ?: return@withContext false
         val dto = ActivityEventDto(
             userId = identity.vantaUserId,
             displayName = identity.displayName,
@@ -128,22 +132,63 @@ class VantaSyncManager(
             .getOrDefault(false)
     }
 
+    /**
+     * Register a friend on the gateway so their activity appears in the feed.
+     * Best-effort; failures are swallowed.
+     */
+    suspend fun addFriendOnGateway(friendId: String): Boolean = withContext(Dispatchers.IO) {
+        val api = gatewayApi ?: return@withContext false
+        val identity = ensureIdentity() ?: return@withContext false
+        val normalized = friendId.trim().lowercase()
+        if (normalized.isBlank()) return@withContext false
+        runCatching {
+            api.addFriend(
+                identity.vantaUserId,
+                AddFriendRequestDto(friendId = normalized)
+            ).isSuccessful
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Fetch the server-side friend list. Returns empty on failure.
+     */
+    suspend fun fetchServerFriendIds(): List<String> = withContext(Dispatchers.IO) {
+        val api = gatewayApi ?: return@withContext emptyList()
+        val identity = ensureIdentity() ?: return@withContext emptyList()
+        val response = runCatching { api.getFriends(identity.vantaUserId) }.getOrNull()
+            ?: return@withContext emptyList()
+        if (response.isSuccessful) {
+            response.body()?.friendIds ?: emptyList()
+        } else {
+            emptyList()
+        }
+    }
+
     private fun deviceName(): String = runCatching {
         Build.MODEL ?: "Android Device"
     }.getOrDefault("Android Device")
 
-    private fun linkedProviders(profile: AccountManager.UserProfile): List<String> {
+    private fun linkedProviders(): List<String> {
         val providers = mutableListOf<String>()
-        if (!profile.appleMusicUserToken.isNullOrBlank()) providers.add("apple_music")
+        if (!connectedLibraryTokenStore.musicUserToken(ConnectedLibraryProvider.APPLE_MUSIC).isNullOrBlank()) {
+            providers.add("apple_music")
+        }
+        if (!connectedLibraryTokenStore.accessToken(ConnectedLibraryProvider.SPOTIFY).isNullOrBlank()) {
+            providers.add("spotify")
+        }
         return providers
     }
 
     companion object {
-        private fun createGatewayApi(): VantaGatewayApi? {
+        private fun createGatewayApi(context: Context): VantaGatewayApi? {
             val baseUrl = BuildConfig.STATION_BACKEND_URL?.takeIf { it.isNotBlank() } ?: return null
             return try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .addInterceptor(FirebaseIdTokenInterceptor())
+                    .build()
                 Retrofit.Builder()
                     .baseUrl(baseUrl)
+                    .client(client)
                     .addConverterFactory(GsonConverterFactory.create())
                     .build()
                     .create(VantaGatewayApi::class.java)

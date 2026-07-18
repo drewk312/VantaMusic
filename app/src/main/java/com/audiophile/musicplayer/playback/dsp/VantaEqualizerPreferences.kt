@@ -18,7 +18,12 @@ class VantaEqualizerPreferences(context: Context) {
                     VantaEqualizerConfig.MAX_GAIN_DB.toFloat()
                 )
             },
+            eqBypassEnabled = prefs.getBoolean(PREF_EQ_BYPASS, false),
+            loudnessNormalizationEnabled = prefs.getBoolean(PREF_LOUDNESS_NORM, false),
+            replayGainDb = prefs.getFloat(PREF_REPLAY_GAIN, 0f),
+            autoHeadroomEnabled = prefs.getBoolean(PREF_AUTO_HEADROOM, true),
             spatialEnabled = prefs.getBoolean(PREF_SPATIAL_ENABLED, false),
+            immersiveMode = loadImmersiveMode(),
             stereoWidenLevel = prefs.getFloat(PREF_STEREO_WIDEN, 0f).coerceIn(0f, 1f),
             crossfeedEnabled = prefs.getBoolean(PREF_CROSSFEED_ENABLED, false),
             crossfeedMode = prefs.getInt(PREF_CROSSFEED_MODE, 0),
@@ -42,7 +47,12 @@ class VantaEqualizerPreferences(context: Context) {
     fun save(config: VantaEqualizerConfig) {
         prefs.edit {
                 putBoolean(PREF_EQ_ENABLED, config.eqEnabled)
+                putBoolean(PREF_EQ_BYPASS, config.eqBypassEnabled)
+                putBoolean(PREF_LOUDNESS_NORM, config.loudnessNormalizationEnabled)
+                putFloat(PREF_REPLAY_GAIN, config.replayGainDb)
+                putBoolean(PREF_AUTO_HEADROOM, config.autoHeadroomEnabled)
                 putBoolean(PREF_SPATIAL_ENABLED, config.spatialEnabled)
+                putString(PREF_IMMERSIVE_MODE, config.immersiveMode.name)
                 putFloat(PREF_STEREO_WIDEN, config.stereoWidenLevel)
                 putBoolean(PREF_CROSSFEED_ENABLED, config.crossfeedEnabled)
                 putInt(PREF_CROSSFEED_MODE, config.crossfeedMode)
@@ -83,9 +93,35 @@ class VantaEqualizerPreferences(context: Context) {
             }
     }
 
-    fun saveSpatialEnabled(enabled: Boolean) {
+    fun saveEqBypass(enabled: Boolean) {
+        prefs.edit {
+                putBoolean(PREF_EQ_BYPASS, enabled)
+            }
+    }
+
+    fun saveLoudnessNormalization(enabled: Boolean, replayGainDb: Float = 0f) {
+        prefs.edit {
+                putBoolean(PREF_LOUDNESS_NORM, enabled)
+                putFloat(PREF_REPLAY_GAIN, replayGainDb)
+            }
+    }
+
+    fun saveAutoHeadroom(enabled: Boolean) {
+        prefs.edit {
+                putBoolean(PREF_AUTO_HEADROOM, enabled)
+            }
+    }
+
+    fun saveSpatial(enabled: Boolean, mode: VantaImmersiveMode = VantaImmersiveMode.OFF) {
         prefs.edit {
                 putBoolean(PREF_SPATIAL_ENABLED, enabled)
+                putString(PREF_IMMERSIVE_MODE, mode.name)
+            }
+    }
+
+    fun saveImmersiveMode(mode: VantaImmersiveMode) {
+        prefs.edit {
+                putString(PREF_IMMERSIVE_MODE, mode.name)
             }
     }
 
@@ -126,6 +162,15 @@ class VantaEqualizerPreferences(context: Context) {
         return VantaEqualizerPreset.FLAT
     }
 
+    private fun loadImmersiveMode(): VantaImmersiveMode {
+        val stored = prefs.getString(PREF_IMMERSIVE_MODE, null)
+        if (stored != null) {
+            return runCatching { VantaImmersiveMode.valueOf(stored) }
+                .getOrDefault(VantaImmersiveMode.OFF)
+        }
+        return VantaImmersiveMode.OFF
+    }
+
     fun lyricsPipelineLeadMs(): Long {
         val config = load()
         if (!config.spatialEnabled) return 0L
@@ -134,7 +179,12 @@ class VantaEqualizerPreferences(context: Context) {
 
     companion object {
         private const val PREF_EQ_ENABLED = "eq_enabled"
+        private const val PREF_EQ_BYPASS = "eq_bypass"
+        private const val PREF_LOUDNESS_NORM = "loudness_norm"
+        private const val PREF_REPLAY_GAIN = "replay_gain_db"
+        private const val PREF_AUTO_HEADROOM = "auto_headroom"
         private const val PREF_SPATIAL_ENABLED = "spatial_enabled"
+        private const val PREF_IMMERSIVE_MODE = "immersive_mode"
         private const val PREF_STEREO_WIDEN = "stereo_widen"
         private const val PREF_CROSSFEED_ENABLED = "crossfeed_enabled"
         private const val PREF_CROSSFEED_MODE = "crossfeed_mode"

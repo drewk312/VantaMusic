@@ -39,6 +39,7 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.audiophile.musicplayer.auto.AndroidAutoBrowseController
+import com.audiophile.musicplayer.audio.visualizer.VantaAudioAnalyzerHolder
 import com.audiophile.musicplayer.auto.AndroidAutoController
 import com.audiophile.musicplayer.auto.AutoLruCache
 import com.audiophile.musicplayer.auto.AutoMainStageLyrics
@@ -273,6 +274,9 @@ class PlaybackService : MediaLibraryService() {
         sessionTrustPolicy = MediaSessionTrustPolicy(PackageValidator(this))
         vantaEqualizer = com.audiophile.musicplayer.playback.dsp.VantaEqualizerProcessor()
         com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder.processor = vantaEqualizer
+        vantaEqualizer.spectrumListener = { mags ->
+            VantaAudioAnalyzerHolder.analyzer?.updateFromDspSpectrum(mags)
+        }
         autoMixPreferences = AutoMixPreferences(this)
 
 
@@ -375,6 +379,7 @@ class PlaybackService : MediaLibraryService() {
         }
         mediaSession = MediaLibrarySession.Builder(this, player, androidAutoCallback)
             .setId("vanta_media_library")
+            .setBitmapLoader(createAutoBitmapLoader())
             .apply { sessionActivity?.let { setSessionActivity(it) } }
             .build()
 
@@ -395,6 +400,8 @@ class PlaybackService : MediaLibraryService() {
                 }
             },
             isFavoriteProvider = { cachedIsFavorite },
+            canToggleFavoriteProvider = { activeTrack?.track?.localLibraryId != null },
+            hasActiveTrackProvider = { activeTrack != null },
             ensureLibraryAccess = { ensureLibraryAccess(it) },
             onSongRadio = {
                 serviceScope.launch {
@@ -447,6 +454,7 @@ class PlaybackService : MediaLibraryService() {
             orderedQueueTracksProvider = ::orderedQueueTracks,
             allTracksProvider = ::allAutoPlayableTracks,
             remoteResultCache = cachedAutoRemoteResults,
+            currentTrackProvider = { activeTrack },
             favoritesProvider = {
                 localLibraryRepository.allSongsSnapshot().filter { it.isFavorite }
                     .mapNotNull { it.toPlayableQueueItem() }
@@ -475,6 +483,59 @@ class PlaybackService : MediaLibraryService() {
         return mediaSession
     }
 
+    private fun createAutoBitmapLoader(): androidx.media3.common.util.BitmapLoader {
+        return object : androidx.media3.common.util.BitmapLoader {
+            override fun supportsMimeType(mimeType: String) = true
+
+            override fun decodeBitmap(data: ByteArray): ListenableFuture<android.graphics.Bitmap> {
+                val future = com.google.common.util.concurrent.SettableFuture.create<android.graphics.Bitmap>()
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val bitmap = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.size)
+                        if (bitmap != null) future.set(bitmap)
+                        else future.setException(IllegalArgumentException("Failed to decode bitmap"))
+                    } catch (e: Exception) {
+                        future.setException(e)
+                    }
+                }
+                return future
+            }
+
+            override fun loadBitmap(uri: android.net.Uri): ListenableFuture<android.graphics.Bitmap> {
+                val future = com.google.common.util.concurrent.SettableFuture.create<android.graphics.Bitmap>()
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val imageRequest = coil.request.ImageRequest.Builder(this@PlaybackService)
+                            .data(uri)
+                            .size(320, 320)
+                            .allowHardware(false)
+                            .build()
+                        val imageResult = coil.Coil.imageLoader(this@PlaybackService).execute(imageRequest)
+                        val successResult = imageResult as? coil.request.SuccessResult
+                        val drawable = successResult?.drawable
+                        if (drawable != null) {
+                            val width = drawable.intrinsicWidth.coerceAtLeast(1)
+                            val height = drawable.intrinsicHeight.coerceAtLeast(1)
+                            val bmp = android.graphics.Bitmap.createBitmap(
+                                width, height, android.graphics.Bitmap.Config.ARGB_8888
+                            )
+                            android.graphics.Canvas(bmp).apply {
+                                drawable.setBounds(0, 0, width, height)
+                                drawable.draw(this)
+                            }
+                            future.set(bmp)
+                        } else {
+                            future.setException(IllegalArgumentException("Failed to load $uri"))
+                        }
+                    } catch (e: Exception) {
+                        future.setException(e)
+                    }
+                }
+                return future
+            }
+        }
+    }
+
     private fun controllerTrustLevel(controller: MediaSession.ControllerInfo): MediaSessionTrustPolicy.TrustLevel {
         val session = mediaSession ?: return MediaSessionTrustPolicy.TrustLevel.REJECTED
         return sessionTrustPolicy.classify(this, session, controller)
@@ -499,6 +560,10 @@ class PlaybackService : MediaLibraryService() {
 
     private fun libraryAccessDeniedVoid(): LibraryResult<Void> =
         LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED)
+
+    private fun refreshAutoCustomLayout() {
+        mediaSession?.setCustomLayout(autoController.buildCommandButtons())
+    }
 
     private suspend fun allAutoPlayableTracks(): List<UnifiedTrackWithSources> {
         return trackRepository.getAllTracks()
@@ -532,15 +597,30 @@ class PlaybackService : MediaLibraryService() {
                 handleAutoRadioRequest(selectedItem.mediaId)
                 return@launch
             }
+            if (selectedItem.mediaId == AUTO_DJ_ID) {
+                Log.d("VANTA_ANDROID_AUTO", "AI DJ requested from browse tree")
+                val djTracks = allAutoPlayableTracks().shuffled()
+                if (djTracks.isNotEmpty()) {
+                    queueController.setPlayQueue(djTracks, 0, QueueMode.NORMAL_QUEUE)
+                    queueManager.markCurrentTrack(djTracks.first())
+                    playTrack(djTracks.first().track.trackId)
+                }
+                return@launch
+            }
+            if (selectedItem.mediaId == AUTO_LYRICS_ID) {
+                val track = activeTrack
+                if (track != null) {
+                    Log.d("VANTA_ANDROID_AUTO", "Lyrics requested from browse tree")
+                    autoMainStageLyricsController.start(track)
+                } else {
+                    Log.w("VANTA_ANDROID_AUTO", "Lyrics requested without an active track")
+                }
+                return@launch
+            }
             val queue: List<UnifiedTrackWithSources> = when {
                 selectedItem.mediaId == AUTO_LIKED_ID -> {
                     localLibraryRepository.allSongsSnapshot().filter { it.isFavorite }
                         .mapNotNull { it.toPlayableQueueItem() }
-                }
-                selectedItem.mediaId == AUTO_MADE_FOR_YOU_ID -> {
-                    val favTracks = localLibraryRepository.allSongsSnapshot().filter { it.isFavorite }
-                        .mapNotNull { it.toPlayableQueueItem() }
-                    (favTracks + allAutoPlayableTracks().take(30 - favTracks.size.coerceAtMost(30))).distinctBy { it.track.trackId }
                 }
                 selectedItem.mediaId.startsWith(AUTO_PLAYLIST_PREFIX) -> {
                     val playlistId = selectedItem.mediaId.removePrefix(AUTO_PLAYLIST_PREFIX).toLongOrNull()
@@ -859,6 +939,9 @@ class PlaybackService : MediaLibraryService() {
                 }
                 
                 activeTrack = track
+                cachedIsFavorite = track.track.localLibraryId
+                    ?.let { localLibraryRepository.songById(it)?.isFavorite }
+                    ?: false
                 val stream = streamResolver.resolve(track)
                 if (generation != activePlaybackGeneration) return@launch
                 
@@ -880,7 +963,7 @@ class PlaybackService : MediaLibraryService() {
                 
                 artworkUri(track.track.coverArtUrl)?.let { metadataBuilder.setArtworkUri(it) }
                 
-                val mime = mediaItemMimeFor(stream.streamUrl)
+                val mime = stream.mimeType ?: mediaItemMimeFor(stream.streamUrl)
                 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     player.setMediaItem(
@@ -899,16 +982,21 @@ class PlaybackService : MediaLibraryService() {
                         qualityInfo = VantaQualityInfo.fromSource(
                             bitrate = stream.bitrateKbps,
                             status = SearchItemStatus.VALIDATED_PLAYABLE,
-                            sourceProviderId = "resolved",
+                            sourceProviderId = stream.providerId ?: "resolved",
                             isValidated = true,
                             reason = "stream_resolved",
                             mime = mime,
-                            quality = null
+                            quality = stream.qualityLabel,
+                            format = stream.format,
+                            isSpatialAudio = stream.isSpatialAudio,
+                            isDolbyAtmos = stream.isDolbyAtmos,
+                            isSurround = stream.isSurround
                         ),
                         queuePosition = snapshot.queueIndex,
                         queueSize = snapshot.queueSize
                     )
-                    
+
+                    refreshAutoCustomLayout()
                     player.prepare()
                     player.play()
                 }
@@ -1004,6 +1092,7 @@ class PlaybackService : MediaLibraryService() {
         userPauseRequested = false
         Log.d("VANTA_PLAYBACK_INTENT", "action=user_play_direct url=${directUrl.take(60)} userPauseRequested=false generation=$generation")
         activeTrack = null
+        cachedIsFavorite = false
         autoMainStageLyricsController.cancel()
         liveRadioStreamUrl = directUrl
         liveRadioStationName = title
@@ -1028,6 +1117,7 @@ class PlaybackService : MediaLibraryService() {
             )
             player.prepare()
             player.play()
+            refreshAutoCustomLayout()
         } catch (e: Exception) {
             Log.e("VANTA_PLAYBACK", "playDirectUrl preparation crashed", e)
             val errorState = NowPlayingState(
@@ -1273,7 +1363,7 @@ class PlaybackService : MediaLibraryService() {
                 vantaEqualizer.flushAndApplyConfig()
             }
             val holder = com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder.processor
-            Log.d("VANTA_DSP", "equalizer_pushed eq=${config.eqEnabled} spatial=${config.spatialEnabled} holder=${holder != null} nativeAvailable=${com.audiophile.musicplayer.playback.dsp.VantaEqualizerNative.isAvailable}")
+            Log.d("VANTA_DSP", "equalizer_pushed eq=${config.eqEnabled} spatial=${config.spatialEnabled} immersive=${config.immersiveMode.label} rendered=${config.immersiveMode.isRendered} holder=${holder != null} nativeAvailable=${com.audiophile.musicplayer.playback.dsp.VantaEqualizerNative.isAvailable}")
         } catch (e: Exception) {
             Log.e("VANTA_DSP", "Equalizer apply failed", e)
         }
@@ -1473,31 +1563,32 @@ class PlaybackService : MediaLibraryService() {
         private const val CHANNEL_ID = "playback_channel"
         private const val NOTIFICATION_ID = 1001
         private const val AUTO_MAIN_STAGE_RESUME_ID = "vanta:main-stage:resume"
-        private const val AUTO_MAIN_STAGE_QUEUE_ID = "vanta:main-stage:queue"
         private const val AUTO_MOOD_PREFIX = "vanta:mood:"
-        private const val AUTO_RECENT_ID = "vanta:recent"
-        private const val AUTO_TRACKS_ID = "vanta:tracks"
-        private const val AUTO_SHUFFLE_ID = "vanta:shuffle"
-        private const val AUTO_DEVICE_ID = "vanta:device"
-        private const val AUTO_HIGH_QUALITY_ID = AndroidAutoBrowseController.AUTO_HIGH_QUALITY_ID
-        private const val AUTO_TRACK_PREFIX = "vanta:track:"
-        private const val AUTO_REMOTE_TRACK_PREFIX = AndroidAutoBrowseController.AUTO_REMOTE_TRACK_PREFIX
-        private const val AUTO_ARTIST_PREFIX = "vanta:artist:"
-        private const val AUTO_ALBUM_PREFIX = "vanta:album:"
-        private const val AUTO_PAGE_SIZE = 50
-        private const val AUTO_SEARCH_LIMIT = 50
         private const val AUTO_RESOLVE_TIMEOUT_MS = 12_000L
         private const val AUTO_REMOTE_CACHE_SIZE = 200
-        private const val AUTO_HIGH_QUALITY_KBPS = 900
-        private const val AUTO_SONG_RADIO_ID = "vanta:radio:song"
-        private const val AUTO_ARTIST_RADIO_ID = "vanta:radio:artist"
-        private const val AUTO_LIKED_ID = "vanta:liked"
-        private const val AUTO_PLAYLISTS_ID = "vanta:playlists"
-        private const val AUTO_PLAYLIST_PREFIX = "vanta:playlist:"
-        private const val AUTO_MADE_FOR_YOU_ID = "vanta:made-for-you"
-        private const val AUTO_DJ_ID = "vanta:ai-dj"
-        private const val AUTO_LYRICS_ID = "vanta:lyrics"
+        private val AUTO_MAIN_STAGE_QUEUE_ID = AndroidAutoBrowseController.AUTO_QUEUE_ID
+        private val AUTO_RECENT_ID = AndroidAutoBrowseController.AUTO_RECENT_ID
+        private val AUTO_TRACKS_ID = AndroidAutoBrowseController.AUTO_TRACKS_ID
+        private val AUTO_SHUFFLE_ID = AndroidAutoBrowseController.AUTO_SHUFFLE_ID
+        private val AUTO_DEVICE_ID = AndroidAutoBrowseController.AUTO_DEVICE_ID
+        private val AUTO_HIGH_QUALITY_ID = AndroidAutoBrowseController.AUTO_HIGH_QUALITY_ID
+        private val AUTO_TRACK_PREFIX = AndroidAutoBrowseController.AUTO_TRACK_PREFIX
+        private val AUTO_REMOTE_TRACK_PREFIX = AndroidAutoBrowseController.AUTO_REMOTE_TRACK_PREFIX
+        private val AUTO_ARTIST_PREFIX = AndroidAutoBrowseController.AUTO_ARTIST_PREFIX
+        private val AUTO_ALBUM_PREFIX = AndroidAutoBrowseController.AUTO_ALBUM_PREFIX
+        private val AUTO_PAGE_SIZE = AndroidAutoBrowseController.AUTO_PAGE_SIZE
+        private val AUTO_SEARCH_LIMIT = AndroidAutoBrowseController.AUTO_SEARCH_LIMIT
+        private val AUTO_HIGH_QUALITY_KBPS = AndroidAutoBrowseController.AUTO_HIGH_QUALITY_KBPS
+        private val AUTO_SONG_RADIO_ID = AndroidAutoBrowseController.AUTO_SONG_RADIO_ID
+        private val AUTO_ARTIST_RADIO_ID = AndroidAutoBrowseController.AUTO_ARTIST_RADIO_ID
+        private val AUTO_LIKED_ID = AndroidAutoBrowseController.AUTO_LIKED_ID
+        private val AUTO_PLAYLISTS_ID = AndroidAutoBrowseController.AUTO_PLAYLISTS_ID
+        private val AUTO_PLAYLIST_PREFIX = AndroidAutoBrowseController.AUTO_PLAYLIST_PREFIX
+        private val AUTO_DJ_ID = AndroidAutoBrowseController.AUTO_DJ_ID
+        private val AUTO_LYRICS_ID = AndroidAutoBrowseController.AUTO_LYRICS_ID
     }
 }
+
+
 
 

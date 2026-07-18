@@ -32,7 +32,7 @@ object PlaybackMediaItems {
             .setArtist(artist)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .apply {
-                track.track.albumName?.trim()?.takeIf { it.isNotEmpty() }?.let { setAlbumTitle(it) }
+                DisplayMetadataCleaner.cleanAlbumName(track.track.albumName)?.let { setAlbumTitle(it) }
                 track.track.durationMs?.takeIf { it > 0 }?.let { setDurationMs(it) }
                 artworkUri(track.track.coverArtUrl)?.let { setArtworkUri(it) }
             }

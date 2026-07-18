@@ -9,7 +9,11 @@ object LrcParser {
         """<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>([^<]*)"""
     )
     private val metadataTagRegex = Regex(
-        """^\[(?:ar|ti|al|by|offset|length|re|ve|lang|tool|instrumental):.*\]$""",
+        """^\[(?:ar|ti|al|by|length|re|ve|lang|tool|instrumental):.*\]$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val OFFSET_TAG_REGEX = Regex(
+        """^\[offset:([+-]?\d+)\]$""",
         RegexOption.IGNORE_CASE
     )
 
@@ -17,9 +21,18 @@ object LrcParser {
         if (lrcText.isNullOrBlank()) return null
         if (lrcText.trim().equals("[instrumental:true]", ignoreCase = true)) return null
 
+        var globalOffsetMs = 0L
         val parsed = lrcText.lines().flatMap { rawLine ->
             val trimmed = rawLine.trim()
-            if (trimmed.isBlank() || metadataTagRegex.matches(trimmed)) return@flatMap emptyList()
+            if (trimmed.isBlank()) return@flatMap emptyList()
+
+            // Parse global offset tag
+            val offsetMatch = OFFSET_TAG_REGEX.matchEntire(trimmed)
+            if (offsetMatch != null) {
+                globalOffsetMs = offsetMatch.groupValues[1].toLongOrNull() ?: 0L
+                return@flatMap emptyList()
+            }
+            if (metadataTagRegex.matches(trimmed)) return@flatMap emptyList()
 
             val timestamps = timestampRegex.findAll(trimmed).mapNotNull { match ->
                 parseTimestamp(
@@ -61,7 +74,17 @@ object LrcParser {
             }
         }.sortedBy { it.startTimeMs ?: Long.MAX_VALUE }
 
-        return parsed
+        // Apply global offset to all timestamps
+        val offsetApplied = if (globalOffsetMs != 0L) {
+            parsed.map { line ->
+                line.copy(
+                    startTimeMs = line.startTimeMs?.plus(globalOffsetMs)?.coerceAtLeast(0L),
+                    wordTimings = line.wordTimings.map { it.copy(startTimeMs = it.startTimeMs + globalOffsetMs) }
+                )
+            }
+        } else parsed
+
+        return offsetApplied
             .ifEmpty { null }
             ?.let { applyLineEndTimes(it) }
     }

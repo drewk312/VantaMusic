@@ -54,11 +54,18 @@ object SoundiizTextParser {
         return ParsedPlaylistLine(rawLine = line, preserved = true)
     }
 
+    fun isEclipsePlaylistUrl(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.contains("eclipsemusic.app", ignoreCase = true) ||
+            trimmed.contains("/api/share/playlist/", ignoreCase = true)
+    }
+
     fun detectFormat(block: String): String {
         val parsed = parseBlock(block)
         if (parsed.isEmpty()) return "Empty"
         val rawLines = block.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
         return when {
+            rawLines.any { isEclipsePlaylistUrl(it) } -> "Playlist link"
             rawLines.any { it.startsWith("#EXTM3U", ignoreCase = true) || it.startsWith("#EXTINF", ignoreCase = true) } -> "M3U playlist"
             rawLines.any { listPrefixPattern.matches(it) } -> "Numbered or bulleted text"
             rawLines.any { urlPattern.containsMatchIn(it) } -> "Platform links"
@@ -253,6 +260,7 @@ object SoundiizTextParser {
     private fun parseXmlBlock(block: String): List<ParsedPlaylistLine>? {
         val trimmed = block.trim()
         if (!trimmed.startsWith("<")) return null
+        parseAppleLibraryXml(trimmed)?.let { return it }
         val itemPattern = Regex("""<(?:(?:track|song|item|entry)\b)[^>]*>(.*?)</(?:track|song|item|entry)>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val rows = itemPattern.findAll(trimmed)
             .mapNotNull { match ->
@@ -277,6 +285,46 @@ object SoundiizTextParser {
             }
             .toList()
         return rows.takeIf { it.isNotEmpty() }
+    }
+
+    /** Reads the exported iTunes / Apple Music XML library plist without sending it off-device. */
+    private fun parseAppleLibraryXml(block: String): List<ParsedPlaylistLine>? {
+        if (!block.contains("<plist", ignoreCase = true) || !block.contains("<key>Tracks</key>", ignoreCase = true)) return null
+        val trackPattern = Regex(
+            """<key>\d+</key>\s*<dict>(.*?)</dict>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        val rows = trackPattern.findAll(block).mapNotNull { match ->
+            val track = match.groupValues[1]
+            val title = plistValue(track, "Name")
+            val artist = plistValue(track, "Artist")
+            val album = plistValue(track, "Album")
+            if (title.isNullOrBlank()) null else {
+                ParsedPlaylistLine(
+                    rawLine = listOfNotNull(artist, title).joinToString(" - "),
+                    title = title,
+                    artist = artist,
+                    album = album
+                )
+            }
+        }.toList()
+        return rows.takeIf { it.isNotEmpty() }
+    }
+
+    private fun plistValue(track: String, key: String): String? {
+        val pattern = Regex(
+            """<key>\Q$key\E</key>\s*<string>(.*?)</string>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        return pattern.find(track)?.groupValues?.getOrNull(1)
+            ?.replace(Regex("""<!\[CDATA\[(.*?)]]>""", RegexOption.DOT_MATCHES_ALL), "$1")
+            ?.replace("&amp;", "&")
+            ?.replace("&apos;", "'")
+            ?.replace("&quot;", "\"")
+            ?.replace("&lt;", "<")
+            ?.replace("&gt;", ">")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
     }
 
     private fun parseCsvBlock(block: String): List<ParsedPlaylistLine>? {

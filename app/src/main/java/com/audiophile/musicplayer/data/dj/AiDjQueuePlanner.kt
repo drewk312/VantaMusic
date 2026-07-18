@@ -8,6 +8,10 @@ import com.audiophile.musicplayer.data.repository.TrackRepository
 import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
 import com.audiophile.musicplayer.data.lastfm.LastFmGenreResolver
+import com.audiophile.musicplayer.data.dj.PulseMoment
+import com.audiophile.musicplayer.data.dj.PulseMoment.Anchor
+import com.audiophile.musicplayer.data.dj.PulseMoment.Position
+import com.audiophile.musicplayer.data.dj.PulseMoment.Signal
 import kotlin.random.Random
 
 class AiDjQueuePlanner(
@@ -744,11 +748,7 @@ class AiDjQueuePlanner(
             )
         }
 
-        val vibeLabels = listOf(
-            "balanced mix", "mood-driven selection", "curated set",
-            "matching energy", "similar vibe", "themed sequence"
-        )
-        val vibe = vibeLabels[Random.nextInt(vibeLabels.size)]
+        val vibe = buildSegmentVibeDescription(orderedTracks, mode)
 
         return AiDjSegment(
             id = nextSegmentId++,
@@ -898,15 +898,44 @@ class AiDjQueuePlanner(
     private fun generateReason(track: UnifiedTrackWithSources, index: Int, total: Int): String {
         val artist = track.track.artist
         val title = track.track.title
-        val reasons = listOf(
-            "\"$title\" by $artist — sets the tone for this set.",
-            "$artist brings the right energy with \"$title\".",
-            "\"$title\" matches the mood we're building.",
-            "$artist — \"$title\" keeps the flow going.",
-            "\"$title\" from $artist fits perfectly here.",
-            "$artist's \"$title\" — a great addition to this mix."
-        )
-        return reasons[index % reasons.size]
+        val genre = track.track.genre?.lowercase()
+        return when {
+            index == 0 -> "Starting strong with \"$title\" by $artist."
+            index == total - 1 -> "Closing out with \"$title\" by $artist."
+            genre != null && genre.contains("rock") -> "$artist brings the rock energy with \"$title\"."
+            genre != null && genre.contains("electronic") -> "$artist keeps the electronic vibe going with \"$title\"."
+            genre != null && genre.contains("hip-hop") -> "$artist brings the heat with \"$title\"."
+            genre != null && (genre.contains("r&b") || genre.contains("soul")) -> "$artist sets the mood with \"$title\"."
+            genre != null && genre.contains("jazz") -> "$artist adds a smooth jazz feel with \"$title\"."
+            genre != null && genre.contains("pop") -> "$artist keeps it catchy with \"$title\"."
+            genre != null && genre.contains("country") -> "$artist brings the country flavor with \"$title\"."
+            genre != null && genre.contains("ambient") -> "$artist creates atmosphere with \"$title\"."
+            index < total / 3 -> "\"$title\" by $artist — setting the tone for this set."
+            index < total * 2 / 3 -> "$artist maintains the flow with \"$title\"."
+            else -> "\"$title\" by $artist — building toward the close."
+        }
+    }
+
+    private fun buildSegmentVibeDescription(
+        tracks: List<UnifiedTrackWithSources>,
+        mode: AiDjMode
+    ): String {
+        if (tracks.isEmpty()) return "${mode.displayName} set"
+        val genres = tracks.mapNotNull { it.track.genre?.lowercase() }.distinct()
+        val artists = tracks.mapNotNull { it.track.artist }.distinct()
+        val topGenre = genres.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+        val artistCount = artists.size
+        return when {
+            topGenre != null && artistCount > 4 -> "$topGenre-influenced mix with $artistCount artists"
+            topGenre != null && artistCount > 1 -> "$topGenre-driven set featuring $artistCount artists"
+            topGenre != null -> "Focused $topGenre journey"
+            artistCount > 5 -> "Multi-artist collection with $artistCount artists"
+            artistCount > 1 -> "Set spanning $artistCount artists"
+            else -> {
+                val singleArtist = artists.firstOrNull() ?: "unknown"
+                "$singleArtist spotlight"
+            }
+        }
     }
 
     private fun generateNarration(mode: AiDjMode, profile: AiDjTasteProfile, count: Int): String {
@@ -919,3 +948,5 @@ class AiDjQueuePlanner(
         }
     }
 }
+
+

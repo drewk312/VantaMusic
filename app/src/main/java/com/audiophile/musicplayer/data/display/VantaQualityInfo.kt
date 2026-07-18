@@ -14,6 +14,11 @@ data class VantaQualityInfo(
     val bitDepth: Int?,
     val isLossless: Boolean?,
     val isHiRes: Boolean?,
+    val isSpatialAudio: Boolean = false,
+    val isDolbyAtmos: Boolean = false,
+    val isSurround: Boolean = false,
+    /** "verified" requires delivered-stream codec/channel metadata; other values are discovery-only. */
+    val spatialEvidence: String? = null,
     val isPreview: Boolean,
     val isValidated: Boolean,
     val sourceProviderId: String?,
@@ -58,6 +63,10 @@ data class VantaQualityInfo(
             bitDepth: Int? = null,
             isLossless: Boolean? = null,
             isHiRes: Boolean? = null,
+            isSpatialAudio: Boolean = false,
+            isDolbyAtmos: Boolean = false,
+            isSurround: Boolean = false,
+            spatialEvidence: String? = null,
             isValidated: Boolean = false,
             sourceProviderId: String? = null,
             reason: String? = null,
@@ -72,6 +81,7 @@ data class VantaQualityInfo(
             val rawBitrate = bitrate?.takeIf { it > 0 }
             val normalizedBitDepth = bitDepth?.takeIf { it > 0 } ?: inferBitDepth(quality)
             val normalizedSampleRate = sampleRateHz?.takeIf { it > 0 }
+                ?: inferSampleRateFromQuality(quality)
                 ?: inferSampleRateFromBitrateField(
                     bitrateKbps = rawBitrate,
                     format = normalizedFormat,
@@ -85,6 +95,9 @@ data class VantaQualityInfo(
                 sampleRateHz = normalizedSampleRate,
                 bitrateIsMeasured = bitrateIsMeasured
             )
+            val detectedAtmos = isDolbyAtmos || qualityClaimsAtmos(quality, mime, format)
+            val detectedSpatial = isSpatialAudio || detectedAtmos || qualityClaimsSpatial(quality)
+            val detectedSurround = isSurround || detectedAtmos || qualityClaimsSurround(quality, mime, format)
             val inferredLossless = isLossless ?: inferLossless(normalizedFormat, quality)
             val inferredHiRes = isHiRes ?: inferHiRes(quality, normalizedSampleRate, normalizedBitDepth)
             if (rawBitrate != null && normalizedBitrate == null) {
@@ -102,6 +115,9 @@ data class VantaQualityInfo(
                 bitDepth = normalizedBitDepth,
                 isLossless = inferredLossless,
                 isHiRes = inferredHiRes,
+                isSpatialAudio = detectedSpatial,
+                isDolbyAtmos = detectedAtmos,
+                isSurround = detectedSurround,
                 isPreview = preview,
                 isValidated = validated,
                 rawQuality = quality
@@ -119,6 +135,10 @@ data class VantaQualityInfo(
                 bitDepth = normalizedBitDepth,
                 isLossless = inferredLossless,
                 isHiRes = inferredHiRes,
+                isSpatialAudio = detectedSpatial,
+                isDolbyAtmos = detectedAtmos,
+                isSurround = detectedSurround,
+                spatialEvidence = spatialEvidence,
                 isPreview = preview,
                 isValidated = validated,
                 sourceProviderId = sourceProviderId,
@@ -189,6 +209,9 @@ data class VantaQualityInfo(
             bitDepth: Int?,
             isLossless: Boolean?,
             isHiRes: Boolean?,
+            isSpatialAudio: Boolean,
+            isDolbyAtmos: Boolean,
+            isSurround: Boolean,
             isPreview: Boolean,
             isValidated: Boolean,
             rawQuality: String?
@@ -199,43 +222,61 @@ data class VantaQualityInfo(
 
             if (!isValidated) return null
 
+            val immersivePrefix = when {
+                isDolbyAtmos -> "Dolby Atmos"
+                isSpatialAudio -> "Spatial Audio"
+                isSurround -> "Surround"
+                else -> null
+            }
+
             val hiRes = isHiRes == true || (bitDepth != null && bitDepth > 16) || (sampleRateHz != null && sampleRateHz > 44_100)
             if (hiRes) {
                 val depthRate = formatDepthRate(bitDepth, sampleRateHz)
-                return when {
+                val base = when {
                     depthRate != null -> "Hi-Res \u00B7 $depthRate"
                     format != null -> "Hi-Res \u00B7 ${formatDisplay(format)}"
                     else -> "Hi-Res"
                 }
+                return withImmersivePrefix(immersivePrefix, base)
             }
 
             if (format == "flac") {
-                return when {
+                val base = when {
                     bitrateKbps != null && bitrateKbps >= MIN_PLAUSIBLE_LOSSLESS_BITRATE_KBPS ->
                         "FLAC \u00B7 ${bitrateKbps} kbps"
                     else -> "FLAC"
                 }
+                return withImmersivePrefix(immersivePrefix, base)
             }
 
             if (isLossless == true && bitrateKbps != null && bitrateKbps >= 1411) {
-                return if (format != null) {
+                val base = if (format != null) {
                     "${formatDisplay(format)} \u00B7 ${bitrateKbps} kbps"
                 } else {
                     "CD Quality"
                 }
+                return withImmersivePrefix(immersivePrefix, base)
             }
 
             if (format != null) {
-                return if (bitrateKbps != null) {
+                val base = if (bitrateKbps != null) {
                     "${formatDisplay(format)} \u00B7 ${bitrateKbps} kbps"
                 } else {
                     formatDisplay(format)
                 }
+                return withImmersivePrefix(immersivePrefix, base)
             }
 
-            if (bitrateKbps != null) return "${bitrateKbps} kbps"
+            if (bitrateKbps != null) return withImmersivePrefix(immersivePrefix, "${bitrateKbps} kbps")
 
-            return cleanQualityLabel(rawQuality)
+            return withImmersivePrefix(immersivePrefix, cleanQualityLabel(rawQuality))
+        }
+
+        private fun withImmersivePrefix(prefix: String?, base: String?): String? = when {
+            prefix == null -> base
+            base.isNullOrBlank() -> prefix
+            base.contains(prefix, ignoreCase = true) -> base
+            else -> "$prefix \u00B7 $base"
         }
 
         private fun normalizeFormat(format: String?, quality: String?, mime: String?): String? {
@@ -297,6 +338,15 @@ data class VantaQualityInfo(
                 "16-bit" in q || "16 bit" in q || "16/" in q -> 16
                 else -> null
             }
+        }
+
+        private fun inferSampleRateFromQuality(quality: String?): Int? {
+            val q = quality?.lowercase().orEmpty()
+            val match = Regex("""(\d{2,3}(?:\.\d)?)\s*k\s*hz""").find(q)
+                ?: Regex("""(\d{2,3}(?:\.\d)?)\s*khz""").find(q)
+                ?: return null
+            val khz = match.groupValues.getOrNull(1)?.toDoubleOrNull() ?: return null
+            return (khz * 1000).toInt()
         }
 
         private fun sanitizeBitrate(
@@ -371,6 +421,25 @@ data class VantaQualityInfo(
                 "24-bit" in q ||
                 "24 bit" in q ||
                 "24/" in q
+        }
+
+        private fun qualityClaimsAtmos(vararg values: String?): Boolean {
+            val q = values.filterNotNull().joinToString(" ").lowercase()
+            return "dolby atmos" in q ||
+                " atmos" in q ||
+                "e-ac-3 joc" in q ||
+                "eac3-joc" in q ||
+                "ec-3 joc" in q
+        }
+
+        private fun qualityClaimsSpatial(quality: String?): Boolean {
+            val q = quality?.lowercase().orEmpty()
+            return "spatial audio" in q || "spatial" in q || qualityClaimsAtmos(quality)
+        }
+
+        private fun qualityClaimsSurround(vararg values: String?): Boolean {
+            val q = values.filterNotNull().joinToString(" ").lowercase()
+            return "surround" in q || "5.1" in q || "7.1" in q || qualityClaimsAtmos(*values)
         }
 
         private fun cleanQualityLabel(rawQuality: String?): String? {

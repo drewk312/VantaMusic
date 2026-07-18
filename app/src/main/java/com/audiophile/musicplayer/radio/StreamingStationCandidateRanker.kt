@@ -177,21 +177,27 @@ object StreamingStationCandidateRanker {
         maxPerArtist: Int = 2
     ): List<SourceSearchResult> {
         val artistTally = artistCounts.toMutableMap()
-        return results
-            .asSequence()
+        val ranked = results
             .filter { !isStationJunk(it, seed) }
             .filter {
                 val key = normalizeCandidateKey(it.title, it.artist)
                 key !in seenNormKeys
             }
-            .filter {
-                val artistKey = it.artist.trim().lowercase()
-                artistKey.isBlank() || (artistTally[artistKey] ?: 0) < maxPerArtist + 1
-            }
             .distinctBy { "${it.providerId}:${it.id}" }
             .distinctBy { normalizeCandidateKey(it.title, it.artist) }
             .sortedByDescending { scoreCandidate(it, seed, taste) }
-            .toList()
+
+        val accepted = mutableListOf<SourceSearchResult>()
+        for (candidate in ranked) {
+            val artistKey = candidate.artist.trim().lowercase()
+            val currentCount = artistTally[artistKey] ?: 0
+            if (artistKey.isNotBlank() && currentCount >= maxPerArtist) continue
+            accepted.add(candidate)
+            if (artistKey.isNotBlank()) {
+                artistTally[artistKey] = currentCount + 1
+            }
+        }
+        return accepted
     }
 
     fun normalizeCandidateKey(title: String, artist: String): String =

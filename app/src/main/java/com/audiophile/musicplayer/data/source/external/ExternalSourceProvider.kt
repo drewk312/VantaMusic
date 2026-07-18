@@ -171,7 +171,7 @@ open class ExternalSourceProvider(
                         return body
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: java.io.IOException) {
                 Log.d("VANTA_EXTERNAL_SOURCE",
                     "providerId=$providerId operation=$operation url='$url' error='${e.message}'")
             }
@@ -659,7 +659,7 @@ open class ExternalSourceProvider(
                         it.endsWith(".mp3") || it.endsWith(".ogg") || it.endsWith(".opus")
                 }
             (responseCode in 200..299 || responseCode == 206) && looksLikeAudio
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             false
         } finally {
             connection?.disconnect()

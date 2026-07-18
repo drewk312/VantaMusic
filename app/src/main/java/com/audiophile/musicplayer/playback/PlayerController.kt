@@ -25,6 +25,10 @@ class PlayerController(
     private val queueManager: QueueManager,
     private val playbackState: PlaybackStateHolder
 ) {
+    companion object {
+        private const val POSITION_POLL_INTERVAL_MS = 100L
+    }
+
     private val appContext = context.applicationContext
 
     private val timelineRefreshHandler = Handler(Looper.getMainLooper())
@@ -113,10 +117,10 @@ class PlayerController(
     private fun startPolling() {
         pollingJob?.cancel()
         pollingJob = scope.launch {
-            Log.d("VANTA_PLAYBACK", "position loop started (100ms interval)")
+            Log.d("VANTA_PLAYBACK", "position loop started (${POSITION_POLL_INTERVAL_MS}ms interval)")
             while (isActive) {
                 updatePosition()
-                delay(50)
+                delay(POSITION_POLL_INTERVAL_MS)
             }
         }
     }

@@ -126,7 +126,11 @@ class QueueManager(
         }
         val originalTrack = tracks.getOrNull(startIndex)
         val dedupedStartIndex = if (originalTrack != null) {
-            _originalQueue.indexOfFirst { it.track.trackId == originalTrack.track.trackId }.coerceAtLeast(0)
+            // Match by dedupe key, not trackId: deduplicateTracks may have kept a
+            // higher-quality variant whose trackId differs from the requested start
+            // track (e.g. a cloud copy replacing a local one of the same song).
+            val startKey = deduplicateKey(originalTrack)
+            _originalQueue.indexOfFirst { deduplicateKey(it) == startKey }.coerceAtLeast(0)
         } else {
             0
         }
@@ -397,7 +401,10 @@ class QueueManager(
                 .filter { it.track.trackId !in _playedHistory }
             if (validTracks.isEmpty()) return null
             val track = validTracks.random()
-            Log.d("VANTA_QUEUE_TRUTH", "action=get_next source=shuffle title=${track.track.title}")
+            // Anchor the playhead to the chosen track so getPreviousTrack and the
+            // autoplay-refill threshold stay correct (previously the index was frozen).
+            currentOriginalIndex = _originalQueue.indexOfFirst { it.track.trackId == track.track.trackId }
+            Log.d("VANTA_QUEUE_TRUTH", "action=get_next source=shuffle title=${track.track.title} playhead=$currentOriginalIndex")
             return consume(track)
         }
 
@@ -528,11 +535,33 @@ class QueueManager(
 
     private fun deduplicateInPlace() {
         val before = _originalQueue.size
+        if (before <= 1) return
+        val currentKey = currentTrack?.let { deduplicateKey(it) }
+        // Guard: if we have no current track but have a stale index, reset it
+        if (currentKey == null && currentOriginalIndex >= 0) {
+            currentOriginalIndex = 0.coerceAtMost(_originalQueue.lastIndex)
+            Log.d("VANTA_QUEUE_TRUTH", "dedupe_in_place reason=no_current_track resetIdx=$currentOriginalIndex")
+            return
+        }
         val deduped = deduplicateTracks(_originalQueue.toList())
         if (deduped.size < before) {
             _originalQueue.clear()
             _originalQueue.addAll(deduped)
-            Log.d("VANTA_QUEUE_TRUTH", "dedupe_in_place originalBefore=$before originalAfter=${deduped.size}")
+            // Re-anchor the playhead to the currently playing track by its
+            // dedupe key. Items removed by dedup may have sat *before* the
+            // playhead, which would otherwise shift currentOriginalIndex and
+            // make getNextTrack advance to the wrong track.
+            if (currentKey != null) {
+                val newIndex = _originalQueue.indexOfFirst { deduplicateKey(it) == currentKey }
+                currentOriginalIndex = if (newIndex >= 0) {
+                    newIndex
+                } else {
+                    // Current track was deduped out; anchor to the first item
+                    0.coerceAtMost(_originalQueue.lastIndex)
+                }
+            }
+            Log.d("VANTA_QUEUE_TRUTH", "dedupe_in_place originalBefore=$before originalAfter=${deduped.size} playhead=$currentOriginalIndex")
         }
     }
 }
+

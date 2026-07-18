@@ -31,15 +31,69 @@ class LibraryImporter(
     private val repository: LocalLibraryRepository,
     private val matchingService: TrackMatchingService = TrackMatchingService(),
     private val metadataResolver: MetadataResolver? = null,
-    private val appleMusicMetadataProvider: AppleMusicMetadataProvider? = null
+    private val appleMusicMetadataProvider: AppleMusicMetadataProvider? = null,
+    private val collectionResolver: CollectionResolver = CollectionResolver()
 ) {
     private val platformLinkResolver: PlatformLinkResolver = PlatformLinkResolver(
         appleMusicProvider = appleMusicMetadataProvider
     )
+
+    private fun convertCollectionToLines(result: CollectionResult): List<ParsedPlaylistLine> {
+        return result.tracks.map { track ->
+            ParsedPlaylistLine(
+                rawLine = "${track.title} - ${track.artist}",
+                title = track.title,
+                artist = track.artist,
+                album = track.album ?: result.collectionTitle,
+                sourceUrl = result.sourceUrl,
+                sourcePlatform = result.platform,
+                sourceId = null,
+                preserved = false
+            )
+        }
+    }
+
+    /** Expands any collection URLs in the parsed lines into individual track lines. */
+    private suspend fun expandCollectionUrls(lines: List<ParsedPlaylistLine>): List<ParsedPlaylistLine> {
+        val result = mutableListOf<ParsedPlaylistLine>()
+        for (line in lines) {
+            val url = line.sourceUrl?.takeIf { it.isNotBlank() }
+            if (url != null && CollectionResolver.isCollectionUrl(url)) {
+                val resolved = collectionResolver.resolve(url)
+                if (resolved != null && resolved.tracks.isNotEmpty()) {
+                    result.addAll(convertCollectionToLines(resolved))
+                } else {
+                    result.add(line)
+                }
+            } else {
+                result.add(line)
+            }
+        }
+        return result
+    }
+
     suspend fun importPastedText(importName: String, pastedText: String): Long {
-        val parsedLines = SoundiizTextParser.parseBlock(pastedText)
+        val trimmed = pastedText.trim()
+        val lines = if (CollectionResolver.isCollectionUrl(trimmed)) {
+            val resolved = collectionResolver.resolve(trimmed)
+            if (resolved != null) {
+                convertCollectionToLines(resolved).ifEmpty {
+                    SoundiizTextParser.parseBlock(pastedText)
+                }
+            } else {
+                SoundiizTextParser.parseBlock(pastedText)
+            }
+        } else {
+            SoundiizTextParser.parseBlock(pastedText)
+        }
+
+        val expanded = if (lines.size == 1 && CollectionResolver.isCollectionUrl(trimmed)) {
+            lines
+        } else {
+            expandCollectionUrls(lines)
+        }
         val catalog = repository.allSongsSnapshot()
-        val imported = parsedLines.map { parsed ->
+        val imported = expanded.map { parsed ->
             val linkMetadata = platformLinkResolver.resolve(parsed)
             val importRow = parsed.withResolvedLink(linkMetadata)
             val match = matchingService.matchImportedTrack(importRow, catalog)
@@ -48,17 +102,21 @@ class LibraryImporter(
             val finalPlayabilityStatus = PlayabilityResolver().resolve(candidate, match.candidates.size, importRow.title, isEnhanced)
             val fallbackMetadataOnly = candidate == null && !importRow.title.isNullOrBlank()
 
-            val matchStatus = when (finalPlayabilityStatus) {
-                PlayabilityStatus.PLAYABLE,
-                PlayabilityStatus.PLAYABLE_ENHANCED,
-                PlayabilityStatus.METADATA_ONLY,
-                PlayabilityStatus.METADATA_ONLY_ENHANCED -> ImportMatchStatus.MATCHED
-                PlayabilityStatus.NEEDS_REVIEW,
-                PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
-                PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
-            }.let { status -> if (fallbackMetadataOnly) ImportMatchStatus.MATCHED else status }
+            val matchStatus = if (fallbackMetadataOnly) {
+                ImportMatchStatus.NEEDS_REVIEW
+            } else {
+                when (finalPlayabilityStatus) {
+                    PlayabilityStatus.PLAYABLE,
+                    PlayabilityStatus.PLAYABLE_ENHANCED,
+                    PlayabilityStatus.METADATA_ONLY,
+                    PlayabilityStatus.METADATA_ONLY_ENHANCED -> ImportMatchStatus.MATCHED
+                    PlayabilityStatus.NEEDS_REVIEW,
+                    PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
+                    PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
+                }
+            }
             val resolvedPlayability = if (fallbackMetadataOnly) {
-                if (linkMetadata != null) PlayabilityStatus.METADATA_ONLY_ENHANCED else PlayabilityStatus.METADATA_ONLY
+                PlayabilityStatus.NEEDS_REVIEW
             } else {
                 finalPlayabilityStatus
             }
@@ -141,17 +199,21 @@ class LibraryImporter(
             val finalPlayabilityStatus = PlayabilityResolver().resolve(candidate, match.candidates.size, importRow.title, isEnhanced)
             val fallbackMetadataOnly = candidate == null && !importRow.title.isNullOrBlank()
 
-            val matchStatus = when (finalPlayabilityStatus) {
-                PlayabilityStatus.PLAYABLE,
-                PlayabilityStatus.PLAYABLE_ENHANCED,
-                PlayabilityStatus.METADATA_ONLY,
-                PlayabilityStatus.METADATA_ONLY_ENHANCED -> ImportMatchStatus.MATCHED
-                PlayabilityStatus.NEEDS_REVIEW,
-                PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
-                PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
-            }.let { status -> if (fallbackMetadataOnly) ImportMatchStatus.MATCHED else status }
+            val matchStatus = if (fallbackMetadataOnly) {
+                ImportMatchStatus.NEEDS_REVIEW
+            } else {
+                when (finalPlayabilityStatus) {
+                    PlayabilityStatus.PLAYABLE,
+                    PlayabilityStatus.PLAYABLE_ENHANCED,
+                    PlayabilityStatus.METADATA_ONLY,
+                    PlayabilityStatus.METADATA_ONLY_ENHANCED -> ImportMatchStatus.MATCHED
+                    PlayabilityStatus.NEEDS_REVIEW,
+                    PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
+                    PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
+                }
+            }
             val resolvedPlayability = if (fallbackMetadataOnly) {
-                if (linkMetadata != null) PlayabilityStatus.METADATA_ONLY_ENHANCED else PlayabilityStatus.METADATA_ONLY
+                PlayabilityStatus.NEEDS_REVIEW
             } else {
                 finalPlayabilityStatus
             }

@@ -14,7 +14,6 @@ import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
 
 import com.audiophile.musicplayer.data.local.entities.Playlist
 import com.audiophile.musicplayer.data.local.entities.PlaylistTrackCrossRef
-import android.util.Log
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.audiophile.musicplayer.data.local.entities.Album
@@ -30,7 +29,7 @@ import com.audiophile.musicplayer.data.local.entities.Album
         ResolutionCacheEntry::class
     ], 
     version = 11,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(RoomConverters::class)
 abstract class TrackDatabase : RoomDatabase() {
@@ -49,29 +48,15 @@ abstract class TrackDatabase : RoomDatabase() {
         }
 
         private const val DB_NAME = "audiophile_music_db"
-        private const val TAG = "TrackDatabase"
-
         fun getDatabase(context: Context): TrackDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: openDatabase(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-
-        private fun openDatabase(appContext: Context): TrackDatabase {
-            return try {
-                buildDatabase(appContext)
-            } catch (e: Exception) {
-                Log.e(TAG, "Database open failed, deleting and retrying", e)
-                INSTANCE = null
-                appContext.deleteDatabase(DB_NAME)
-                buildDatabase(appContext)
+                INSTANCE ?: buildDatabase(context.applicationContext).also { INSTANCE = it }
             }
         }
 
         private fun buildDatabase(appContext: Context): TrackDatabase =
             Room.databaseBuilder(appContext, TrackDatabase::class.java, DB_NAME)
                 .addMigrations(MIGRATION_10_11)
-                .fallbackToDestructiveMigration()
                 .build()
     }
 }

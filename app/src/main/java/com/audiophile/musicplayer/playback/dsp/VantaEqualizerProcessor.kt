@@ -6,6 +6,7 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private const val BLOCK_SIZE = 4096
@@ -67,14 +68,6 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
             return
         }
 
-        // Apply any pending config changes before processing this buffer.
-        if (configDirty) {
-            synchronized(nativeLock) {
-                native?.applyConfig(config)
-                if (native != null) configDirty = false
-            }
-        }
-
         val enc = currentEncoding
         val channels = currentChannelCount
         val bytesPerFrame = (if (enc == C.ENCODING_PCM_FLOAT) 4 else 2) * channels
@@ -83,6 +76,7 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
 
         val outputBytes = frameCount * 8
         val output = replaceOutputBuffer(outputBytes)
+        val outputGain = computeOutputGain()
 
         try {
             val inOrder = inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
@@ -93,13 +87,23 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
                 val chunk = minOf(scratchL.size, frameCount - offset)
                 readInputChunk(inOrder, enc, channels, chunk)
 
-                synchronized(nativeLock) {
-                    native?.processDeinterleaved(scratchL, scratchR, 0, chunk)
+                if (shouldBypassEffects()) {
+                    // A/B bypass: copy deinterleaved input straight through.
+                } else {
+                    if (configDirty) {
+                        synchronized(nativeLock) {
+                            native?.applyConfig(config)
+                            if (native != null) configDirty = false
+                        }
+                    }
+                    synchronized(nativeLock) {
+                        native?.processDeinterleaved(scratchL, scratchR, 0, chunk)
+                    }
                 }
 
                 for (i in 0 until chunk) {
-                    outOrder.putFloat(scratchL[i])
-                    outOrder.putFloat(scratchR[i])
+                    outOrder.putFloat(scratchL[i] * outputGain)
+                    outOrder.putFloat(scratchR[i] * outputGain)
                 }
                 offset += chunk
             }
@@ -123,6 +127,27 @@ class VantaEqualizerProcessor : BaseAudioProcessor() {
         }
         inputBuffer.position(inputBuffer.limit())
     }
+
+    private fun shouldBypassEffects(): Boolean {
+        return config.eqBypassEnabled || (
+            !config.eqEnabled && !config.spatialEnabled && !config.crossfeedEnabled &&
+            !config.reverbEnabled && !config.convolverEnabled && !config.tubeEnabled &&
+            !config.bassCannonEnabled && !config.trebleEnabled &&
+            !config.loudnessNormalizationEnabled
+        )
+    }
+
+    private fun computeOutputGain(): Float {
+        val replay = if (config.loudnessNormalizationEnabled) dbToLinear(config.replayGainDb) else 1f
+        val headroom = if (config.autoHeadroomEnabled) {
+            val maxBoost = config.eqBands.maxOrNull()?.coerceAtLeast(0f) ?: 0f
+            // Pull the master gain down by the largest positive EQ boost to reduce inter-sample clipping.
+            dbToLinear(-maxBoost)
+        } else 1f
+        return (replay * headroom).coerceIn(0.01f, 2f)
+    }
+
+    private fun dbToLinear(db: Float): Float = 10f.pow(db / 20f)
 
     private fun readInputChunk(
         inOrder: ByteBuffer,

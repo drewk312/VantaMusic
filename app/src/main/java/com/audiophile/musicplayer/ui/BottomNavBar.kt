@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,9 +53,10 @@ fun BottomNavBar(
 ) {
     val tabs = listOf(
         Triple(AppRoute.Home, "Home", Icons.Rounded.Home),
-        Triple(AppRoute.Search, "Search", Icons.Rounded.Search),
+        Triple(AppRoute.Discover, "New", Icons.Rounded.Explore),
+        Triple(AppRoute.AiDj, "Radio", Icons.Rounded.Radio),
         Triple(AppRoute.Library, "Library", Icons.Rounded.LibraryMusic),
-        Triple(AppRoute.AiDj, "Radio", Icons.Rounded.AutoAwesome)
+        Triple(AppRoute.Search, "Search", Icons.Rounded.Search)
     )
     val shape = RoundedCornerShape(34.dp)
 

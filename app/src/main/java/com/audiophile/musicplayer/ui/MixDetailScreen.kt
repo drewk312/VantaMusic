@@ -50,6 +50,7 @@ fun MixDetailScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(gradientColors))
+            .statusBarsPadding()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -62,7 +63,7 @@ fun MixDetailScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 32.dp)
+            contentPadding = PaddingValues(bottom = appOverlayBottomPadding(miniPlayerVisible = false))
         ) {
             item {
                 Box(

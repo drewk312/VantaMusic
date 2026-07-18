@@ -50,7 +50,9 @@ object SourceIdentityGate {
         val isIsrcMatch = !selected.isrc.isNullOrBlank() && selected.isrc.equals(candidateIsrc, ignoreCase = true)
         val titleMatches = titleMatchesSelected(selected.title, candidateTitle, selected.artist)
         val artistMatches = artistMatchesSelected(selected.artist, candidateArtist)
-        val isTrustedExactIdentity = isExactProviderMatch || isIsrcMatch
+        // Provider IDs are routing hints, not proof of recording identity.
+        // Upstream mappings and persisted IDs can be stale or incorrect.
+        val isTrustedExactIdentity = isIsrcMatch || (isExactProviderMatch && titleMatches && artistMatches)
 
         if (isExactProviderMatch) {
             score += 500
@@ -198,11 +200,11 @@ object SourceIdentityGate {
         if (expected.isBlank() || actual.isBlank()) return false
         if (expected == actual) return true
         if ((actual.contains(expected) || expected.contains(actual)) &&
-            minOf(expected.length, actual.length).toFloat() / maxOf(expected.length, actual.length).coerceAtLeast(1) >= 0.72f
+            minOf(expected.length, actual.length).toFloat() / maxOf(expected.length, actual.length).coerceAtLeast(1) >= 0.85f
         ) {
             return true
         }
-        return tokenOverlap(expected, actual) >= 0.72f
+        return tokenOverlap(expected, actual) >= 0.80f
     }
 
     private fun artistMatchesSelected(selectedArtist: String, candidateArtist: String): Boolean {
@@ -235,6 +237,7 @@ object SourceIdentityGate {
             .replace(Regex("""\b(instrumental|karaoke|piano version|piano cover|acoustic version|live version|live at|live from|remix|cover version|tribute to|slowed \+ reverb|sped up|nightcore|unplugged|dj mix)\b"""), " ")
             .replace(Regex("""[^\p{L}\p{N}\s]+"""), " ")
             .replace(Regex("""\s+"""), " ")
+            .normalizeDigitWords()
             .trim()
         if (artist.isNotBlank()) {
             normalized = normalized
@@ -253,7 +256,26 @@ object SourceIdentityGate {
             .replace("topic", " ")
             .replace(Regex("""[^\p{L}\p{N}\s]+"""), " ")
             .replace(Regex("""\s+"""), " ")
+            .normalizeDigitWords()
             .trim()
+
+    private fun String.normalizeDigitWords(): String {
+        var result = this
+        DIGIT_WORD_MAP.forEach { (word, digit) ->
+            result = result.replace(word, digit)
+        }
+        return result
+    }
+
+    private val DIGIT_WORD_MAP = mapOf(
+        "zero" to "0", "one" to "1", "two" to "2", "three" to "3", "four" to "4",
+        "five" to "5", "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9",
+        "ten" to "10", "eleven" to "11", "twelve" to "12", "thirteen" to "13",
+        "fourteen" to "14", "fifteen" to "15", "sixteen" to "16", "seventeen" to "17",
+        "eighteen" to "18", "nineteen" to "19", "twenty" to "20", "thirty" to "30",
+        "forty" to "40", "fifty" to "50", "sixty" to "60", "seventy" to "70",
+        "eighty" to "80", "ninety" to "90", "hundred" to "00", "thousand" to "000"
+    )
 
     private fun tokenOverlap(a: String, b: String): Float {
         val aTokens = a.split(" ").filter { it.length > 1 }.toSet()

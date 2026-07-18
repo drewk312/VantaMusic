@@ -48,6 +48,15 @@ object UnifiedSearchEngine {
 
     private const val IDENTITY_THRESHOLD = 85
     private val FEAT_MARKERS = listOf(" feat ", " feat. ", " ft ", " ft. ", " featuring ", " with ")
+    private val DIGIT_WORD_MAP = mapOf(
+        "zero" to "0", "one" to "1", "two" to "2", "three" to "3", "four" to "4",
+        "five" to "5", "six" to "6", "seven" to "7", "eight" to "8", "nine" to "9",
+        "ten" to "10", "eleven" to "11", "twelve" to "12", "thirteen" to "13",
+        "fourteen" to "14", "fifteen" to "15", "sixteen" to "16", "seventeen" to "17",
+        "eighteen" to "18", "nineteen" to "19", "twenty" to "20", "thirty" to "30",
+        "forty" to "40", "fifty" to "50", "sixty" to "60", "seventy" to "70",
+        "eighty" to "80", "ninety" to "90", "hundred" to "00", "thousand" to "000"
+    )
 
     /**
      * Primary entry point for search processing.
@@ -167,9 +176,16 @@ object UnifiedSearchEngine {
         }
 
         if (raw.contains(" - ")) {
-            val parts = raw.split(" - ", limit = 2)
-            // Artist - Title is very common
-            return SearchQueryIntent(raw, parts[1].trim(), parts[0].trim(), featured)
+            val parts = raw.split(" - ", limit = 2).map { it.trim() }
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                val titleArtistScore = splitQualityScore(parts[1], parts[0])
+                val artistTitleScore = splitQualityScore(parts[0], parts[1])
+                return if (titleArtistScore >= artistTitleScore) {
+                    SearchQueryIntent(raw, parts[0], parts[1], featured)
+                } else {
+                    SearchQueryIntent(raw, parts[1], parts[0], featured)
+                }
+            }
         }
 
         // Heuristic: "Title Artist" where the last 1-2 words look like an artist name.
@@ -355,13 +371,18 @@ object UnifiedSearchEngine {
         if (uploaderMarkers.any { it in normArtist }) score -= 400
         if (normArtist.endsWith("vevo") || normArtist.endsWith("topic")) score -= 80
 
-        // Duration Bonus
+        // Duration Bonus — prefer recordings close to the known studio length when available
         expectedTitle?.let { FamousSongRegistry.getDuration(it) }?.let { expectedMs ->
             track.durationMs?.let { actualMs ->
                 if (actualMs > 0) {
-                    val delta = Math.abs(actualMs - expectedMs)
-                    if (delta < 15_000L) score += 30
-                    else if (delta > 60_000L) score -= 40
+                    val delta = kotlin.math.abs(actualMs - expectedMs)
+                    when {
+                        delta < 8_000L -> score += 80
+                        delta < 15_000L -> score += 40
+                        delta < 30_000L -> score += 15
+                        delta > 60_000L -> score -= 120
+                        delta > 45_000L -> score -= 60
+                    }
                 }
             }
         }
@@ -437,7 +458,16 @@ object UnifiedSearchEngine {
         value.lowercase()
             .replace(Regex("""[^\p{L}\p{N}\s]+"""), "")
             .replace(Regex("""\s+"""), " ")
+            .normalizeDigitWords()
             .trim()
+
+    private fun String.normalizeDigitWords(): String {
+        var result = this
+        DIGIT_WORD_MAP.forEach { (word, digit) ->
+            result = result.replace(word, digit)
+        }
+        return result
+    }
 
     /**
      * Normalized query for categorization check.
@@ -682,8 +712,35 @@ object UnifiedSearchEngine {
             "stitches" to ("Shawn Mendes" to 207_000L),
             "theres nothing holdin me back" to ("Shawn Mendes" to 202_000L),
             "in my blood" to ("Shawn Mendes" to 211_000L),
-            "wonder" to ("Shawn Mendes" to 171_000L)
+            "wonder" to ("Shawn Mendes" to 171_000L),
+            "spirit in the sky" to ("Norman Greenbaum" to 240_000L),
+            "everybody wants to rule the world" to ("Tears for Fears" to 251_000L),
+            "shout" to ("Tears for Fears" to 393_000L),
+            "mad world" to ("Tears for Fears" to 218_000L),
+            "head over heels" to ("Tears for Fears" to 304_000L),
+            "sweet child o mine" to ("Guns N Roses" to 356_000L),
+            "blinding lights" to ("The Weeknd" to 200_000L),
+            "el paso" to ("Marty Robbins" to 257_000L),
+            "the less i know the better" to ("Tame Impala" to 216_000L),
+            "victory lap" to ("Nipsey Hussle" to 222_000L),
         )
+
+        private fun levenshtein(s1: String, s2: String): Int {
+            val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+            for (i in 0..s1.length) dp[i][0] = i
+            for (j in 0..s2.length) dp[0][j] = j
+            for (i in 1..s1.length) {
+                for (j in 1..s2.length) {
+                    val cost = if (s1[i-1] == s2[j-1]) 0 else 1
+                    dp[i][j] = minOf(
+                        dp[i-1][j] + 1,
+                        dp[i][j-1] + 1,
+                        dp[i-1][j-1] + cost
+                    )
+                }
+            }
+            return dp[s1.length][s2.length]
+        }
 
         fun resolve(normalizedQuery: String): ResolvedSong? {
             val nq = normalizedQuery.lowercase().trim()
@@ -693,6 +750,19 @@ object UnifiedSearchEngine {
                 if (nq.startsWith("$title ") || nq == title) {
                     return ResolvedSong(title, data.getValue(title).first)
                 }
+            }
+            // Fuzzy match (Levenshtein distance <= 2) for typo tolerance
+            var bestKey: String? = null
+            var bestDist = Int.MAX_VALUE
+            data.keys.forEach { title ->
+                val dist = levenshtein(nq, title)
+                if (dist <= 2 && dist < bestDist) {
+                    bestKey = title
+                    bestDist = dist
+                }
+            }
+            bestKey?.let { key ->
+                return ResolvedSong(key, data.getValue(key).first)
             }
             return null
         }

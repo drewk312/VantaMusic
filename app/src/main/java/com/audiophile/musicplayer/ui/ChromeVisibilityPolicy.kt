@@ -18,6 +18,7 @@ object ChromeVisibilityPolicy {
 
     val TAB_ROUTES = setOf(
         AppRoute.Home,
+        AppRoute.Discover,
         AppRoute.Library,
         AppRoute.Search,
         AppRoute.AiDj

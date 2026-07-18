@@ -210,7 +210,7 @@ fun ArtistDetailScreen(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)
                     ) {
                         Text(
-                            text = artistName,
+                            text = DisplayMetadataCleaner.cleanDisplayName(artistName).ifBlank { artistName },
                             color = Color.White,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
@@ -467,7 +467,7 @@ private fun CatalogTrackRow(
                 if (track.explicit == true) VantaExplicitBadge()
             }
             Text(
-                listOfNotNull(track.album, track.releaseYear?.toString()).joinToString(" • ").ifBlank { displayArtist },
+                listOfNotNull(track.album?.let { DisplayMetadataCleaner.cleanDisplayName(it).ifBlank { it } }, track.releaseYear?.toString()).joinToString(" • ").ifBlank { displayArtist },
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 14.sp,
                 maxLines = 1,
@@ -490,8 +490,8 @@ private fun CatalogAlbumCard(
             modifier = Modifier.size(160.dp).clip(RoundedCornerShape(12.dp))
         )
         Spacer(Modifier.height(8.dp))
-        Text(album.title, color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(listOfNotNull(album.releaseYear?.toString(), album.artist).joinToString(" • "), color = AppTextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(DisplayMetadataCleaner.cleanDisplayName(album.title).ifBlank { album.title }, color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(listOfNotNull(album.releaseYear?.toString(), DisplayMetadataCleaner.cleanDisplayName(album.artist).ifBlank { album.artist }.takeIf { it.isNotBlank() }).joinToString(" • "), color = AppTextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -580,8 +580,8 @@ fun AlbumCard(
             NetworkArtwork(artworkUrl = null, seed = albumName, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.height(8.dp))
-        Text(albumName, color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(artistName, color = AppTextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(DisplayMetadataCleaner.cleanDisplayName(albumName).ifBlank { albumName }, color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(DisplayMetadataCleaner.cleanDisplayName(artistName).ifBlank { artistName }, color = AppTextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -602,6 +602,6 @@ fun ArtistAvatarCard(artistName: String) {
             NetworkArtwork(artworkUrl = null, seed = artistName, modifier = Modifier.fillMaxSize().clip(CircleShape))
         }
         Spacer(Modifier.height(8.dp))
-        Text(artistName, color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Text(DisplayMetadataCleaner.cleanDisplayName(artistName).ifBlank { artistName }, color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
