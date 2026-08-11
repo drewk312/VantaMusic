@@ -60,6 +60,12 @@ class LocalLibraryRepository(
             libraryDao.findSongByExactTitleArtist(title.trim(), artist.trim())
         }
 
+    suspend fun findSongByIsrc(isrc: String): LocalSongEntity? =
+        withContext(Dispatchers.IO) {
+            val clean = isrc.trim()
+            if (clean.isEmpty()) null else libraryDao.findSongByIsrc(clean)
+        }
+
     suspend fun toggleFavorite(songId: Long) = withContext(Dispatchers.IO) {
         libraryDao.toggleFavorite(songId)
     }

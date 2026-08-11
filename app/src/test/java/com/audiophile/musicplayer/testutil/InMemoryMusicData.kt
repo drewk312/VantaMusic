@@ -201,6 +201,11 @@ internal class InMemoryLibraryDao : LibraryDao {
             it.title.equals(title, ignoreCase = true) && it.artist.equals(artist, ignoreCase = true)
         }
 
+    override suspend fun findSongByIsrc(isrc: String): LocalSongEntity? =
+        songs.firstOrNull { song ->
+            song.isrc?.equals(isrc, ignoreCase = true) == true
+        }
+
     override suspend fun getPlaylistSongs(playlistId: Long): List<LocalSongEntity> {
         val idsInOrder = playlistRefs
             .filter { it.playlistId == playlistId }

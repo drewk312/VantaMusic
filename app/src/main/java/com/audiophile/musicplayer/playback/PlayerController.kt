@@ -12,6 +12,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
+import com.audiophile.musicplayer.data.source.ResolvedStream
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -34,8 +35,7 @@ class PlayerController(
     private val timelineRefreshHandler = Handler(Looper.getMainLooper())
     private val timelineRefreshRunnable = Runnable {
         appContext.startService(
-            Intent(appContext, PlaybackService::class.java)
-                .setAction(PlaybackService.ACTION_REFRESH_QUEUE_TIMELINE)
+            PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_REFRESH_QUEUE_TIMELINE)
         )
     }
 
@@ -76,7 +76,12 @@ class PlayerController(
                             updatePosition()
                             return
                         }
-                        playbackState.update { copy(isPlaying = isPlaying) }
+                        playbackState.update {
+                            copy(
+                                isPlaying = isPlaying,
+                                isBuffering = if (isPlaying) false else isBuffering
+                            )
+                        }
                         updatePosition()
                         if (isPlaying) startPolling() else stopPolling()
                     }
@@ -89,6 +94,12 @@ class PlayerController(
                             else -> "UNKNOWN"
                         }
                         Log.d("VANTA_PLAYER_STATE", "PLAYBACK_STATE state=$stateLabel")
+                        playbackState.update {
+                            copy(
+                                isPlaying = mc.isPlaying,
+                                isBuffering = state == androidx.media3.common.Player.STATE_BUFFERING
+                            )
+                        }
                         updatePosition()
                     }
                     override fun onPositionDiscontinuity(
@@ -104,7 +115,12 @@ class PlayerController(
                 playerListener = listener
                 mc.addListener(listener)
 
-                playbackState.update { copy(isPlaying = mc.isPlaying) }
+                playbackState.update {
+                    copy(
+                        isPlaying = mc.isPlaying,
+                        isBuffering = mc.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+                    )
+                }
                 updatePosition()
                 if (mc.isPlaying) startPolling()
             } catch (e: Exception) {
@@ -198,9 +214,15 @@ class PlayerController(
     fun stop() { sendAction(PlaybackService.ACTION_STOP) }
 
     fun playDirectUrl(url: String, title: String, artist: String = "Live Radio") {
+        if (!PlaybackUrlPolicy.isAllowedRemoteStreamUrl(url)) {
+            Log.w("VANTA_STREAM_SECURITY", "Rejected non-public or non-HTTPS direct stream")
+            playbackState.update {
+                copy(isPlaying = false, isBuffering = false, errorMessage = "This stream is not available over a secure connection.")
+            }
+            return
+        }
         appContext.startService(
-            Intent(appContext, PlaybackService::class.java)
-                .setAction(PlaybackService.ACTION_PLAY_DIRECT_URL)
+            PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_PLAY_DIRECT_URL)
                 .putExtra(PlaybackService.EXTRA_STREAM_URL, url)
                 .putExtra(PlaybackService.EXTRA_TITLE, title)
                 .putExtra(PlaybackService.EXTRA_ARTIST, artist)
@@ -244,8 +266,7 @@ class PlayerController(
 
     fun skipLiveRadioAd() {
         appContext.startService(
-            Intent(appContext, PlaybackService::class.java)
-                .setAction(PlaybackService.ACTION_SKIP_LIVE_AD)
+            PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_SKIP_LIVE_AD)
         )
     }
 
@@ -267,8 +288,7 @@ class PlayerController(
             // Controller missing or its command grant lacks seek — route through the
             // service, which calls player.seekTo() directly and cannot be dropped.
             appContext.startService(
-                Intent(appContext, PlaybackService::class.java)
-                    .setAction(PlaybackService.ACTION_SEEK_TO)
+                PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_SEEK_TO)
                     .putExtra(PlaybackService.EXTRA_POSITION_MS, clamped)
             )
         }
@@ -296,6 +316,13 @@ class PlayerController(
 
     fun isPlaying(): Boolean = mediaController?.isPlaying == true
 
+    /**
+     * A restored now-playing card is only UI state. After a process restart the
+     * MediaController can be connected while its timeline is still empty, in
+     * which case a plain play/pause command has nothing to resume.
+     */
+    fun hasCurrentMediaItem(): Boolean = mediaController?.currentMediaItem != null
+
     fun addToOriginalQueue(track: UnifiedTrackWithSources) {
         scope.launch { queueManager.addToOriginalQueue(track) }
     }
@@ -315,18 +342,27 @@ class PlayerController(
         Log.d("VANTA_PLAYBACK_TRACE", "step='controller_send_intent' trackId=${track.track.trackId} title='${track.track.title}' sources=${track.sources.size}")
         Log.d("VANTA_PLAY_TRACK_REQUEST", "Sending ACTION_PLAY_TRACK for trackId=${track.track.trackId} title='${track.track.title}' sources=${track.sources.size}")
         track.sources.forEachIndexed { i, s ->
-            Log.d("VANTA_PLAY_TRACK_REQUEST", "  source[$i]: id=${s.sourceId} type=${s.sourceType} url=${s.streamUrl.take(60)}... bitrate=${s.bitrate}")
+            Log.d("VANTA_PLAY_TRACK_REQUEST", "  source[$i]: id=${s.sourceId} type=${s.sourceType} host=${com.audiophile.musicplayer.common.VantaLogger.urlHost(s.streamUrl)} bitrate=${s.bitrate}")
         }
         appContext.startService(
-            Intent(appContext, PlaybackService::class.java)
-                .setAction(PlaybackService.ACTION_PLAY_TRACK)
+            PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_PLAY_TRACK)
                 .putExtra(PlaybackService.EXTRA_TRACK_ID, track.track.trackId)
         )
     }
 
     fun isDjQueueActive(): Boolean = queueManager.queueMode == QueueMode.AI_DJ_QUEUE
 
-    fun playQueue(tracks: List<UnifiedTrackWithSources>, startIndex: Int = 0, mode: QueueMode = QueueMode.NORMAL_QUEUE) {
+    fun playQueue(
+        tracks: List<UnifiedTrackWithSources>,
+        startIndex: Int = 0,
+        mode: QueueMode = QueueMode.NORMAL_QUEUE,
+        resolvedStream: ResolvedStream? = null,
+        preferredProviderId: String? = null,
+        preferredExternalTrackId: String? = null,
+        userQuery: String? = null,
+        isFavorite: Boolean = false,
+        canonicalTrackId: String? = null,
+    ) {
         if (tracks.isEmpty()) {
             Log.w("VANTA_PLAY_QUEUE_REQUEST", "playQueue called with empty track list")
             return
@@ -343,6 +379,21 @@ class PlayerController(
                 }
                 val safeIndex = tracks.indexOfFirst { it.track.trackId == requestedTrack.track.trackId }.coerceAtLeast(0)
                 val playableCount = tracks.count { it.sourceValidityStatus().canEnterPlaybackFlow() }
+                val startTrack = tracks[safeIndex]
+                val resolvedPreferredProvider = preferredProviderId
+                    ?: resolvedStream?.providerId
+                    ?: resolvedStream?.fulfillmentProviderId
+                val resolvedPreferredExternal = preferredExternalTrackId
+                    ?: startTrack.sources
+                        .firstOrNull {
+                            !it.externalProviderId.isNullOrBlank() &&
+                                !it.externalTrackId.isNullOrBlank() &&
+                                (
+                                    resolvedPreferredProvider == null ||
+                                        it.externalProviderId.equals(resolvedPreferredProvider, ignoreCase = true)
+                                    )
+                        }
+                        ?.externalTrackId
 
                 com.audiophile.musicplayer.debug.DebugSessionLogger.log(
                     hypothesisId = "H11",
@@ -357,32 +408,54 @@ class PlayerController(
                     runId = "mutex-fix-v1"
                 )
 
-                Log.d("VANTA_PLAYBACK_TRACE", "step='queue_selected' trackId=${tracks[safeIndex].track.trackId} queueSize=${tracks.size} startIndex=$safeIndex generation=next")
+                Log.d("VANTA_PLAYBACK_TRACE", "step='queue_selected' trackId=${startTrack.track.trackId} queueSize=${tracks.size} startIndex=$safeIndex generation=next")
                 queueManager.setOriginalQueue(tracks, safeIndex, mode)
-                queueManager.markCurrentTrack(tracks[safeIndex])
+                queueManager.markCurrentTrack(startTrack)
                 playbackState.replace(
                     NowPlayingState.pendingPlayback(
-                        track = tracks[safeIndex],
+                        track = startTrack,
                         queuePosition = safeIndex,
-                        queueSize = tracks.size
+                        queueSize = tracks.size,
+                        preferredProviderId = resolvedPreferredProvider,
+                        preferredExternalTrackId = resolvedPreferredExternal,
+                        userQuery = userQuery,
+                        isFavorite = isFavorite,
+                        canonicalTrackId = canonicalTrackId
                     )
                 )
                 _trackTransition.tryEmit(Unit)
                 Log.d(
                     "VANTA_NOWPLAYING_STATE",
-                    "pendingPlayback trackId=${tracks[safeIndex].track.trackId} title='${tracks[safeIndex].track.title}' positionMs=0 queueIndex=$safeIndex"
+                    "pendingPlayback trackId=${startTrack.track.trackId} title='${startTrack.track.title}' " +
+                        "preferred=$resolvedPreferredProvider:$resolvedPreferredExternal positionMs=0 queueIndex=$safeIndex"
                 )
 
-                appContext.startService(
-                    Intent(appContext, PlaybackService::class.java)
-                        .setAction(PlaybackService.ACTION_PLAY_TRACK)
-                        .putExtra(PlaybackService.EXTRA_TRACK_ID, tracks[safeIndex].track.trackId)
-                )
+                val playIntent = PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_PLAY_TRACK)
+                    .putExtra(PlaybackService.EXTRA_TRACK_ID, tracks[safeIndex].track.trackId)
+                resolvedStream?.let { stream ->
+                    val headers = android.os.Bundle().apply {
+                        stream.requestHeaders.forEach { (name, value) -> putString(name, value) }
+                    }
+                    playIntent
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_URL, stream.streamUrl)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_BITRATE, stream.bitrateKbps)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_MIME, stream.mimeType)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_EXPIRES_AT, stream.expiresAt ?: -1L)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_QUALITY, stream.qualityLabel)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_FORMAT, stream.format)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_PROVIDER, stream.providerId)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_FULFILLED_BY, stream.fulfillmentProviderId)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SPATIAL, stream.isSpatialAudio)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_ATMOS, stream.isDolbyAtmos)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SURROUND, stream.isSurround)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_HEADERS, headers)
+                }
+                appContext.startService(playIntent)
             }
         }
     }
 
     private fun sendAction(action: String) {
-        appContext.startService(Intent(appContext, PlaybackService::class.java).setAction(action))
+        appContext.startService(PlaybackCommandAuth.createIntent(appContext, action))
     }
 }

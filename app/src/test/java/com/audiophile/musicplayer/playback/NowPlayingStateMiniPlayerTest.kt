@@ -36,7 +36,7 @@ class NowPlayingStateMiniPlayerTest {
 
     @Test
     fun resolvingWithQueueItem_isVisible() {
-        val state = NowPlayingState(isPlaying = true, bufferedMs = 100)
+        val state = NowPlayingState(isBuffering = true, bufferedMs = 100)
         val snap = QueueSnapshot(currentTrack = sampleTrack())
         assertTrue(state.shouldShowMiniPlayer(snap))
     }
@@ -71,8 +71,85 @@ class NowPlayingStateMiniPlayerTest {
         assertEquals("tidal-123", state.preferredExternalTrackId)
         assertEquals("Genesis", state.userQuery)
         assertNull(state.errorMessage)
-        assertTrue(state.isPlaying)
+        assertFalse(state.isPlaying)
+        assertTrue(state.isBuffering)
         assertTrue(state.shouldShowMiniPlayer())
+    }
+
+    @Test
+    fun fromTrackChange_preservesPreferredIdentityAndFavoriteOnSameTrack() {
+        val previous = NowPlayingState(
+            trackId = "42",
+            title = "Genesis",
+            artist = "Grimes",
+            isrc = "USUM71201234",
+            isFavorite = true,
+            preferredProviderId = "monochrome.tidal",
+            preferredExternalTrackId = "tidal-123",
+            userQuery = "Genesis Grimes",
+            streamUrl = "https://cdn.example/a.flac"
+        )
+        val state = NowPlayingState.fromTrackChange(
+            track = sampleTrackWithSource(),
+            qualityInfo = null,
+            queuePosition = 1,
+            queueSize = 3,
+            previous = previous
+        )
+
+        assertEquals("42", state.trackId)
+        assertEquals("US1234567890", state.isrc) // track ISRC wins when present
+        assertTrue(state.isFavorite)
+        assertEquals("monochrome.tidal", state.preferredProviderId)
+        assertEquals("tidal-123", state.preferredExternalTrackId)
+        assertEquals("Genesis Grimes", state.userQuery)
+        assertTrue(state.isBuffering)
+        assertFalse(state.isPlaying)
+    }
+
+    @Test
+    fun fromTrackChange_readsPreferredIdentityFromTrackSources() {
+        val state = NowPlayingState.fromTrackChange(
+            track = sampleTrackWithSource(),
+            qualityInfo = null,
+            queuePosition = 0,
+            queueSize = 1,
+            previous = NowPlayingState(trackId = "99", isFavorite = true, userQuery = "other")
+        )
+
+        assertEquals("42", state.trackId)
+        assertFalse(state.isFavorite)
+        assertNull(state.userQuery)
+        assertEquals("monochrome.tidal", state.preferredProviderId)
+        assertEquals("tidal-123", state.preferredExternalTrackId)
+    }
+
+    @Test
+    fun normalized_bufferingNeverClaimsPlaying() {
+        val state = NowPlayingState(
+            trackId = "7",
+            isPlaying = true,
+            isBuffering = true
+        ).normalized()
+
+        assertFalse(state.isPlaying)
+        assertTrue(state.isBuffering)
+        assertEquals(PlaybackPhase.BUFFERING, state.phase)
+    }
+
+    @Test
+    fun normalized_errorClearsActivePlaybackFlags() {
+        val state = NowPlayingState(
+            trackId = "7",
+            isPlaying = true,
+            isBuffering = true,
+            errorMessage = "  Stream failed  "
+        ).normalized()
+
+        assertFalse(state.isPlaying)
+        assertFalse(state.isBuffering)
+        assertEquals("Stream failed", state.errorMessage)
+        assertEquals(PlaybackPhase.ERROR, state.phase)
     }
 
     private fun sampleTrack() = UnifiedTrackWithSources(

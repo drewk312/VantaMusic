@@ -1012,11 +1012,23 @@ fun AppNavGraph(
                                 artist = nowPlayingState.artist ?: "Unknown",
                                 album = nowPlayingState.album,
                                 artworkUrl = nowPlayingState.artworkUrl,
-                                sourceProviderId = null,
-                                externalTrackId = null,
+                                sourceProviderId = nowPlayingState.preferredProviderId,
+                                externalTrackId = nowPlayingState.preferredExternalTrackId,
                                 isPlayable = nowPlayingState.isConfirmedPlayable(),
-                                isInLibrary = nowPlayingState.isFavorite,
-                                isFavorite = nowPlayingState.isFavorite,
+                                isInLibrary = nowPlayingState.isFavorite ||
+                                    com.audiophile.musicplayer.data.local.LocalSongIdentity.isInLibrary(
+                                        uiState.localSongs,
+                                        nowPlayingState.isrc,
+                                        nowPlayingState.title ?: "",
+                                        nowPlayingState.artist ?: ""
+                                    ),
+                                isFavorite = nowPlayingState.isFavorite ||
+                                    com.audiophile.musicplayer.data.local.LocalSongIdentity.isFavorite(
+                                        uiState.localSongs,
+                                        nowPlayingState.isrc,
+                                        nowPlayingState.title ?: "",
+                                        nowPlayingState.artist ?: ""
+                                    ),
                                 hasAlbum = !nowPlayingState.album.isNullOrBlank(),
                                 hasArtist = !nowPlayingState.artist.isNullOrBlank(),
                                 canStartRadio = true,
@@ -1371,9 +1383,18 @@ fun mapTrackToContext(
 ): VantaActionContext.Track {
     val title = track.track.title
     val artist = track.track.artist
-    val inLib = localSongs.any { it.title.equals(title, ignoreCase = true) && it.artist.equals(artist, ignoreCase = true) }
-    val isFav = localSongs.any { it.title.equals(title, ignoreCase = true) && it.artist.equals(artist, ignoreCase = true) && it.isFavorite }
-    val bestSource = track.sources.maxByOrNull { it.bitrate }
+    val matched = com.audiophile.musicplayer.data.local.LocalSongIdentity.findMatchingSong(
+        songs = localSongs,
+        isrc = track.track.isrc,
+        title = title,
+        artist = artist
+    )
+    val inLib = matched != null
+    val isFav = matched?.isFavorite == true
+    val bestSource = track.sources
+        .filter { !it.externalProviderId.isNullOrBlank() && !it.externalTrackId.isNullOrBlank() }
+        .maxByOrNull { it.bitrate }
+        ?: track.sources.maxByOrNull { it.bitrate }
     val sourceStatus = track.sourceValidityStatus()
     val canEnterPlayback = sourceStatus.canEnterPlaybackFlow()
     val qualityLabel = bestSource?.let {

@@ -130,6 +130,16 @@ interface LibraryDao {
     )
     suspend fun findSongByExactTitleArtist(title: String, artist: String): LocalSongEntity?
 
+    @Query(
+        """
+        SELECT * FROM local_songs
+        WHERE isrc IS NOT NULL
+          AND LOWER(isrc) = LOWER(:isrc)
+        LIMIT 1
+        """
+    )
+    suspend fun findSongByIsrc(isrc: String): LocalSongEntity?
+
     @Transaction
     suspend fun addSongsToPlaylist(playlistId: Long, songIds: List<Long>) {
         insertPlaylistSongs(

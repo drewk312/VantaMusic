@@ -85,9 +85,10 @@ object UnifiedSearchEngine {
             val artistName = track.artist.ifBlank { track.title }.trim()
             val artistKey = normalize(artistName)
             if (artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
+                // Never promote a track/external recording id into an artist catalog id.
                 artists[artistKey] = CanonicalArtist(
                     name = artistName,
-                    id = track.externalTrackId ?: "resolved:artist:$artistKey",
+                    id = null,
                     genre = track.genre,
                     artworkUrl = track.artworkUrl
                 )
@@ -96,10 +97,11 @@ object UnifiedSearchEngine {
             val albumArtistName = track.artist.trim()
             val albumKey = normalize("$albumTitle|$albumArtistName")
             if (albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
+                // Name+artist browse until a real catalog album id exists.
                 albums[albumKey] = CanonicalAlbum(
                     title = albumTitle,
                     artist = albumArtistName,
-                    id = track.externalTrackId ?: "resolved:album:$albumKey",
+                    id = null,
                     artworkUrl = track.artworkUrl,
                     releaseYear = track.releaseYear,
                     genre = track.genre,

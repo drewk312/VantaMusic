@@ -2477,25 +2477,50 @@ class MainViewModel @Inject constructor(
                 }
                 val queue = playbackQueueFor(track)
                 val startIndex = queue.indexOfFirst { it.track.trackId == track.track.trackId }.coerceAtLeast(0)
-                container.playerController.playQueue(queue, startIndex)
-                container.nowPlayingStateStore.save(
-                    NowPlayingState.pendingPlayback(
-                        track = track,
-                        queuePosition = startIndex,
-                        queueSize = queue.size,
-                        preferredProviderId = playable.providerId,
-                        preferredExternalTrackId = playable.id,
-                        userQuery = _uiState.value.query.takeIf { it.isNotBlank() }
-                    ).copy(
-                        title = result.title,
-                        artist = result.artist,
-                        album = result.album,
+                val userQuery = _uiState.value.query.takeIf { it.isNotBlank() }
+                    ?: "${result.title} ${result.artist}".trim()
+                val isFavorite = withContext(Dispatchers.IO) {
+                    com.audiophile.musicplayer.data.local.LocalSongIdentity.isFavorite(
+                        songs = container.localLibraryRepository.allSongsSnapshot(),
                         isrc = result.isrc ?: track.track.isrc ?: playable.isrc,
-                        artworkUrl = result.artworkUrl,
-                        durationMs = result.durationMs ?: track.track.durationMs ?: playable.durationMs ?: 0L,
-                        qualityInfo = result.qualityInfo
+                        title = result.title,
+                        artist = result.displayArtist
                     )
+                }
+                val pending = NowPlayingState.pendingPlayback(
+                    track = track,
+                    queuePosition = startIndex,
+                    queueSize = queue.size,
+                    preferredProviderId = playable.providerId,
+                    preferredExternalTrackId = playable.id,
+                    userQuery = userQuery,
+                    isFavorite = isFavorite
+                ).copy(
+                    title = result.title,
+                    artist = result.artist,
+                    album = result.album,
+                    isrc = result.isrc ?: track.track.isrc ?: playable.isrc,
+                    artworkUrl = result.artworkUrl,
+                    durationMs = result.durationMs ?: track.track.durationMs ?: playable.durationMs ?: 0L,
+                    qualityInfo = result.qualityInfo
                 )
+                Log.d(
+                    "VANTA_PLAY_CLICK",
+                    "play_identity title='${pending.title}' artist='${pending.artist}' " +
+                        "preferred=${pending.preferredProviderId}:${pending.preferredExternalTrackId} " +
+                        "isrc=${pending.isrc} playableProvider=${playable.providerId}"
+                )
+                container.playerController.playQueue(
+                    tracks = queue,
+                    startIndex = startIndex,
+                    resolvedStream = resolvedStream,
+                    preferredProviderId = playable.providerId,
+                    preferredExternalTrackId = playable.id,
+                    userQuery = userQuery,
+                    isFavorite = isFavorite
+                )
+                container.nowPlayingStateStore.save(pending)
+                container.playbackStateHolder.replace(pending)
                 _uiState.update {
                     it.copy(
                         activeTrackId = track.track.trackId.toString(),
@@ -2803,7 +2828,13 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun playSongRadio(title: String, artist: String, album: String?, genre: String?) {
+    fun playSongRadio(
+        title: String,
+        artist: String,
+        album: String?,
+        genre: String?,
+        seedTrack: UnifiedTrackWithSources? = null
+    ) {
         val seedKey = "${title.lowercase()}|${artist.lowercase()}"
         val nowMs = System.currentTimeMillis()
         if (seedKey == lastRadioSeedKey && (nowMs - lastRadioSeedTimeMs) < 2000L) {
@@ -2818,15 +2849,27 @@ class MainViewModel @Inject constructor(
             Log.d("VANTA_RADIO_TRUTH", "start seedTitle='${title}' seedArtist='${artist}'")
 
             val library = _uiState.value.library
+            val resolvedSeed = seedTrack
+                ?.takeIf { it.sources.any { source -> source.streamUrl.isNotBlank() } }
+                ?: library.firstOrNull { track ->
+                    track.sources.any { it.streamUrl.isNotBlank() } &&
+                        track.track.title.equals(title, ignoreCase = true) &&
+                        track.track.artist.equals(artist, ignoreCase = true)
+                }
+            val seedId = resolvedSeed?.track?.trackId
             val playedIds = container.queueManager.playedHistory.toSet()
             val currentQueueIds = container.queueManager.originalQueue.map { it.track.trackId }.toSet()
-            Log.d("VANTA_RADIO_ENGINE", "excluded_recent count=${playedIds.size} currentQueue=${currentQueueIds.size}")
+            val excludeIds = currentQueueIds + setOfNotNull(seedId)
+            Log.d(
+                "VANTA_RADIO_ENGINE",
+                "excluded_recent count=${playedIds.size} currentQueue=${currentQueueIds.size} seedId=$seedId"
+            )
 
             // 1) Generate via provider engine
             val engineResult = withContext(Dispatchers.IO) {
                 container.radioQueueEngine.generate(
                     com.audiophile.musicplayer.radio.RadioSeed(title, artist, album, genre),
-                    excludeTrackIds = currentQueueIds,
+                    excludeTrackIds = excludeIds,
                     playedTrackIds = playedIds
                 )
             }
@@ -2844,6 +2887,7 @@ class MainViewModel @Inject constructor(
                     val t = track.track
                     val norm = "${t.title.lowercase()}|${t.artist.lowercase()}"
                     if (norm == seedNorm) return@filter false
+                    if (seedId != null && t.trackId == seedId) return@filter false
                     if (t.trackId in playedIds) return@filter false
                     if (t.trackId in currentQueueIds) return@filter false
                     if (norm in seenNorm) return@filter false
@@ -2855,29 +2899,50 @@ class MainViewModel @Inject constructor(
                 candidates = (candidates + localMatches).distinctBy { it.track.trackId }
             }
 
-            val cleanPlayable = candidates.filter { it.sources.any { s -> s.streamUrl.isNotBlank() } }
-            if (cleanPlayable.size < 5) {
-                Log.d("VANTA_RADIO_TRUTH", "failed reason='not_enough_clean_tracks' total=${candidates.size} playable=${cleanPlayable.size} minRequired=5")
+            val cleanPlayable = candidates
+                .filter { it.sources.any { s -> s.streamUrl.isNotBlank() } }
+                .filter { seedId == null || it.track.trackId != seedId }
+            val similarRequired = if (resolvedSeed != null) 4 else 5
+            if (cleanPlayable.size < similarRequired) {
+                Log.d(
+                    "VANTA_RADIO_TRUTH",
+                    "failed reason='not_enough_clean_tracks' total=${candidates.size} " +
+                        "playable=${cleanPlayable.size} minRequired=$similarRequired seedPresent=${resolvedSeed != null}"
+                )
                 _uiState.update { it.copy(statusMessage = "Radio is still learning from this song.") }
                 lastRadioSeedKey = null
                 return@launch
             }
 
-            val selected = cleanPlayable
-                .distinctBy { it.track.trackId }
-                .take(30)
-            Log.d("VANTA_RADIO_TRUTH", "about_to_start_queue branch='playSongRadio' count=${selected.size}")
-            container.playerController.playQueue(selected, 0, com.audiophile.musicplayer.playback.QueueMode.RADIO_QUEUE)
+            val selected = buildList {
+                if (resolvedSeed != null) add(resolvedSeed)
+                addAll(cleanPlayable.distinctBy { it.track.trackId })
+            }.distinctBy { it.track.trackId }.take(30)
+            Log.d(
+                "VANTA_RADIO_TRUTH",
+                "about_to_start_queue branch='playSongRadio' count=${selected.size} " +
+                    "seedFirst=${resolvedSeed != null} first='${selected.firstOrNull()?.track?.title}'"
+            )
+            val seedSource = resolvedSeed?.sources
+                ?.filter { !it.externalProviderId.isNullOrBlank() && !it.externalTrackId.isNullOrBlank() }
+                ?.maxByOrNull { it.bitrate }
+            container.playerController.playQueue(
+                tracks = selected,
+                startIndex = 0,
+                mode = com.audiophile.musicplayer.playback.QueueMode.RADIO_QUEUE,
+                preferredProviderId = seedSource?.externalProviderId,
+                preferredExternalTrackId = seedSource?.externalTrackId,
+                userQuery = "$title $artist".trim()
+            )
             val first = selected.first()
             container.nowPlayingStateStore.save(
-                NowPlayingState(
-                    trackId = first.track.trackId.toString(),
-                    title = first.track.title,
-                    artist = first.track.artist,
-                    album = first.track.albumName,
-                    artworkUrl = first.track.coverArtUrl,
-                    durationMs = first.track.durationMs ?: 0L,
-                    isPlaying = true
+                NowPlayingState.pendingPlayback(
+                    track = first,
+                    queuePosition = 0,
+                    queueSize = selected.size,
+                    preferredProviderId = seedSource?.externalProviderId,
+                    preferredExternalTrackId = seedSource?.externalTrackId,
+                    userQuery = "$title $artist".trim()
                 )
             )
             _uiState.update {
@@ -3748,9 +3813,13 @@ class MainViewModel @Inject constructor(
     fun toggleFavoriteForNowPlaying(onComplete: (() -> Unit)? = null) {
         viewModelScope.launch {
             try {
-            val nowPlaying = container.nowPlayingStateStore.load() ?: return@launch
-            val trackTitle = nowPlaying.title ?: "Unknown"
-            Log.d("VANTA_LIBRARY_ACTION", "tap displayedLiked=${nowPlaying.isFavorite}")
+            val live = container.playbackStateHolder.snapshot()
+            val nowPlaying = if (live.trackId != null || !live.title.isNullOrBlank()) {
+                live
+            } else {
+                container.nowPlayingStateStore.load()
+            } ?: return@launch
+            Log.d("VANTA_LIBRARY_ACTION", "tap displayedLiked=${nowPlaying.isFavorite} trackId=${nowPlaying.trackId} isrc=${nowPlaying.isrc}")
             Log.d("VANTA_LIBRARY_ACTION", "before persistedLiked=${nowPlaying.isFavorite}")
             if (nowPlaying.artist != null) {
                 withContext(Dispatchers.IO) {
@@ -3764,9 +3833,13 @@ class MainViewModel @Inject constructor(
             val title = nowPlaying.title ?: run { setStatusMessage("Nothing playing"); return@launch }
             val artist = nowPlaying.artist ?: "Unknown Artist"
             val result = withContext(Dispatchers.IO) {
-                val existing = container.localLibraryRepository.allSongsSnapshot().find {
-                    it.title.equals(title, ignoreCase = true) && it.artist.equals(artist, ignoreCase = true)
-                }
+                val songs = container.localLibraryRepository.allSongsSnapshot()
+                val existing = com.audiophile.musicplayer.data.local.LocalSongIdentity.findMatchingSong(
+                    songs = songs,
+                    isrc = nowPlaying.isrc,
+                    title = title,
+                    artist = artist
+                ) ?: nowPlaying.isrc?.let { container.localLibraryRepository.findSongByIsrc(it) }
                 val localLibraryId: Long
                 val newFavorite: Boolean
                 if (existing != null) {
@@ -3774,9 +3847,6 @@ class MainViewModel @Inject constructor(
                     container.localLibraryRepository.toggleFavorite(localLibraryId)
                     val updated = container.localLibraryRepository.songById(localLibraryId)
                     newFavorite = updated?.isFavorite ?: !existing.isFavorite
-                    container.nowPlayingStateStore.save(
-                        nowPlaying.copy(isFavorite = newFavorite)
-                    )
                 } else {
                     val savedIds = container.localLibraryRepository.saveSongs(
                         listOf(
@@ -3786,6 +3856,7 @@ class MainViewModel @Inject constructor(
                                 album = nowPlaying.album,
                                 artworkUrl = nowPlaying.artworkUrl,
                                 durationMs = nowPlaying.durationMs.takeIf { it > 0 },
+                                isrc = nowPlaying.isrc,
                                 isFavorite = true
                             )
                         )
@@ -3793,20 +3864,20 @@ class MainViewModel @Inject constructor(
                     if (savedIds.isNotEmpty()) {
                         localLibraryId = savedIds.first()
                         newFavorite = true
-                        container.nowPlayingStateStore.save(
-                            nowPlaying.copy(isFavorite = newFavorite)
-                        )
                     } else {
                         localLibraryId = -1L
                         newFavorite = false
                     }
                 }
+                val updatedState = nowPlaying.copy(isFavorite = newFavorite)
+                container.nowPlayingStateStore.save(updatedState)
+                container.playbackStateHolder.replace(updatedState)
                 Pair(localLibraryId, newFavorite)
             }
             refreshAll()
             val (localLibraryId, newFavorite) = result
             if (newFavorite) {
-                val isrc = nowPlaying.isrc ?: container.nowPlayingStateStore.load()?.isrc
+                val isrc = nowPlaying.isrc ?: container.playbackStateHolder.snapshot().isrc
                 container.connectedLibraryManager.syncLike(
                     localTrackId = localLibraryId,
                     title = title,
@@ -4165,7 +4236,8 @@ class MainViewModel @Inject constructor(
                             title = track.track.title,
                             artist = track.track.artist,
                             album = track.track.albumName,
-                            genre = track.track.genre
+                            genre = track.track.genre,
+                            seedTrack = track
                         )
                     } else if (context is VantaActionContext.Artist) {
                         Log.d("VANTA_ACTION_HANDLE", "action='START_RADIO' artist='${context.artistName}' result='success'")

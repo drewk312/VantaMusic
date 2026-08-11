@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.playback
 
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
 import com.audiophile.musicplayer.common.VantaLogger
@@ -25,6 +26,7 @@ class PlaybackStateManager(
     private val playbackStateHolder: PlaybackStateHolder,
     private val nowPlayingStateStore: NowPlayingStateStore,
     private val scope: CoroutineScope,
+    private val onPlaybackErrorObserved: (PlaybackException) -> Unit = {},
 ) : Player.Listener {
 
     @Volatile private var currentTrack: UnifiedTrackWithSources? = null
@@ -42,23 +44,21 @@ class PlaybackStateManager(
         currentQualityInfo = qualityInfo
         if (track == null) return
         scope.launch(Dispatchers.IO) {
-            val state = NowPlayingState(
-                trackId = track.track.trackId.toString(),
-                title = track.track.title,
-                artist = track.track.artist,
-                album = track.track.albumName,
-                artworkUrl = track.track.coverArtUrl,
-                durationMs = track.track.durationMs ?: 0L,
-                isPlaying = true,
+            val previous = playbackStateHolder.snapshot()
+            val state = NowPlayingState.fromTrackChange(
+                track = track,
+                qualityInfo = qualityInfo,
                 queuePosition = queuePosition,
                 queueSize = queueSize,
-                qualityInfo = qualityInfo
+                previous = previous
             )
             nowPlayingStateStore.save(state)
             playbackStateHolder.replace(state)
             VantaLogger.d(
                 VantaLogger.Tag.PLAYBACK,
-                "track_changed title='${track.track.title}' pos=$queuePosition/$queueSize"
+                "track_changed title='${track.track.title}' pos=$queuePosition/$queueSize " +
+                    "preferred=${state.preferredProviderId}:${state.preferredExternalTrackId} " +
+                    "isrc=${state.isrc}"
             )
         }
     }
@@ -67,23 +67,38 @@ class PlaybackStateManager(
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         scope.launch {
-            playbackStateHolder.update { copy(isPlaying = isPlaying) }
+            playbackStateHolder.update {
+                copy(
+                    isPlaying = isPlaying,
+                    isBuffering = if (isPlaying) false else isBuffering,
+                    // Media3 can successfully resume a buffered item after a
+                    // transient CDN failure. Never leave a red error card over
+                    // audio that is already playing.
+                    errorMessage = if (isPlaying) null else errorMessage
+                )
+            }
         }
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         scope.launch {
             playbackStateHolder.update {
-                // copy(isBuffering = playbackState == Player.STATE_BUFFERING) // Wait, isBuffering doesn't exist.
-                this
+                copy(
+                    isPlaying = if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) false else isPlaying,
+                    isBuffering = playbackState == Player.STATE_BUFFERING,
+                    errorMessage = if (playbackState == Player.STATE_READY) null else errorMessage
+                )
             }
         }
     }
 
-    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+    override fun onPlayerError(error: PlaybackException) {
         val info = ErrorTranslator.translate(error)
         scope.launch {
-            playbackStateHolder.update { copy(errorMessage = info.message) }
+            playbackStateHolder.update {
+                copy(isPlaying = false, isBuffering = false, errorMessage = info.message)
+            }
+            onPlaybackErrorObserved(error)
         }
     }
 

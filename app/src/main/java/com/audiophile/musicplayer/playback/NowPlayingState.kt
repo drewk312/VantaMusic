@@ -4,6 +4,14 @@ import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 
+enum class PlaybackPhase {
+    IDLE,
+    BUFFERING,
+    PLAYING,
+    PAUSED,
+    ERROR
+}
+
 data class NowPlayingState(
     val trackId: String? = null,
     val title: String? = null,
@@ -15,6 +23,7 @@ data class NowPlayingState(
     val artworkUrl: String? = null,
     val isFavorite: Boolean = false,
     val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val bufferedMs: Long = 0L,
@@ -35,6 +44,38 @@ data class NowPlayingState(
     val userQuery: String? = null,
     val featuredArtists: List<String> = emptyList()
 ) {
+    val phase: PlaybackPhase
+        get() = when {
+            !errorMessage.isNullOrBlank() -> PlaybackPhase.ERROR
+            isBuffering -> PlaybackPhase.BUFFERING
+            isPlaying -> PlaybackPhase.PLAYING
+            trackId != null || !title.isNullOrBlank() || queueSize > 0 -> PlaybackPhase.PAUSED
+            else -> PlaybackPhase.IDLE
+        }
+
+    /**
+     * Enforces the user-visible playback contract at the shared state boundary.
+     * A stream cannot truthfully be playing while it is buffering or errored.
+     */
+    fun normalized(): NowPlayingState {
+        val cleanError = errorMessage?.trim()?.takeIf { it.isNotBlank() }
+        val safeDuration = durationMs.coerceAtLeast(0L)
+        val safePosition = positionMs.coerceIn(0L, safeDuration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        val safeBuffered = bufferedMs
+            .coerceAtLeast(safePosition)
+            .coerceAtMost(safeDuration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        return copy(
+            isPlaying = isPlaying && !isBuffering && cleanError == null,
+            isBuffering = isBuffering && cleanError == null,
+            positionMs = safePosition,
+            durationMs = safeDuration,
+            bufferedMs = safeBuffered,
+            queueSize = queueSize.coerceAtLeast(0),
+            queuePosition = if (queueSize > 0) queuePosition.coerceIn(0, queueSize - 1) else 0,
+            errorMessage = cleanError
+        )
+    }
+
     companion object {
         fun pendingPlayback(
             track: UnifiedTrackWithSources,
@@ -42,11 +83,14 @@ data class NowPlayingState(
             queueSize: Int,
             preferredProviderId: String? = null,
             preferredExternalTrackId: String? = null,
-            userQuery: String? = null
+            userQuery: String? = null,
+            isFavorite: Boolean = false,
+            canonicalTrackId: String? = null
         ): NowPlayingState {
-            val bestSource = track.sources
-                .filter { it.streamUrl.isNotBlank() }
-                .maxByOrNull { it.bitrate }
+            val bestSource = identitySource(track)
+                ?: track.sources
+                    .filter { it.streamUrl.isNotBlank() }
+                    .maxByOrNull { it.bitrate }
                 ?: track.sources.maxByOrNull { it.bitrate }
 
             return NowPlayingState(
@@ -55,8 +99,11 @@ data class NowPlayingState(
                 artist = track.track.artist,
                 album = track.track.albumName,
                 isrc = track.track.isrc,
+                canonicalTrackId = canonicalTrackId,
                 artworkUrl = track.track.coverArtUrl,
-                isPlaying = true,
+                isFavorite = isFavorite,
+                isPlaying = false,
+                isBuffering = true,
                 positionMs = 0L,
                 durationMs = track.track.durationMs ?: 0L,
                 bufferedMs = 0L,
@@ -75,6 +122,57 @@ data class NowPlayingState(
                 userQuery = userQuery
             )
         }
+
+        /**
+         * Builds Now Playing state for a track change without dropping preferred
+         * provider/id, ISRC, favorite, or user-query identity from the prior latch.
+         */
+        fun fromTrackChange(
+            track: UnifiedTrackWithSources,
+            qualityInfo: VantaQualityInfo?,
+            queuePosition: Int,
+            queueSize: Int,
+            previous: NowPlayingState? = null
+        ): NowPlayingState {
+            val trackId = track.track.trackId.toString()
+            val sameTrack = previous?.trackId == trackId
+            val identity = identitySource(track)
+            return NowPlayingState(
+                trackId = trackId,
+                title = track.track.title,
+                artist = track.track.artist,
+                album = track.track.albumName,
+                isrc = track.track.isrc?.takeIf { it.isNotBlank() }
+                    ?: previous?.takeIf { sameTrack }?.isrc,
+                canonicalTrackId = previous?.takeIf { sameTrack }?.canonicalTrackId,
+                artworkUrl = track.track.coverArtUrl,
+                isFavorite = previous?.takeIf { sameTrack }?.isFavorite ?: false,
+                isPlaying = false,
+                isBuffering = true,
+                positionMs = 0L,
+                durationMs = track.track.durationMs ?: 0L,
+                bufferedMs = 0L,
+                queuePosition = queuePosition,
+                queueSize = queueSize,
+                explicit = track.track.explicit,
+                qualityInfo = qualityInfo,
+                preferredProviderId = identity?.externalProviderId
+                    ?: previous?.takeIf { sameTrack }?.preferredProviderId,
+                preferredExternalTrackId = identity?.externalTrackId
+                    ?: previous?.takeIf { sameTrack }?.preferredExternalTrackId,
+                streamUrl = identity?.streamUrl?.takeIf { it.isNotBlank() }
+                    ?: previous?.takeIf { sameTrack }?.streamUrl,
+                userQuery = previous?.takeIf { sameTrack }?.userQuery
+            )
+        }
+
+        private fun identitySource(track: UnifiedTrackWithSources) =
+            track.sources
+                .filter {
+                    !it.externalProviderId.isNullOrBlank() &&
+                        !it.externalTrackId.isNullOrBlank()
+                }
+                .maxByOrNull { it.bitrate }
     }
 
     fun isConfirmedPlayable(): Boolean = trackId != null && errorMessage == null
