@@ -9,7 +9,8 @@ data class AppleMusicSearchResults(
 )
 
 data class AppleMusicSongsResponse(
-    val data: List<AppleMusicSongResource> = emptyList()
+    val data: List<AppleMusicSongResource> = emptyList(),
+    val next: String? = null
 )
 
 data class AppleMusicSongResource(
@@ -51,7 +52,7 @@ data class AppleMusicEditorialNotes(
     val name: String? = null
 )
 
-data class AppleMusicPlaylistResponse(val data: List<AppleMusicPlaylistResource> = emptyList())
+data class AppleMusicPlaylistResponse(val data: List<AppleMusicPlaylistResource> = emptyList(), val next: String? = null)
 data class AppleMusicAlbumResponse(val data: List<AppleMusicAlbumResource> = emptyList())
 data class AppleMusicPlaylistResource(
     val id: String,

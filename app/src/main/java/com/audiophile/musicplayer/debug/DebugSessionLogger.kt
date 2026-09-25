@@ -5,7 +5,7 @@ import android.util.Log
 import org.json.JSONObject
 
 /**
- * Debug-session NDJSON logger — also mirrored into [VantaDiagnosticLog] for Settings.
+ * Debug-session NDJSON logger. Release builds skip these entries.
  */
 object DebugSessionLogger {
     private const val TAG = "VANTA_DEBUG_36efc8"
@@ -22,6 +22,7 @@ object DebugSessionLogger {
         data: Map<String, Any?> = emptyMap(),
         runId: String = "pre-fix",
     ) {
+        if (!com.audiophile.musicplayer.BuildConfig.DEBUG) return
         val payload = JSONObject().apply {
             put("sessionId", SESSION_ID)
             put("runId", runId)
@@ -31,11 +32,6 @@ object DebugSessionLogger {
             put("timestamp", System.currentTimeMillis())
             put("data", JSONObject(data))
         }
-        val line = payload.toString()
-        Log.d(TAG, line)
-        VantaDiagnosticLog.info(
-            tag = "DebugSession",
-            message = "$location — $message (${data.entries.joinToString { "${it.key}=${it.value}" }})"
-        )
+        Log.d(TAG, payload.toString())
     }
 }

@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
 import com.audiophile.musicplayer.data.dj.AiDjNarrationGenerator
@@ -32,6 +33,7 @@ import com.audiophile.musicplayer.data.catalog.CatalogBrowseRepository
 import com.audiophile.musicplayer.data.local.DeviceMediaMetadataReader
 import com.audiophile.musicplayer.data.local.LocalMediaImporter
 import com.audiophile.musicplayer.data.local.MusicDatabase
+import com.audiophile.musicplayer.data.canonical.CanonicalMusicResolver
 import com.audiophile.musicplayer.data.local.TrackDatabase
 import com.audiophile.musicplayer.data.metadata.CompositeMetadataProvider
 import com.audiophile.musicplayer.data.remote.ResolverRetrofitFactory
@@ -70,7 +72,6 @@ import com.audiophile.musicplayer.search.SearchRepository
 import com.audiophile.musicplayer.data.source.RealDebridMusicSourceProvider
 import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.TorBoxMusicSourceProvider
-import com.audiophile.musicplayer.data.source.YouTubeMusicSourceProvider
 import com.audiophile.musicplayer.data.source.external.ExternalSourceConfigStore
 import com.audiophile.musicplayer.data.source.external.PlaybackProviderFactory
 import com.audiophile.musicplayer.data.rpc.RadioRpcClient
@@ -83,44 +84,52 @@ class AppContainer(
 ) {
     private val appContext = context.applicationContext
     private val containerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val database = TrackDatabase.getDatabase(appContext)
-    private val musicDatabase = MusicDatabase.getDatabase(appContext)
-    val resolverConfigStore = ResolverConfigStore(appContext)
-    val externalSourceConfigStore = ExternalSourceConfigStore(appContext).also { it.ensureDefaultSources() }
-    private val youTubeMusicSourceProvider = YouTubeMusicSourceProvider()
+    private val database by lazy { TrackDatabase.getDatabase(appContext) }
+    private val musicDatabase by lazy { MusicDatabase.getDatabase(appContext) }
+    val resolverConfigStore by lazy { ResolverConfigStore(appContext) }
+    val externalSourceConfigStore by lazy {
+        ExternalSourceConfigStore(appContext).also { it.ensureDefaultSources() }
+    }
+    val byoaCredentialStore by lazy { com.audiophile.musicplayer.data.source.external.ByoaCredentialStore(appContext) }
 
-    val trackRepository = TrackRepository(database.trackDao())
-    val resolutionCacheRepository = ResolutionCacheRepository(database.resolutionDao())
+    val trackRepository by lazy { TrackRepository(database.trackDao()) }
+    val resolutionCacheRepository by lazy { ResolutionCacheRepository(database.resolutionDao()) }
 
-    private val sourceRegistryRef = AtomicReference(createSourceRegistry())
-    private val resolverServiceRef = AtomicReference(createResolverService())
+    private val sourceRegistryRef by lazy { AtomicReference(createSourceRegistry()) }
+    private val resolverServiceRef by lazy { AtomicReference(createResolverService()) }
     
-    val metadataCache = MetadataCache(musicDatabase.libraryDao())
-    val appleMusicMetadataProvider = AppleMusicMetadataProvider(
-        configProvider = {
-            val token = resolverConfigStore.getAppleMusicDeveloperToken()
-            if (token.isNullOrBlank()) {
-                AppleMusicConfig.disabled(resolverConfigStore.getAppleMusicStorefront())
-            } else {
-                AppleMusicConfig(developerToken = token, storefront = resolverConfigStore.getAppleMusicStorefront())
+    val metadataCache by lazy { MetadataCache(musicDatabase.libraryDao()) }
+    val appleMusicMetadataProvider by lazy {
+        AppleMusicMetadataProvider(
+            configProvider = {
+                val token = resolverConfigStore.getAppleMusicDeveloperToken()
+                if (token.isNullOrBlank()) {
+                    AppleMusicConfig.disabled(resolverConfigStore.getAppleMusicStorefront())
+                } else {
+                    AppleMusicConfig(developerToken = token, storefront = resolverConfigStore.getAppleMusicStorefront())
+                }
             }
-        }
-    )
-    val metadataProvider = CompositeMetadataProvider(
-        listOf(
-            appleMusicMetadataProvider,
-            DeezerMetadataProvider(),
-            ITunesSearchMetadataProvider()
         )
-    )
-    val metadataResolver = MetadataResolver(metadataProvider, metadataCache)
-    val platformLinkResolver = PlatformLinkResolver(
-        appleMusicProvider = appleMusicMetadataProvider
-    )
-    val catalogBrowseRepository = CatalogBrowseRepository()
+    }
+    val metadataProvider by lazy {
+        CompositeMetadataProvider(
+            listOf(
+                appleMusicMetadataProvider,
+                DeezerMetadataProvider(),
+                ITunesSearchMetadataProvider()
+            )
+        )
+    }
+    val metadataResolver by lazy { MetadataResolver(metadataProvider, metadataCache) }
+    val platformLinkResolver by lazy { PlatformLinkResolver(appleMusicProvider = appleMusicMetadataProvider) }
+    val catalogBrowseRepository by lazy { CatalogBrowseRepository() }
 
-    val localLibraryRepository = LocalLibraryRepository(musicDatabase.libraryDao(), metadataResolver)
-    val connectedLibraryTokenStore = ConnectedLibraryTokenStore(appContext)
+    val localLibraryRepository by lazy { LocalLibraryRepository(musicDatabase.libraryDao(), metadataResolver) }
+    val listeningHistoryRepository by lazy {
+        com.audiophile.musicplayer.data.local.ListeningHistoryRepository(musicDatabase.listeningHistoryDao())
+    }
+    val canonicalMusicResolver by lazy { CanonicalMusicResolver(musicDatabase.canonicalGraphDao()) }
+    val connectedLibraryTokenStore by lazy { ConnectedLibraryTokenStore(appContext) }
     val connectedLibraryManager by lazy {
         ConnectedLibraryManager(
             context = appContext,
@@ -131,42 +140,80 @@ class AppContainer(
     }
 
 
-    val libraryImporter = LibraryImporter(
-        localLibraryRepository,
-        metadataResolver = metadataResolver,
-        appleMusicMetadataProvider = appleMusicMetadataProvider
-    )
+    val libraryImporter by lazy {
+        LibraryImporter(
+            localLibraryRepository,
+            metadataResolver = metadataResolver,
+            appleMusicMetadataProvider = appleMusicMetadataProvider
+        )
+    }
 
     init {
+        // Wire BYOA vault into gateway resolver for header forwarding + custom gateway
+        com.audiophile.musicplayer.data.source.external.GatewayStreamResolver.byoaStore = byoaCredentialStore
         containerScope.launch {
+            // First frame and transport controls take priority over maintenance.
+            delay(5_000L)
             trackRepository.cleanupPoisonedData()
+            runCatching { backfillCanonicalGraph() }
+                .onFailure { Log.w("VANTA_TRACK_GRAPH", "backfill_failed reason='${it.message}'") }
         }
+    }
+
+    private suspend fun backfillCanonicalGraph() {
+        val songs = localLibraryRepository.allSongsSnapshot()
+        var linked = 0
+        for (song in songs) {
+            val resolved = canonicalMusicResolver.resolveTrack(
+                CanonicalMusicResolver.TrackInput(
+                    title = song.title,
+                    artist = song.artist,
+                    album = song.album,
+                    isrc = song.isrc,
+                    durationMs = song.durationMs,
+                    artworkUrl = song.artworkUrl,
+                    explicit = song.explicit,
+                    localSongId = song.id
+                )
+            ).entity
+            if (resolved != null) linked++
+        }
+        Log.i(
+            "VANTA_TRACK_GRAPH",
+            "backfill complete songs=${songs.size} linked=$linked " +
+                "artists=${musicDatabase.canonicalGraphDao().artistCount()} " +
+                "albums=${musicDatabase.canonicalGraphDao().albumCount()} " +
+                "tracks=${musicDatabase.canonicalGraphDao().trackCount()}"
+        )
     }
     
     var sourceRegistry: SourceRegistry
         get() = sourceRegistryRef.get()
         private set(value) = sourceRegistryRef.set(value)
-    val newReleasesSource = com.audiophile.musicplayer.data.source.CloudflareGatewaySource()
-    val pulseAiBrain = PulseAiBrain(resolverConfigStore)
-    val pulseVoiceEngine = com.audiophile.musicplayer.data.voice.PulseVoiceEngine(
-        appContext,
-        resolverConfigStore
-    )
-    val aiDjRecommendationEngine = AiDjRecommendationEngine(
-        sourceRegistry = sourceRegistry,
-        trackRepository = trackRepository,
-        localLibraryRepository = localLibraryRepository,
-        pulseAiBrain = pulseAiBrain
-    )
-    val appleMusicLibraryConnector = AppleMusicLibraryConnector(
-        metadataProvider = appleMusicMetadataProvider
-    )
+    val newReleasesSource by lazy { com.audiophile.musicplayer.data.source.CloudflareGatewaySource() }
+    val pulseAiBrain by lazy { PulseAiBrain(resolverConfigStore) }
+    val pulseVoiceEngine by lazy {
+        com.audiophile.musicplayer.data.voice.PulseVoiceEngine(appContext, resolverConfigStore)
+    }
+    val aiDjRecommendationEngine by lazy {
+        AiDjRecommendationEngine(
+            sourceRegistry = sourceRegistry,
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository,
+            pulseAiBrain = pulseAiBrain,
+            listeningHistory = listeningHistoryRepository
+        )
+    }
+    val appleMusicLibraryConnector by lazy {
+        AppleMusicLibraryConnector(metadataProvider = appleMusicMetadataProvider)
+    }
 
     val radioApiService: com.audiophile.musicplayer.radio.RadioApiService by lazy {
         val configuredUrl = resolverConfigStore.getStationBackendUrl()
         val baseUrl = configuredUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.STATION_BACKEND_URL.takeIf { it.isNotBlank() } ?: throw IllegalStateException("No station backend URL configured. Set STATION_BACKEND_URL in local.properties or via Settings.")
         val client = okhttp3.OkHttpClient.Builder()
             .addInterceptor(com.audiophile.musicplayer.account.FirebaseIdTokenInterceptor())
+            .addInterceptor(com.audiophile.musicplayer.playback.GatewayApiKeyInterceptor)
             .build()
         Retrofit.Builder()
             .baseUrl(baseUrl)
@@ -184,57 +231,92 @@ class AppContainer(
         RadioRpcService(radioRpcClient)
     }
 
-    val radioQueueEngine = com.audiophile.musicplayer.radio.RadioQueueEngine(
-        sourceRegistry = sourceRegistry,
-        trackRepository = trackRepository,
-        radioApiService = radioApiService
-    )
-
-    val queueManager = QueueManager(
-        recommendationEngine = aiDjRecommendationEngine,
-        radioQueueEngine = radioQueueEngine,
-        persistence = SharedPreferencesQueuePersistence(appContext),
-        onTrackConsumed = { trackId ->
-            containerScope.launch {
-                trackRepository.updateLastPlayedAt(trackId)
-            }
-        }
-    )
-    val nowPlayingStateStore = NowPlayingStateStore(appContext)
-    val playbackStateHolder = PlaybackStateHolder()
-    val playerController = PlayerController(appContext, queueManager, playbackStateHolder)
-    val upnpCastingManager = UpnpCastingManager(appContext).also {
-        com.audiophile.musicplayer.playback.UpnpCastingHolder.manager = it
+    val radioQueueEngine by lazy {
+        com.audiophile.musicplayer.radio.RadioQueueEngine(
+            sourceRegistry = sourceRegistry,
+            trackRepository = trackRepository,
+            radioApiService = radioApiService
+        )
     }
-    val accountManager = AccountManager(appContext)
-    val friendActivityLocalSource = FriendActivityLocalSource(appContext)
-    val friendActivityRepository = FriendActivityRepository(
-        localSource = friendActivityLocalSource,
-        accountManager = accountManager
-    )
-    val vantaSyncManager = VantaSyncManager(
-        context = appContext,
-        accountManager = accountManager,
-        trackRepository = trackRepository,
-        connectedLibraryTokenStore = connectedLibraryTokenStore
-    )
-    val vantaSocialManager = VantaSocialManager(
-        context = appContext,
-        accountManager = accountManager,
-        repository = friendActivityRepository,
-        syncManager = vantaSyncManager
-    )
 
-    val downloadManager = AndroidTrackDownloadManager(appContext)
-    val localMediaImporter = LocalMediaImporter(appContext, trackRepository)
+    val trackFeatureDao by lazy { musicDatabase.trackFeatureDao() }
 
-    val knownWebLyricsProvider = com.audiophile.musicplayer.data.lyrics.KnownWebLyricsProvider()
-    val lrclibLyricsProvider = com.audiophile.musicplayer.data.lyrics.LRCLibLyricsProvider()
-    val lyricsRepository = com.audiophile.musicplayer.data.lyrics.LyricsRepository(
-        providers = listOf(knownWebLyricsProvider, lrclibLyricsProvider),
-        lyricsCacheDao = musicDatabase.lyricsCacheDao()
-    )
-    val lyricsTranslationProvider = com.audiophile.musicplayer.data.lyrics.LyricsTranslationProvider(pulseAiBrain)
+    val sonicRadioService by lazy {
+        com.audiophile.musicplayer.radio.sonic.SonicRadioService(
+            trackFeatureDao = trackFeatureDao
+        )
+    }
+
+    val queueManager by lazy {
+        QueueManager(
+            recommendationEngineProvider = { aiDjRecommendationEngine },
+            radioQueueEngineProvider = { radioQueueEngine },
+            persistence = SharedPreferencesQueuePersistence(appContext),
+            onTrackConsumed = { trackId ->
+                containerScope.launch {
+                    trackRepository.updateLastPlayedAt(trackId)
+                }
+            }
+        )
+    }
+    val nowPlayingStateStore by lazy { NowPlayingStateStore(appContext) }
+    val playbackStateHolder by lazy { PlaybackStateHolder() }
+    val playerController by lazy { PlayerController(appContext, queueManager, playbackStateHolder) }
+    val upnpCastingManager by lazy {
+        UpnpCastingManager(appContext).also { com.audiophile.musicplayer.playback.UpnpCastingHolder.manager = it }
+    }
+    val accountManager by lazy { AccountManager(appContext) }
+    val continuityCoordinator by lazy {
+        com.audiophile.musicplayer.continuity.ContinuityCoordinator(
+            context = appContext,
+            accountManager = accountManager,
+            playbackState = playbackStateHolder,
+            playerController = playerController,
+            trackRepository = trackRepository
+        )
+    }
+    val deviceLibrarySyncManager by lazy {
+        com.audiophile.musicplayer.sync.DeviceLibrarySyncManager(
+            context = appContext,
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository
+        )
+    }
+    val friendActivityLocalSource by lazy { FriendActivityLocalSource(appContext) }
+    val friendActivityRepository by lazy {
+        FriendActivityRepository(localSource = friendActivityLocalSource, accountManager = accountManager)
+    }
+    val vantaSyncManager by lazy {
+        VantaSyncManager(
+            context = appContext,
+            accountManager = accountManager,
+            trackRepository = trackRepository,
+            connectedLibraryTokenStore = connectedLibraryTokenStore
+        )
+    }
+    val vantaSocialManager by lazy {
+        VantaSocialManager(
+            context = appContext,
+            accountManager = accountManager,
+            repository = friendActivityRepository,
+            syncManager = vantaSyncManager
+        )
+    }
+
+    val downloadManager by lazy { AndroidTrackDownloadManager(appContext) }
+    val localMediaImporter by lazy { LocalMediaImporter(appContext, trackRepository, localLibraryRepository) }
+
+    val knownWebLyricsProvider by lazy { com.audiophile.musicplayer.data.lyrics.KnownWebLyricsProvider() }
+    val lrclibLyricsProvider by lazy { com.audiophile.musicplayer.data.lyrics.LRCLibLyricsProvider() }
+    val lyricsRepository by lazy {
+        com.audiophile.musicplayer.data.lyrics.LyricsRepository(
+            providers = listOf(knownWebLyricsProvider, lrclibLyricsProvider),
+            lyricsCacheDao = musicDatabase.lyricsCacheDao()
+        )
+    }
+    val lyricsTranslationProvider by lazy {
+        com.audiophile.musicplayer.data.lyrics.LyricsTranslationProvider(pulseAiBrain)
+    }
 
     private val torBoxApi: TorBoxApi by lazy {
         Retrofit.Builder()
@@ -244,105 +326,143 @@ class AppContainer(
             .create(TorBoxApi::class.java)
     }
 
-    val torBoxRepository = TorBoxRepository(torBoxApi)
+    val torBoxRepository by lazy { TorBoxRepository(torBoxApi) }
 
     var resolverService: CachedResolverService
         get() = resolverServiceRef.get()
         private set(value) = resolverServiceRef.set(value)
 
-    var searchRepository = SearchRepository(
-        trackRepository = trackRepository,
-        sourceRegistry = sourceRegistry,
-        nowPlayingStateStore = nowPlayingStateStore,
-        metadataResolver = metadataResolver
-    )
-        private set
+    @Volatile private var searchRepositoryOverride: SearchRepository? = null
+    var searchRepository: SearchRepository
+        get() = searchRepositoryOverride ?: synchronized(this) {
+            searchRepositoryOverride ?: SearchRepository(
+                trackRepository = trackRepository,
+                sourceRegistry = sourceRegistry,
+                nowPlayingStateStore = nowPlayingStateStore,
+                metadataResolver = metadataResolver,
+                canonicalMusicResolver = canonicalMusicResolver,
+                catalogBrowseRepository = catalogBrowseRepository,
+                gatewaySource = newReleasesSource,
+                lyricsRepository = lyricsRepository
+            ).also { searchRepositoryOverride = it }
+        }
+        private set(value) {
+            searchRepositoryOverride = value
+        }
 
-    val eclipsePlaylistApi = EclipsePlaylistApi(
-        okHttpClient = okhttp3.OkHttpClient()
-    )
-    val eclipsePlaylistImporter = EclipsePlaylistImporter(
-        eclipseApi = eclipsePlaylistApi,
-        trackRepository = trackRepository,
-        localLibraryRepository = localLibraryRepository,
-        sourceRegistry = sourceRegistry
-    )
+    val eclipsePlaylistApi by lazy { EclipsePlaylistApi(okHttpClient = okhttp3.OkHttpClient()) }
+    val eclipsePlaylistImporter by lazy {
+        EclipsePlaylistImporter(
+            eclipseApi = eclipsePlaylistApi,
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository,
+            sourceRegistry = sourceRegistry
+        )
+    }
+    val gatewayPlaylistImporter by lazy {
+        com.audiophile.musicplayer.data.importer.GatewayPlaylistImporter(
+            gateway = newReleasesSource,
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository,
+            sourceRegistry = sourceRegistry,
+        )
+    }
 
 
-    val djPersonaMemory = DjPersonaMemory(appContext)
-    val stationTasteMemory = StationTasteMemory(appContext)
-    val customStationStore = CustomStationStore(appContext)
-    val deviceMediaMetadataReader = DeviceMediaMetadataReader(appContext)
-    val trackReleaseYearResolver = TrackReleaseYearResolver(
-        trackRepository,
-        deviceMediaMetadataReader,
-        metadataResolver
-    )
-    val lastFmGenreResolver = LastFmGenreResolver(appContext, resolverConfigStore)
-    val lastFmScrobbler = LastFmScrobbler(resolverConfigStore)
-    val aiDjQueuePlanner = AiDjQueuePlanner(
-        trackRepository = trackRepository,
-        localLibraryRepository = localLibraryRepository,
-        sourceRegistry = sourceRegistry,
-        personaMemory = djPersonaMemory,
-        stationMemory = stationTasteMemory,
-        releaseYearResolver = trackReleaseYearResolver,
-        deviceMediaMetadataReader = deviceMediaMetadataReader,
-        lastFmGenreResolver = lastFmGenreResolver
-    )
-    val liveRadioTrackLibrary = LiveRadioTrackLibrary(
-        trackRepository = trackRepository,
-        metadataResolver = metadataResolver,
-        sourceRegistry = sourceRegistry
-    )
-    val aiDjNarrationGenerator = AiDjNarrationGenerator(pulseAiBrain)
-    val aiDjSessionManager = AiDjSessionManager(
-        trackRepository = trackRepository,
-        localLibraryRepository = localLibraryRepository,
-        sourceRegistry = sourceRegistry,
-        queuePlanner = aiDjQueuePlanner,
-        narrationGenerator = aiDjNarrationGenerator,
-        recommendationEngine = aiDjRecommendationEngine,
-        customStationStore = customStationStore
-    )
-    val radioStationPreviewLoader = RadioStationPreviewLoader(
-        radioQueueEngine = radioQueueEngine,
-        tasteSignals = { aiDjRecommendationEngine.streamingTasteSignals() }
-    )
+    val djPersonaMemory by lazy { DjPersonaMemory(appContext) }
+    val stationTasteMemory by lazy { StationTasteMemory(appContext) }
+    val customStationStore by lazy { CustomStationStore(appContext) }
+    val deviceMediaMetadataReader by lazy { DeviceMediaMetadataReader(appContext) }
+    val trackReleaseYearResolver by lazy {
+        TrackReleaseYearResolver(trackRepository, deviceMediaMetadataReader, metadataResolver)
+    }
+    val lastFmGenreResolver by lazy { LastFmGenreResolver(appContext, resolverConfigStore) }
+    val lastFmScrobbler by lazy { LastFmScrobbler(resolverConfigStore) }
+    val aiDjQueuePlanner by lazy {
+        AiDjQueuePlanner(
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository,
+            sourceRegistry = sourceRegistry,
+            personaMemory = djPersonaMemory,
+            stationMemory = stationTasteMemory,
+            releaseYearResolver = trackReleaseYearResolver,
+            deviceMediaMetadataReader = deviceMediaMetadataReader,
+            lastFmGenreResolver = lastFmGenreResolver
+        )
+    }
+    val liveRadioTrackLibrary by lazy {
+        LiveRadioTrackLibrary(
+            trackRepository = trackRepository,
+            metadataResolver = metadataResolver,
+            sourceRegistry = sourceRegistry
+        )
+    }
+    val aiDjNarrationGenerator by lazy { AiDjNarrationGenerator(pulseAiBrain) }
+    val aiDjSessionManager by lazy {
+        AiDjSessionManager(
+            trackRepository = trackRepository,
+            localLibraryRepository = localLibraryRepository,
+            sourceRegistry = sourceRegistry,
+            queuePlanner = aiDjQueuePlanner,
+            narrationGenerator = aiDjNarrationGenerator,
+            recommendationEngine = aiDjRecommendationEngine,
+            customStationStore = customStationStore,
+            listeningHistory = listeningHistoryRepository
+        )
+    }
+    val radioStationPreviewLoader by lazy {
+        RadioStationPreviewLoader(
+            radioQueueEngine = radioQueueEngine,
+            tasteSignals = { aiDjRecommendationEngine.streamingTasteSignals() }
+        )
+    }
 
-    val personalizedMixRegistry = com.audiophile.musicplayer.discovery.personalized.PersonalizedMixRegistry()
-    private val discoveryCandidatePipeline = com.audiophile.musicplayer.discovery.personalized.DiscoveryCandidatePipeline(
-        sourceRegistry = sourceRegistry,
-        trackRepository = trackRepository
-    )
-    val discoveryArtistResolver = com.audiophile.musicplayer.discovery.personalized.DiscoveryArtistResolver(
-        dao = musicDatabase.personalizedMixDao(),
-        configStore = resolverConfigStore,
-        genreResolver = lastFmGenreResolver
-    )
-    val personalizedMixDeps = com.audiophile.musicplayer.discovery.personalized.PersonalizedMixDeps(
-        sourceRegistry = sourceRegistry,
-        trackRepository = trackRepository,
-        tasteEngine = aiDjRecommendationEngine,
-        genreResolver = lastFmGenreResolver,
-        localLibraryRepository = localLibraryRepository,
-        artistResolver = discoveryArtistResolver,
-        candidatePipeline = discoveryCandidatePipeline
-    )
-    val personalizedMixManager = com.audiophile.musicplayer.discovery.personalized.PersonalizedMixManager(
-        dao = musicDatabase.personalizedMixDao(),
-        registry = personalizedMixRegistry,
-        deps = personalizedMixDeps,
-        trackRepository = trackRepository
-    )
-    val personalizedMixPlayback = com.audiophile.musicplayer.discovery.personalized.PersonalizedMixPlayback(
-        manager = personalizedMixManager,
-        queueManager = queueManager,
-        playerController = playerController,
-        nowPlayingStateStore = nowPlayingStateStore,
-        scope = containerScope,
-        tasteSignals = { aiDjRecommendationEngine.streamingTasteSignals() }
-    )
+    val personalizedMixRegistry by lazy {
+        com.audiophile.musicplayer.discovery.personalized.PersonalizedMixRegistry()
+    }
+    private val discoveryCandidatePipeline by lazy {
+        com.audiophile.musicplayer.discovery.personalized.DiscoveryCandidatePipeline(
+            sourceRegistry = sourceRegistry,
+            trackRepository = trackRepository
+        )
+    }
+    val discoveryArtistResolver by lazy {
+        com.audiophile.musicplayer.discovery.personalized.DiscoveryArtistResolver(
+            dao = musicDatabase.personalizedMixDao(),
+            configStore = resolverConfigStore,
+            genreResolver = lastFmGenreResolver
+        )
+    }
+    val personalizedMixDeps by lazy {
+        com.audiophile.musicplayer.discovery.personalized.PersonalizedMixDeps(
+            sourceRegistry = sourceRegistry,
+            trackRepository = trackRepository,
+            tasteEngine = aiDjRecommendationEngine,
+            genreResolver = lastFmGenreResolver,
+            localLibraryRepository = localLibraryRepository,
+            artistResolver = discoveryArtistResolver,
+            candidatePipeline = discoveryCandidatePipeline,
+            listeningHistory = listeningHistoryRepository
+        )
+    }
+    val personalizedMixManager by lazy {
+        com.audiophile.musicplayer.discovery.personalized.PersonalizedMixManager(
+            dao = musicDatabase.personalizedMixDao(),
+            registry = personalizedMixRegistry,
+            deps = personalizedMixDeps,
+            trackRepository = trackRepository
+        )
+    }
+    val personalizedMixPlayback by lazy {
+        com.audiophile.musicplayer.discovery.personalized.PersonalizedMixPlayback(
+            manager = personalizedMixManager,
+            queueManager = queueManager,
+            playerController = playerController,
+            nowPlayingStateStore = nowPlayingStateStore,
+            scope = containerScope,
+            tasteSignals = { aiDjRecommendationEngine.streamingTasteSignals() }
+        )
+    }
 
     private fun buildConfiguredAddons(): List<com.audiophile.musicplayer.data.resolution.ResolverAddon> {
         return buildList {
@@ -384,7 +504,11 @@ class AppContainer(
             trackRepository = trackRepository,
             sourceRegistry = newRegistry,
             nowPlayingStateStore = nowPlayingStateStore,
-            metadataResolver = metadataResolver
+            metadataResolver = metadataResolver,
+            canonicalMusicResolver = canonicalMusicResolver,
+            catalogBrowseRepository = catalogBrowseRepository,
+            gatewaySource = newReleasesSource,
+            lyricsRepository = lyricsRepository
         )
         registerConfiguredProviders()
     }
@@ -392,8 +516,7 @@ class AppContainer(
     private fun createSourceRegistry(): SourceRegistry {
         return try {
             val providers = mutableListOf<com.audiophile.musicplayer.data.source.MusicSourceProvider>()
-            providers.add(youTubeMusicSourceProvider)
-            providers.add(com.audiophile.musicplayer.data.source.CloudflareGatewaySource())
+            providers.add(newReleasesSource)
 
             val torBoxToken = resolverConfigStore.getTorBoxApiToken()
             if (!torBoxToken.isNullOrBlank()) {
@@ -411,9 +534,20 @@ class AppContainer(
             }
             Log.d("VANTA_SEARCH", "createSourceRegistry: providerCount=${providers.size} providerIds=${providers.map { it.providerId }}")
             SourceRegistry(providers)
-        } catch (e: Exception) {
-            Log.e("AppContainer", "createSourceRegistry failed, using default fallback providers", e)
-            SourceRegistry(listOf(youTubeMusicSourceProvider))
+        } catch (error: RuntimeException) {
+            Log.e("AppContainer", "createSourceRegistry failed, keeping catalog gateway", error)
+            SourceRegistry(
+                listOf(
+                    newReleasesSource
+                )
+            )
+        } catch (error: java.io.IOException) {
+            Log.e("AppContainer", "createSourceRegistry failed, keeping catalog gateway", error)
+            SourceRegistry(
+                listOf(
+                    newReleasesSource
+                )
+            )
         }
     }
 

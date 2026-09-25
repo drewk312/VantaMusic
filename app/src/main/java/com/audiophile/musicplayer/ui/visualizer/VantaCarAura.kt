@@ -42,7 +42,7 @@ fun VantaCarAura(
     Canvas(modifier = modifier) {
         val width = size.width
         val height = size.height
-        val breath = (sin(phase * PI.toFloat() * 2f) * 0.08f + 0.10f).toFloat()
+        val breath = sin(phase * PI.toFloat() * 2f) * 0.08f + 0.10f
         val energy = if (isPlaying) audioFrame.rms * 0.06f else 0f
         val alpha = (breath + energy).coerceIn(0.02f, 0.20f)
 

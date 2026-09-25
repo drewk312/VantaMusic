@@ -1,8 +1,23 @@
-# VANTA Experience-Layer Improvements
+# VANTA Release Notes & Changelog
 
-This release focuses on the AI DJ, DSP, Android Auto, Spatial Audio, and Social
-features requested in the audit follow-up. The stream-sourcing architecture and
-hardcoded Qobuz credentials were intentionally left untouched per user request.
+## 1.02 Hotfixes
+
+- **Critical Launch & Artist View Crash Fix**:
+  - `ArtistDetailScreen.kt`: Resolved fatal duplicate key `IllegalArgumentException` in Compose Lazy rows/columns by assigning unique indexed keys across albums, singles, and catalog tracks.
+  - `StartupSafeguard.kt` & `AppNavGraph.kt`: Added navigation state recovery on startup to break out of restored crash loops and safely reset navigation to the Home screen if the previous session terminated abnormally.
+- **TV Sync Pairing & Link Code**:
+  - `SettingsScreen.kt`: Added full "Link Phone & TV" pairing UI with TV link code text field, "Push to TV" and "Pull from TV" sync actions, and generation of the device's own pair code.
+- **Spotify & Apple Music CSV Import**:
+  - `SoundiizTextParser.kt`: Added support for semicolon (`;`), tab (`\t`), and comma (`,`) delimiters; hardened CSV header recognition to require multi-column matches; prevented `Spotify Track ID` from shadowing `Track Name`; added support for Apple Music's `Name` column.
+- **Canvas Queue Forming & Player Queue Shuffle**:
+  - `SearchScreen.kt` & `AppNavGraph.kt`: Tapping any song in search results now forms the active queue from the full list of search results ("canvas queue forming") starting at the chosen track.
+  - `QueueView.kt` & `NowPlayingScreen.kt`: Added direct Shuffle button in the Up Next queue header to shuffle upcoming tracks without leaving the queue view.
+- **Search Engine Query Accuracy**:
+  - `UnifiedSearchEngine.kt`: Stripped filler words (`by`, `feat`, `ft`, `with`) from query tokens so queries like "lose yourself by eminem" find the exact song instead of failing or drifting; added artist bonus matching when artist name appears in natural language queries.
+- **Station Playback Latency (15-20s Delay Elimination)**:
+  - `QueueManager.kt`: Replaced blocking synchronous station refills inside `getNextTrack()` with asynchronous background coroutines. When tracks remain in the buffer, playback transitions immediately (0-second delay) while top-ups proceed non-blockingly.
+
+## 1.01 Improvements
 
 ## AI DJ
 

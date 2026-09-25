@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.Bundle
+import androidx.core.graphics.createBitmap
 import androidx.media3.common.Player
 import androidx.media3.common.util.BitmapLoader
 import androidx.media3.session.CommandButton
@@ -17,14 +18,12 @@ import androidx.media3.session.SessionResult
 import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import com.audiophile.musicplayer.R
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import androidx.core.graphics.createBitmap
 
 class AndroidAutoController(
     private val context: Context,
@@ -175,56 +174,53 @@ class AndroidAutoController(
     fun buildCommandButtons(): List<CommandButton> {
         val buttons = mutableListOf<CommandButton>()
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(
+            if (isFavoriteProvider()) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
+        )
             .setDisplayName("Favorite")
-            .setIconResId(if (isFavoriteProvider()) R.drawable.ic_favorite_filled else android.R.drawable.star_off)
             .setSessionCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle()))
             .setEnabled(canToggleFavoriteProvider())
             .build())
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(
+            if (player.shuffleModeEnabled) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF
+        )
             .setDisplayName("Shuffle")
-            .setIconResId(R.drawable.ic_shuffle)
             .setSessionCommand(SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle()))
             .setEnabled(true)
             .build())
 
         val repeatIcon = when (player.repeatMode) {
-            Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one
-            Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat_all
-            else -> R.drawable.ic_repeat
+            Player.REPEAT_MODE_ONE -> CommandButton.ICON_REPEAT_ONE
+            Player.REPEAT_MODE_ALL -> CommandButton.ICON_REPEAT_ALL
+            else -> CommandButton.ICON_REPEAT_OFF
         }
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(repeatIcon)
             .setDisplayName("Repeat")
-            .setIconResId(repeatIcon)
             .setSessionCommand(SessionCommand(ACTION_TOGGLE_REPEAT, Bundle()))
             .setEnabled(true)
             .build())
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(CommandButton.ICON_RADIO)
             .setDisplayName("Song Radio")
-            .setIconResId(android.R.drawable.ic_menu_share)
             .setSessionCommand(SessionCommand(ACTION_SONG_RADIO, Bundle()))
             .setEnabled(hasActiveTrackProvider())
             .build())
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(CommandButton.ICON_FEED)
             .setDisplayName("More Like This")
-            .setIconResId(android.R.drawable.ic_menu_search)
             .setSessionCommand(SessionCommand(ACTION_MORE_LIKE_THIS, Bundle()))
             .setEnabled(hasActiveTrackProvider())
             .build())
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(CommandButton.ICON_SYNC)
             .setDisplayName("Change Vibe")
-            .setIconResId(android.R.drawable.ic_menu_sort_by_size)
             .setSessionCommand(SessionCommand(ACTION_CHANGE_VIBE, Bundle()))
             .setEnabled(true)
             .build())
 
-        buttons.add(CommandButton.Builder()
+        buttons.add(CommandButton.Builder(CommandButton.ICON_SUBTITLES)
             .setDisplayName("Lyrics")
-            .setIconResId(android.R.drawable.ic_menu_gallery)
             .setSessionCommand(SessionCommand(ACTION_LYRICS, Bundle()))
             .setEnabled(hasActiveTrackProvider())
             .build())

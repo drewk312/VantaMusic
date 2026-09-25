@@ -93,7 +93,8 @@ class DiscoveryWeeklyGenerator : PersonalizedMixGenerator {
         topArtists: List<String>,
         favoriteArtists: List<String>
     ): List<String> {
-        val fromTaste = (favoriteArtists + topArtists)
+        val historyArtists = deps.listeningHistory?.recommendationArtists().orEmpty()
+        val fromTaste = (favoriteArtists + historyArtists + topArtists)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()

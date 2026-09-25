@@ -26,6 +26,7 @@ object NetworkModule {
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(com.audiophile.musicplayer.playback.GatewayApiKeyInterceptor)
             .build()
     }
 }

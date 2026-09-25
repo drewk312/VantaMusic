@@ -9,7 +9,10 @@ object SourceCandidateRanker {
         return candidates
             .map { candidate -> candidate to SourceIdentityGate.evaluateSearchResult(selected, candidate) }
             .filter { (_, evaluation) -> evaluation.accepted }
-            .sortedByDescending { (_, evaluation) -> evaluation.score }
+            .sortedWith(
+                compareByDescending<Pair<SourceSearchResult, SourceCandidateEvaluation>> { it.second.score }
+                    .thenByDescending { SourceIdentityGate.playbackProviderRank(it.first.providerId) }
+            )
             .map { (candidate, _) -> candidate }
     }
 

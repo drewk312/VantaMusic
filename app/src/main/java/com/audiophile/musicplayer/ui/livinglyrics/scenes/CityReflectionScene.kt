@@ -24,8 +24,8 @@ import kotlin.math.PI
 fun CityReflectionScene(
     accentColor: Color,
     energy: Float,
-    intensity: Float = 0.5f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    intensity: Float = 0.5f
 ) {
     val transition = rememberInfiniteTransition(label = "cityReflection")
     val cloudDrift by transition.animateFloat(

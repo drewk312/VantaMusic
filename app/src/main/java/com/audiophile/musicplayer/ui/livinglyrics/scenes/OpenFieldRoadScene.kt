@@ -24,8 +24,8 @@ import kotlin.math.PI
 fun OpenFieldRoadScene(
     accentColor: Color,
     energy: Float,
-    intensity: Float = 0.5f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    intensity: Float = 0.5f
 ) {
     val transition = rememberInfiniteTransition(label = "openFieldRoad")
     val grassSway by transition.animateFloat(

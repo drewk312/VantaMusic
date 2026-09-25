@@ -45,6 +45,10 @@ class QueueController(
 
     suspend fun back(): UnifiedTrackWithSources? = queueManager.getPreviousTrack()
 
+    suspend fun toggleShuffle(): Boolean = queueManager.toggleShuffle()
+
+    suspend fun shuffleUpNext() = queueManager.shuffleUpNext()
+
     fun snapshot(): QueueSnapshot = queueManager.snapshot()
 
     suspend fun loadPlayedHistory(ids: List<String>) {

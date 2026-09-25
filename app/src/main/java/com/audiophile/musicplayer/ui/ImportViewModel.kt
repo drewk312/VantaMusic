@@ -9,10 +9,12 @@ import com.audiophile.musicplayer.AppContainer
 import com.audiophile.musicplayer.common.VantaLogger
 import com.audiophile.musicplayer.data.local.entities.ImportBatchEntity
 import com.audiophile.musicplayer.data.local.entities.ImportedTrackEntity
+import com.audiophile.musicplayer.data.local.entities.ListeningHistoryEntity
 import com.audiophile.musicplayer.data.local.entities.SourceType
 import com.audiophile.musicplayer.data.importer.ImportMatchStatus
 import com.audiophile.musicplayer.data.importer.PlayabilityStatus
 import com.audiophile.musicplayer.data.importer.MatchConfidence
+import com.audiophile.musicplayer.data.importer.SpotifyExportImporter
 import com.audiophile.musicplayer.permissions.MediaPermissions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -123,7 +125,7 @@ class ImportViewModel @Inject constructor(
         }
     }
 
-    private fun importFromText(text: String) {
+private fun importFromText(text: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(statusMessage = "Parsing import text\u2026") }
             try {
@@ -135,6 +137,51 @@ class ImportViewModel @Inject constructor(
             } catch (e: Exception) {
                 VantaLogger.e(VantaLogger.Tag.IMPORT, "text_import_failed", e)
                 _uiState.update { it.copy(statusMessage = "Import failed: ${e.message}") }
+            }
+        }
+    }
+
+    /** Imports Spotify Extended Streaming History into ListeningHistory (local only). */
+    fun importSpotifyHistory(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Reading Spotify streaming history\u2026") }
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val rows = appContext.contentResolver.openInputStream(uri)?.use {
+                        SpotifyExportImporter.extractHistoryRows(it)
+                    }.orEmpty()
+                    val entries = rows.mapNotNull { row ->
+                        runCatching {
+                            ListeningHistoryEntity(
+                                startedAt = row.ts,
+                                title = row.trackName,
+                                artist = row.artistName,
+                                album = row.albumName,
+                                platform = "SPOTIFY",
+                                sourceTrackId = row.spotifyTrackUri,
+                                msPlayed = row.msPlayed,
+                                skipped = row.skipped,
+                                reasonStart = row.reasonStart,
+                                reasonEnd = row.reasonEnd
+                            )
+                        }.getOrNull()
+                    }
+                    container.listeningHistoryRepository.recordAll(entries)
+                    rows.size to entries.size
+                }
+                val (read, saved) = result
+                _uiState.update {
+                    it.copy(
+                        statusMessage = if (read == 0) {
+                            "No streaming history found in that file. This import needs the Extended Streaming History ZIP from your Spotify account (Stored streaming + playlists)."
+                        } else {
+                            "Imported $saved listening rows from Spotify history ($read parsed)"
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                VantaLogger.e(VantaLogger.Tag.IMPORT, "spotify_history_failed", e)
+                _uiState.update { it.copy(statusMessage = "Spotify history import failed: ${e.message}") }
             }
         }
     }

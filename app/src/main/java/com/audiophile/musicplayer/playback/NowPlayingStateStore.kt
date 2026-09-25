@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.source.SearchItemStatus
+import com.audiophile.musicplayer.data.source.ContentPurityFilter
 import com.google.gson.Gson
 import androidx.core.content.edit
 
@@ -21,7 +22,19 @@ class NowPlayingStateStore(
     private val saveLock = Any()
 
     fun save(state: NowPlayingState) {
-        val json = gson.toJson(state)
+        val normalizedState = state.normalized()
+        if (ContentPurityFilter.isClearlyNonMusicContent(
+                title = normalizedState.title,
+                artist = normalizedState.artist,
+                album = normalizedState.album,
+                durationMs = normalizedState.durationMs.takeIf { it > 0L }
+            )
+        ) {
+            Log.w("NowPlayingStateStore", "Refusing to persist non-music snapshot title='${normalizedState.title}' artist='${normalizedState.artist}'")
+            clear()
+            return
+        }
+        val json = gson.toJson(normalizedState)
         // Throttle: skip if identical and within interval
         synchronized(saveLock) {
             if (json == lastSavedJson && (System.currentTimeMillis() - lastSaveTimeMs) < minSaveIntervalMs) {
@@ -33,7 +46,7 @@ class NowPlayingStateStore(
         prefs.edit {
                 putString(key, json)
             }
-        Log.d("VANTA_PLAYBACK_STABILITY", "NowPlayingStateStore.save() persisted trackId=${state.trackId} pos=${state.positionMs} isPlaying=${state.isPlaying}")
+        Log.d("VANTA_PLAYBACK_STABILITY", "NowPlayingStateStore.save() persisted trackId=${normalizedState.trackId} pos=${normalizedState.positionMs} phase=${normalizedState.phase}")
     }
 
     fun load(): NowPlayingState? {
@@ -46,7 +59,18 @@ class NowPlayingStateStore(
             }
             return null
         }
-        return state.copy(qualityInfo = sanitizeLoadedQualityInfo(state.qualityInfo))
+        if (ContentPurityFilter.isClearlyNonMusicContent(
+                title = state.title,
+                artist = state.artist,
+                album = state.album,
+                durationMs = state.durationMs.takeIf { it > 0L }
+            )
+        ) {
+            Log.w("NowPlayingStateStore", "Discarding saved non-music snapshot title='${state.title}' artist='${state.artist}'")
+            clear()
+            return null
+        }
+        return state.copy(qualityInfo = sanitizeLoadedQualityInfo(state.qualityInfo)).normalized()
     }
 
     fun clear() {
@@ -75,15 +99,20 @@ class NowPlayingStateStore(
         info ?: return null
         return VantaQualityInfo.fromSource(
             bitrate = info.bitrateKbps,
-            quality = null,
-            mime = null,
+            quality = info.label,
+            mime = info.mimeType,
             format = info.format,
             sampleRateHz = info.sampleRateHz,
             bitDepth = info.bitDepth,
             status = if (info.isPreview) SearchItemStatus.PREVIEW else null,
             isValidated = info.isValidated,
             sourceProviderId = info.sourceProviderId,
-            reason = info.reason
+            reason = info.reason,
+            bitrateIsMeasured = info.measured,
+            channels = info.channels,
+            container = info.container,
+            pcmEncoding = info.pcmEncoding,
+            transcodingOccurred = info.transcodingOccurred
         ).takeIf { it.bestQualityLabel() != null }
     }
 }

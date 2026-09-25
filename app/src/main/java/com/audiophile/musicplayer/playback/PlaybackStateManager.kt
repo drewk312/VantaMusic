@@ -7,6 +7,7 @@ import androidx.media3.session.MediaSession
 import com.audiophile.musicplayer.common.VantaLogger
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import com.audiophile.musicplayer.data.source.SearchItemStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -63,6 +64,63 @@ class PlaybackStateManager(
         }
     }
 
+    fun applyMeasuredQuality(
+        bitrateKbps: Int?,
+        mime: String?,
+        sampleRateHz: Int?,
+        decoderClaimsAtmos: Boolean = false,
+        bitDepth: Int? = null,
+        channels: Int? = null,
+        codec: String? = null,
+        container: String? = null,
+        pcmEncoding: String? = null,
+        transcodingOccurred: Boolean = false
+    ) {
+        val previous = currentQualityInfo ?: return
+        if (
+            bitrateKbps == null &&
+            mime.isNullOrBlank() &&
+            sampleRateHz == null &&
+            bitDepth == null &&
+            channels == null &&
+            !decoderClaimsAtmos
+        ) return
+        val sourceBitDepth = previous.bitDepth
+        val crushedTo16 = sourceBitDepth != null && sourceBitDepth > 16 && bitDepth == 16
+        val updated = VantaQualityInfo.fromSource(
+            bitrate = bitrateKbps ?: previous.bitrateKbps,
+            quality = previous.label,
+            mime = mime ?: previous.mimeType,
+            format = codec ?: previous.format,
+            sampleRateHz = sampleRateHz ?: previous.sampleRateHz,
+            bitDepth = previous.bitDepth ?: bitDepth,
+            isLossless = previous.isLossless,
+            isHiRes = previous.isHiRes,
+            isSpatialAudio = decoderClaimsAtmos,
+            isDolbyAtmos = decoderClaimsAtmos,
+            isSurround = decoderClaimsAtmos,
+            status = SearchItemStatus.VALIDATED_PLAYABLE,
+            isValidated = true,
+            sourceProviderId = previous.sourceProviderId,
+            reason = "decoder_measured",
+            bitrateIsMeasured = bitrateKbps != null || previous.measured,
+            channels = channels ?: previous.channels,
+            container = container ?: previous.container,
+            pcmEncoding = pcmEncoding ?: previous.pcmEncoding,
+            transcodingOccurred = transcodingOccurred || crushedTo16 || previous.transcodingOccurred
+        )
+        // Decoder details can change without changing the compact label or
+        // bitrate (channels, PCM encoding, Atmos verification, or detected
+        // down-conversion). Publish those changes to the details sheet too.
+        if (updated == previous) return
+        currentQualityInfo = updated
+        scope.launch(Dispatchers.IO) {
+            val state = playbackStateHolder.snapshot().copy(qualityInfo = updated)
+            nowPlayingStateStore.save(state)
+            playbackStateHolder.replace(state)
+        }
+    }
+
     // ── Player.Listener ──────────────────────────────────────────────────────
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -85,8 +143,7 @@ class PlaybackStateManager(
             playbackStateHolder.update {
                 copy(
                     isPlaying = if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) false else isPlaying,
-                    isBuffering = playbackState == Player.STATE_BUFFERING,
-                    errorMessage = if (playbackState == Player.STATE_READY) null else errorMessage
+                    isBuffering = playbackState == Player.STATE_BUFFERING
                 )
             }
         }

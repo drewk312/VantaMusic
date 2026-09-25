@@ -6,18 +6,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/**
- * VANTA Master Luxury Design System.
- * Define once, use everywhere for consistent "20 dollar a month" editorial vibe.
- */
+/** VANTA's dark liquid-glass foundation. */
 object VantaDesignSystem {
-    // Master Palette
-    val Background = Color(0xFF0A0A0C)
-    val Surface = Color(0xFF141416)
-    val AccentGold = Color(0xFFE0A050)
-    val PrimaryText = Color(0xFFF5F0EB)
-    val SecondaryText = Color(0xFFB5AFB8)
-    val MutedText = Color(0xFF7E777F)
+    val Background = Color(0xFF0A0B0D)
+    val Surface = Color(0xFF151619)
+    val AccentIris = Color(0xFFE4CBA4)
+    val AccentIce = Color(0xFFC1D1D1)
+    val PrimaryText = Color(0xFFF5F1EB)
+    val SecondaryText = Color(0xFFBCB9B3)
+    val MutedText = Color(0xFF97958F)
     
     // Typography
     val TopBarTitle = TextStyle(

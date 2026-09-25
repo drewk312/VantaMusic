@@ -19,7 +19,11 @@ object VantaMusicBrain {
         exactUserTap: Boolean = false,
         isRadioContext: Boolean = false
     ): CatalogResolution {
-        val intent = IntentParser.parse(query, exactUserTap = exactUserTap)
+        val intent = IntentParser.parse(
+            query = query,
+            exactUserTap = exactUserTap,
+            catalogCandidates = catalogCandidates
+        )
 
         val filteredCandidates = if (isRadioContext && intent.requestedVariant == RequestedVariant.NONE) {
             catalogCandidates.filterNot { track ->

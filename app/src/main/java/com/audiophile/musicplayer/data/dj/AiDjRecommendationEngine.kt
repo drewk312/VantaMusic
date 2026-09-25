@@ -4,6 +4,7 @@ import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.repository.TrackRepository
 import com.audiophile.musicplayer.data.source.SourceRegistry
+import com.audiophile.musicplayer.data.source.SourceIdentityGate
 import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.canResolveStream
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
@@ -18,7 +19,8 @@ class AiDjRecommendationEngine(
     private val sourceRegistry: SourceRegistry,
     private val trackRepository: TrackRepository,
     private val localLibraryRepository: com.audiophile.musicplayer.data.repository.LocalLibraryRepository,
-    private val pulseAiBrain: PulseAiBrain
+    private val pulseAiBrain: PulseAiBrain,
+    private val listeningHistory: com.audiophile.musicplayer.data.local.ListeningHistoryRepository? = null
 ) : RecommendationEngine {
 
     enum class TimeOfDay { MORNING, AFTERNOON, EVENING, NIGHT }
@@ -33,6 +35,8 @@ class AiDjRecommendationEngine(
     private val favoriteArtists = mutableSetOf<String>()
     private val skipCounts = mutableMapOf<String, Int>()
     private val genreAffinities = mutableMapOf<String, Float>()
+    private val historyArtists = java.util.concurrent.atomic.AtomicReference<List<String>>(emptyList())
+    private val historyHydrated = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun recordFullPlay(trackId: Long, artist: String, genre: String?) {
         playbackHistory.add(PlaybackSignal.FullPlay(trackId, artist, genre))
@@ -89,8 +93,8 @@ class AiDjRecommendationEngine(
         seedGenre: String?
     ): List<UnifiedTrackWithSources> {
         val topArtists = computeTopArtists()
-        val searchArtists = (listOf(seedArtist) + topArtists).distinct().take(5)
-        val results = resolveSearchQueries(searchArtists.map { it to null })
+        val searchArtists = listOf(seedArtist).filter { it.isNotBlank() }
+        val results = resolveSearchQueries(searchArtists.map { null to it })
         Log.d("VANTA_RECOMMEND", "getSimilarTracks seed=$seedArtist returned ${results.size} tracks (topArtists=$topArtists)")
         return results
     }
@@ -117,6 +121,7 @@ class AiDjRecommendationEngine(
         }
         val queries = suggestions.map { (title, artist) -> title to artist }
         val results = resolveSearchQueries(queries)
+            .filter { RadioIdentityPolicy.acceptsTaste(profile, it.track.artist, it.track.genre) }
         Log.d("VANTA_RECOMMEND", "discoverViaLlm returned ${results.size} tracks from ${suggestions.size} suggestions")
         return results
     }
@@ -147,10 +152,12 @@ class AiDjRecommendationEngine(
                 .trim()
             if (query.isBlank()) continue
 
-            val searchResults = sourceRegistry.searchAll(query)
+            val searchResults = sourceRegistry.searchAll(query, includeSupplemental = false)
             val (matched, skipped) = searchResults
-                .filter { it.status.canResolveStream() }
-                .partition { it.isLikelyMusicTrack() }
+                .filter { it.status.canResolveStream() && RadioIdentityPolicy.matches(it.title, it.artist, title, artist) }
+                .filter { !SourceIdentityGate.isSupplementalPlaybackProvider(it.providerId) }
+                .partition { it.isLikelyMusicTrack() &&
+                    !JukeboxTrackEligibility.shouldExcludeFromRadioQueue(it.title, it.artist, it.durationMs, it.album) }
             skipped.forEach {
                 Log.d("VANTA_QUEUE_EXPAND", "filtered_non_music title='${it.title}' artist='${it.artist}' provider=${it.providerId}")
             }
@@ -204,30 +211,37 @@ class AiDjRecommendationEngine(
         return results
     }
 
+    private suspend fun refreshListeningHistory() {
+        val repository = listeningHistory ?: return
+        historyArtists.set(repository.recommendationArtists())
+        historyHydrated.set(true)
+    }
+
     private fun computeTopArtists(): List<String> {
+        return mergeTasteArtists(
+            sessionScores = sessionArtistScores(),
+            historyArtists = historyArtists.get(),
+            favoriteArtists = favoriteArtists,
+            skipCounts = skipCounts
+        )
+    }
+
+    private fun sessionArtistScores(): Map<String, Int> {
         val artistScores = mutableMapOf<String, Int>()
         for (signal in playbackHistory) {
-            val artist = when (signal) {
+            when (signal) {
                 is PlaybackSignal.FullPlay -> {
                     artistScores[signal.artist] = (artistScores[signal.artist] ?: 0) + 3
-                    signal.artist
                 }
                 is PlaybackSignal.Favorite -> {
                     artistScores[signal.artist] = (artistScores[signal.artist] ?: 0) + 5
-                    signal.artist
                 }
                 is PlaybackSignal.Skip -> {
                     artistScores[signal.artist] = (artistScores[signal.artist] ?: 0) - 2
-                    signal.artist
                 }
             }
         }
         return artistScores
-            .filter { (artist, _) -> (skipCounts[artist] ?: 0) < 3 }
-            .entries
-            .sortedByDescending { it.value }
-            .take(10)
-            .map { it.key }
     }
 
     data class TasteProfile(
@@ -239,7 +253,8 @@ class AiDjRecommendationEngine(
         val timeOfDayPlaylist: String
     )
 
-    fun getTasteProfile(): TasteProfile {
+    suspend fun getTasteProfile(): TasteProfile {
+        if (!historyHydrated.get()) refreshListeningHistory()
         val plays = playbackHistory.count { it is PlaybackSignal.FullPlay }
         val skips = playbackHistory.count { it is PlaybackSignal.Skip }
         return TasteProfile(
@@ -430,8 +445,8 @@ Return each as: Song Title - Artist Name
         val topArtists = profile.topArtistsByPlayCount.map { it.trim().lowercase() }.toSet()
 
         val scored = allTracks.map { track ->
-            val artist = track.track.artist?.trim()?.lowercase().orEmpty()
-            val title = track.track.title?.lowercase().orEmpty()
+            val artist = track.track.artist.trim().lowercase()
+            val title = track.track.title.lowercase()
             var score = 0f
             if (artist in favoriteArtists) score += 3f
             else if (artist in topArtists) score += 1.5f
@@ -448,7 +463,7 @@ Return each as: Song Title - Artist Name
     private fun capArtistsList(tracks: List<UnifiedTrackWithSources>, maxTracks: Int): List<UnifiedTrackWithSources> {
         val artistCounts = mutableMapOf<String, Int>()
         return tracks.filter { track ->
-            val key = track.track.artist?.trim()?.lowercase().orEmpty()
+            val key = track.track.artist.trim().lowercase()
             val count = artistCounts[key] ?: 0
             if (count >= 2) false else {
                 artistCounts[key] = count + 1
@@ -456,4 +471,34 @@ Return each as: Song Title - Artist Name
             }
         }.take(maxTracks.coerceAtLeast(1))
     }
+}
+
+internal fun mergeTasteArtists(
+    sessionScores: Map<String, Int>,
+    historyArtists: List<String>,
+    favoriteArtists: Collection<String>,
+    skipCounts: Map<String, Int>
+): List<String> {
+    val artistScores = mutableMapOf<String, Int>()
+    historyArtists.forEachIndexed { index, artist ->
+        val name = artist.trim()
+        if (name.isBlank()) return@forEachIndexed
+        artistScores[name] = (artistScores[name] ?: 0) + (12 - index).coerceAtLeast(1)
+    }
+    for ((artist, score) in sessionScores) {
+        val name = artist.trim()
+        if (name.isBlank()) continue
+        artistScores[name] = (artistScores[name] ?: 0) + score
+    }
+    for (artist in favoriteArtists) {
+        val name = artist.trim()
+        if (name.isBlank()) continue
+        artistScores[name] = (artistScores[name] ?: 0) + 8
+    }
+    return artistScores
+        .filter { (artist, _) -> (skipCounts[artist] ?: 0) < 3 }
+        .entries
+        .sortedByDescending { it.value }
+        .take(10)
+        .map { it.key }
 }

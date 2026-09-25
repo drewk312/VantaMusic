@@ -16,6 +16,9 @@ extern "C" {
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// Calls are serialized by VantaEqualizerProcessor.nativeLock. JamesDSP takes
+// its own non-recursive mutex inside processing/configuration; taking that same
+// mutex in this wrapper deadlocks the audio thread.
 static JamesDSPLib *as_dsp(jlong handle) {
     return reinterpret_cast<JamesDSPLib *>(handle);
 }
@@ -66,12 +69,7 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeCreate(
     JLimiterInit(dsp);
     JLimiterSetCoefficients(dsp, -0.1, 60.0);
     JamesDSPSetPostGain(dsp, 0.0);
-    MultimodalEqualizerConstructor(dsp);
-    StereoEnhancementConstructor(dsp);
-    CrossfeedConstructor(dsp);
-    Convolver1DConstructor(dsp);
-    BassBoostConstructor(dsp);
-    DDCConstructor(dsp);
+    // JamesDSPInit owns effect construction. Do not initialize those allocations twice.
     return reinterpret_cast<jlong>(dsp);
 }
 
@@ -80,11 +78,7 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeDestroy(
     JNIEnv *env, jobject thiz, jlong handle) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    MultimodalEqualizerDestructor(dsp);
-    StereoEnhancementDestructor(dsp);
-    CrossfeedDestructor(dsp);
-    Convolver1DDestructor(dsp);
-    DDCDestructor(dsp);
+    // JamesDSPFree owns effect destruction, including all filter allocations.
     JamesDSPFree(dsp);
     free(dsp);
     JamesDSPGlobalMemoryDeallocation();
@@ -103,11 +97,9 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeEnsureBl
     JNIEnv *env, jobject thiz, jlong handle, jint blockSize) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (static_cast<size_t>(blockSize) > dsp->blockSizeMax) {
         JamesDSPReallocateBlock(dsp, static_cast<size_t>(blockSize));
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -120,7 +112,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
 
-    jdsp_lock(dsp);
 
     if (spatialEnabled) {
         if (stereoWidenLevel > 0.01f) {
@@ -149,7 +140,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
         if (dsp->reverbEnabled) ReverbDisable(dsp);
     }
 
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -159,11 +149,10 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
 
-    jdsp_lock(dsp);
 
     if (enable) {
         jsize len = env->GetArrayLength(freqAxis);
-        if (len > 1) {
+        if (len == NUMPTS && env->GetArrayLength(gainDb) == NUMPTS) {
             jdouble *freqs = env->GetDoubleArrayElements(freqAxis, nullptr);
             jdouble *gains = env->GetDoubleArrayElements(gainDb, nullptr);
             MultimodalEqualizerAxisInterpolation(dsp, 1, 1, freqs, gains);
@@ -175,7 +164,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
         MultimodalEqualizerDisable(dsp);
     }
 
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -183,17 +171,12 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JNIEnv *env, jobject thiz, jlong handle, jboolean enabled, jdouble amount) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (enabled) {
-        if (dsp->dbb.maxGain <= 0.0f) {
-            BassBoostConstructor(dsp);
-        }
         BassBoostSetParam(dsp, static_cast<float>(amount * 10.0));
         BassBoostEnable(dsp);
     } else {
         BassBoostDisable(dsp);
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -201,7 +184,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JNIEnv *env, jobject thiz, jlong handle, jboolean enabled, jdouble drive) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (enabled) {
         double gainDb = drive * 18.0 - 6.0;
         VacuumTubeSetGain(dsp, gainDb);
@@ -209,7 +191,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     } else {
         VacuumTubeDisable(dsp);
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -217,7 +198,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JNIEnv *env, jobject thiz, jlong handle, jboolean enabled, jstring profileData) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (enabled && profileData != nullptr) {
         const char *utfStr = env->GetStringUTFChars(profileData, nullptr);
         if (utfStr != nullptr && strlen(utfStr) > 0) {
@@ -236,7 +216,6 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     } else {
         DDCDisable(dsp);
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -244,13 +223,11 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JNIEnv *env, jobject thiz, jlong handle, jboolean enabled) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (enabled) {
         JLimiterSetCoefficients(dsp, -0.1, 60.0);
     } else {
         JLimiterSetCoefficients(dsp, 20.0, 200.0);
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -258,13 +235,11 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeConfigur
     JNIEnv *env, jobject thiz, jlong handle, jboolean enabled, jstring irAssetPath) {
     JamesDSPLib *dsp = as_dsp(handle);
     if (!dsp) return;
-    jdsp_lock(dsp);
     if (enabled) {
         Convolver1DEnable(dsp);
     } else {
         Convolver1DDisable(dsp);
     }
-    jdsp_unlock(dsp);
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL
@@ -305,10 +280,8 @@ Java_com_audiophile_musicplayer_playback_dsp_VantaEqualizerNative_nativeProcessD
 
     float *inL = left + offset;
     float *inR = right + offset;
-    jdsp_lock(dsp);
     dsp->processFloatDeinterleaved(dsp, inL, inR, inL, inR, static_cast<size_t>(frameCount));
     updateSpectrumCopy(dsp->comp.mag, SPECTRUM_SIZE);
-    jdsp_unlock(dsp);
 
     env->ReleaseFloatArrayElements(leftArray, left, 0);
     env->ReleaseFloatArrayElements(rightArray, right, 0);

@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -106,6 +107,7 @@ fun AlbumDetailScreen(
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
             .statusBarsPadding()
+            .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible, bottomNavVisible = bottomNavVisible))
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -116,9 +118,9 @@ fun AlbumDetailScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible, bottomNavVisible = bottomNavVisible))
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             item {
                 Column(
@@ -153,7 +155,7 @@ fun AlbumDetailScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (!hasTrackListing) {
-                            VantaStatusBadge("Metadata Only", AppWarning)
+                            Text(if (catalogLoading) "Loading songs..." else "Songs unavailable", color = AppTextSecondary)
                         } else {
                             if (effectiveYear != null) {
                                 Text(effectiveYear.toString(), color = AppTextSecondary, fontSize = 14.sp)
@@ -180,14 +182,26 @@ fun AlbumDetailScreen(
             } else if (!hasTrackListing) {
                 item {
                     VantaEmptyState(
-                        title = "Metadata Only",
-                        description = "Track listing is not available yet. Search the album and artist to find playable matches.",
+                        title = "Could not load this album",
+                        description = "Try searching for the album and artist to find its songs.",
                         icon = Icons.Filled.Album,
                         actionLabel = "Find Matches",
-                        onAction = onPlayAlbum
+                        onAction = onFindMatches
                     )
                 }
             } else if (catalogTracks.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        androidx.compose.material3.Button(onClick = onPlayAlbum, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Text("Play")
+                        }
+                        androidx.compose.material3.OutlinedButton(onClick = onShuffleAlbum, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Shuffle, contentDescription = null)
+                            Text("Shuffle")
+                        }
+                    }
+                }
                 item {
                     Text("${catalogTracks.size} songs", color = AppTextSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                 }
@@ -263,11 +277,11 @@ fun AlbumDetailScreen(
                 itemsIndexed(tracks) { index, track ->
                     val display = remember(track.track) { TrackDisplayResolver.resolve(track.track) }
                     val status = track.sourceValidityStatus()
-                    val qualityLabel = remember(track.sources) {
+                    val qualityInfo = remember(track.sources, status) {
                         VantaQualityInfo.fromTrackSource(
                             source = track.sources.maxByOrNull { it.bitrate },
                             status = status
-                        )?.bestQualityLabel()
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp).clickable { onPlayTrack(track) },
@@ -277,9 +291,12 @@ fun AlbumDetailScreen(
                         Text("${index + 1}", color = AppTextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(display.title, color = AppText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(display.title, color = AppText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                                 if (display.explicit == true) VantaExplicitBadge()
-                                VantaQualityBadge(qualityLabel)
+                                TitleSpatialIndicator(qualityInfo = qualityInfo)
+                                if (qualityInfo == null || spatialIdentityKind(qualityInfo) == null) {
+                                    VantaQualityBadge(qualityInfo?.compactQualityLabel())
+                                }
                             }
                             Text(display.artist, color = AppTextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }

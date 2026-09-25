@@ -1,8 +1,8 @@
 package com.audiophile.musicplayer.discovery.personalized
 
 /**
- * Stable identifiers for personalized mix kinds. Additional kinds are registered as stubs
- * for forward-compatible expansion (SoulSync-inspired registry pattern).
+ * Stable identifiers for personalized mix kinds. Only kinds with real generators are
+ * registered and surfaced; the remaining IDs are reserved for future implementations.
  */
 enum class PersonalizedMixKind(val id: String) {
     DISCOVERY_WEEKLY("discovery_weekly"),

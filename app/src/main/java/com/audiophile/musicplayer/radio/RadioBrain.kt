@@ -49,309 +49,6 @@ data class RadioGenerationLog(
     val totalQueries: Int
 )
 
-object RadioSongRegistry {
-    private val knownSongs = mapOf(
-        "spirit in the sky" to "Norman Greenbaum",
-        "everybody wants to rule the world" to "Tears for Fears",
-        "shout" to "Tears for Fears",
-        "mad world" to "Tears for Fears",
-        "head over heels" to "Tears for Fears",
-        "bohemian rhapsody" to "Queen",
-        "hotel california" to "Eagles",
-        "billie jean" to "Michael Jackson",
-        "piano man" to "Billy Joel",
-        "stayin alive" to "Bee Gees",
-        "blinding lights" to "The Weeknd",
-        "shape of you" to "Ed Sheeran",
-        "bad guy" to "Billie Eilish",
-        "flowers" to "Miley Cyrus",
-        "anti hero" to "Taylor Swift",
-        "hello" to "Adele",
-        "rolling in the deep" to "Adele",
-        "someone like you" to "Adele",
-        "bohemian rhapsody" to "Queen",
-        "hotel california" to "Eagles",
-        "piano man" to "Billy Joel",
-        "imagine" to "John Lennon",
-        "what a wonderful world" to "Louis Armstrong",
-        "stand by me" to "Ben E. King",
-        "lean on me" to "Bill Withers",
-        "aint no sunshine" to "Bill Withers",
-        "lets stay together" to "Al Green",
-        "superstition" to "Stevie Wonder",
-        "purple rain" to "Prince",
-        "thriller" to "Michael Jackson",
-        "sweet child o mine" to "Guns N' Roses",
-        "welcome to the jungle" to "Guns N' Roses",
-        "back in black" to "AC/DC",
-        "thunderstruck" to "AC/DC",
-        "smells like teen spirit" to "Nirvana",
-        "come as you are" to "Nirvana",
-        "enter sandman" to "Metallica",
-        "nothing else matters" to "Metallica",
-        "the unforgiven" to "Metallica",
-        "one" to "Metallica",
-        "master of puppets" to "Metallica",
-        "fade to black" to "Metallica",
-        "iron man" to "Black Sabbath",
-        "paranoid" to "Black Sabbath",
-        "stairway to heaven" to "Led Zeppelin",
-        "whole lotta love" to "Led Zeppelin",
-        "kashmir" to "Led Zeppelin",
-        "immigrant song" to "Led Zeppelin",
-        "dream on" to "Aerosmith",
-        "walk this way" to "Aerosmith",
-        "dont stop believin" to "Journey",
-        "any way you want it" to "Journey",
-        "eye of the tiger" to "Survivor",
-        "living on a prayer" to "Bon Jovi",
-        "wanted dead or alive" to "Bon Jovi",
-        "you give love a bad name" to "Bon Jovi",
-        "born in the usa" to "Bruce Springsteen",
-        "dancing in the dark" to "Bruce Springsteen",
-        "the river" to "Bruce Springsteen",
-        "like a rolling stone" to "Bob Dylan",
-        "knockin on heavens door" to "Bob Dylan",
-        "sweet home alabama" to "Lynyrd Skynyrd",
-        "free bird" to "Lynyrd Skynyrd",
-        "toxic" to "Britney Spears",
-        "oops i did it again" to "Britney Spears",
-        "baby one more time" to "Britney Spears",
-        "poker face" to "Lady Gaga",
-        "bad romance" to "Lady Gaga",
-        "just dance" to "Lady Gaga",
-        "umbrella" to "Rihanna",
-        "diamonds" to "Rihanna",
-        "we found love" to "Rihanna",
-        "single ladies" to "Beyonce",
-        "crazy in love" to "Beyonce",
-        "halo" to "Beyonce",
-        "lose yourself" to "Eminem",
-        "stan" to "Eminem",
-        "the real slim shady" to "Eminem",
-        "without me" to "Eminem",
-        "rap god" to "Eminem",
-        "california love" to "2Pac",
-        "changes" to "2Pac",
-        "hit em up" to "2Pac",
-        "juicy" to "The Notorious B.I.G.",
-        "big poppa" to "The Notorious B.I.G.",
-        "hypnotize" to "The Notorious B.I.G.",
-        "mo money mo problems" to "The Notorious B.I.G.",
-        "still dre" to "Dr. Dre",
-        "the next episode" to "Dr. Dre",
-        "in da club" to "50 Cent",
-        "god's plan" to "Drake",
-        "hotline bling" to "Drake",
-        "one dance" to "Drake",
-        "passionfruit" to "Drake",
-        "as it was" to "Harry Styles",
-        "watermelon sugar" to "Harry Styles",
-        "levitating" to "Dua Lipa",
-        "dont start now" to "Dua Lipa",
-        "new rules" to "Dua Lipa",
-        "seven rings" to "Ariana Grande",
-        "thank u next" to "Ariana Grande",
-        "into you" to "Ariana Grande",
-        "positions" to "Ariana Grande",
-        "despacito" to "Luis Fonsi",
-        "havana" to "Camila Cabello",
-        "senorita" to "Shawn Mendes",
-        "treat you better" to "Shawn Mendes",
-        "stitches" to "Shawn Mendes",
-        "sunflower" to "Post Malone",
-        "rockstar" to "Post Malone",
-        "circles" to "Post Malone",
-        "congratulations" to "Post Malone",
-        "better now" to "Post Malone",
-        "sicko mode" to "Travis Scott",
-        "goosebumps" to "Travis Scott",
-        "highest in the room" to "Travis Scott",
-        "humble" to "Kendrick Lamar",
-        "dna" to "Kendrick Lamar",
-        "alright" to "Kendrick Lamar",
-        "swimming pools" to "Kendrick Lamar",
-        "king kunta" to "Kendrick Lamar",
-        "loyalty" to "Kendrick Lamar",
-        "lovely" to "Billie Eilish",
-        "ocean eyes" to "Billie Eilish",
-        "everything i wanted" to "Billie Eilish",
-        "old town road" to "Lil Nas X",
-        "industry baby" to "Lil Nas X",
-        "montero" to "Lil Nas X",
-        "peaches" to "Justin Bieber",
-        "sorry" to "Justin Bieber",
-        "love yourself" to "Justin Bieber",
-        "stay" to "Justin Bieber",
-        "intentions" to "Justin Bieber",
-        "closer" to "The Chainsmokers",
-        "something just like this" to "The Chainsmokers",
-        "paris" to "The Chainsmokers",
-        "don't let me down" to "The Chainsmokers",
-        "happier" to "Marshmello",
-        "alone" to "Marshmello",
-        "faded" to "Alan Walker",
-        "alone" to "Alan Walker",
-        "the spectre" to "Alan Walker",
-        "on my way" to "Alan Walker",
-        "wake me up" to "Avicii",
-        "hey brother" to "Avicii",
-        "levels" to "Avicii",
-        "waiting for love" to "Avicii",
-        "dont you worry child" to "Swedish House Mafia",
-        "save the world" to "Swedish House Mafia",
-        "one more time" to "Daft Punk",
-        "harder better faster stronger" to "Daft Punk",
-        "get lucky" to "Daft Punk",
-        "around the world" to "Daft Punk",
-        "something about us" to "Daft Punk",
-        "bittersweet symphony" to "The Verve",
-        "wonderwall" to "Oasis",
-        "dont look back in anger" to "Oasis",
-        "champagne supernova" to "Oasis",
-        "creep" to "Radiohead",
-        "karma police" to "Radiohead",
-        "no surprises" to "Radiohead",
-        "fake plastic trees" to "Radiohead",
-        "high and dry" to "Radiohead",
-        "paranoid android" to "Radiohead",
-        "exit music for a film" to "Radiohead",
-        "let down" to "Radiohead",
-        "climbing up the walls" to "Radiohead",
-        "in limbo" to "Radiohead",
-        "idioteque" to "Radiohead",
-        "morning bell" to "Radiohead",
-        "motion picture soundtrack" to "Radiohead",
-        "airbag" to "Radiohead",
-        "subterranean homesick alien" to "Radiohead",
-        "electioneering" to "Radiohead",
-        "the tourist" to "Radiohead",
-        "lucky" to "Radiohead",
-        "15 step" to "Radiohead",
-        "bodysnatchers" to "Radiohead",
-        "nude" to "Radiohead",
-        "weird fishes" to "Radiohead",
-        "all i need" to "Radiohead",
-        "faust arp" to "Radiohead",
-        "reckoner" to "Radiohead",
-        "house of cards" to "Radiohead",
-        "jigsaw falling into place" to "Radiohead",
-        "videotape" to "Radiohead",
-        "bloom" to "Radiohead",
-        "little by little" to "Radiohead",
-        "feral" to "Radiohead",
-        "codex" to "Radiohead",
-        "give up the ghost" to "Radiohead",
-        "separator" to "Radiohead",
-        "burn the witch" to "Radiohead",
-        "daydreaming" to "Radiohead",
-        "decks dark" to "Radiohead",
-        "desert island disk" to "Radiohead",
-        "ful stop" to "Radiohead",
-        "glass eyes" to "Radiohead",
-        "identikit" to "Radiohead",
-        "the numbers" to "Radiohead",
-        "present tense" to "Radiohead",
-        "tinker tailor soldier sailor rich man poor man beggar man thief" to "Radiohead",
-        "true love waits" to "Radiohead",
-        "pulk pull revolving doors" to "Radiohead",
-        "like spinning plates" to "Radiohead",
-        "knives out" to "Radiohead",
-        "i might be wrong" to "Radiohead",
-        "dollars and cents" to "Radiohead",
-        "pyramid song" to "Radiohead",
-        "you and whose army" to "Radiohead",
-        "optimistic" to "Radiohead",
-        "packt like sardines" to "Radiohead",
-        "everything in its right place" to "Radiohead",
-        "how to disappear completely" to "Radiohead",
-        "the national anthem" to "Radiohead",
-        "kid a" to "Radiohead",
-        "the daily mail" to "Radiohead",
-        "staircase" to "Radiohead",
-        "supercollider" to "Radiohead",
-        "the butcher" to "Radiohead",
-        "ill wind" to "Radiohead",
-        "go to sleep" to "Radiohead",
-        "where i end and you begin" to "Radiohead",
-        "sit down stand up" to "Radiohead",
-        "myxomatosis" to "Radiohead",
-        "scatterbrain" to "Radiohead",
-        "a wolf at the door" to "Radiohead",
-        "2 + 2 = 5" to "Radiohead",
-        "sail to the moon" to "Radiohead",
-        "backdrifts" to "Radiohead",
-        "go slowly" to "Radiohead",
-        "down is the new up" to "Radiohead",
-        "bangers + mash" to "Radiohead",
-        "4 minute warning" to "Radiohead",
-        "pop is dead" to "Radiohead",
-        "inside my head" to "Radiohead",
-        "milk" to "Radiohead",
-        "indian red" to "Radiohead",
-        "talk show host" to "Radiohead",
-        "lozenge of love" to "Radiohead",
-        "lurgee" to "Radiohead",
-        "blow out" to "Radiohead",
-        "anyone can play guitar" to "Radiohead",
-        "creeping" to "Radiohead",
-        "stop whispering" to "Radiohead",
-        "thinking about you" to "Radiohead",
-        "you" to "Radiohead",
-        "how do you" to "Radiohead",
-        "vegetable" to "Radiohead",
-        "prove yourself" to "Radiohead",
-        "i can't" to "Radiohead",
-        "ripcord" to "Radiohead",
-        "the bends" to "Radiohead",
-        "planet telex" to "Radiohead",
-        "just" to "Radiohead",
-        "my iron lung" to "Radiohead",
-        "bullet proof i wish i was" to "Radiohead",
-        "black star" to "Radiohead",
-        "sulk" to "Radiohead",
-        "street spirit fade out" to "Radiohead",
-        "nice dream" to "Radiohead",
-        "maquiladora" to "Radiohead",
-        "killer cars" to "Radiohead",
-        "the trickster" to "Radiohead",
-        "punchdrunk" to "Radiohead",
-        "permanent daylight" to "Radiohead",
-        "lozenge of love" to "Radiohead",
-        "you never wash up after yourself" to "Radiohead",
-        "molasses" to "Radiohead",
-        "faithless the wonder boy" to "Radiohead",
-        "banana co." to "Radiohead",
-        "kinetic" to "Radiohead",
-        "fast track" to "Radiohead",
-        "trans-atlantic drawl" to "Radiohead",
-        "gagging order" to "Radiohead",
-        "these are my twisted words" to "Radiohead"
-    )
-
-    fun search(rawQuery: String): List<Pair<String, String>> {
-        val q = rawQuery.lowercase().trim()
-        val results = mutableListOf<Pair<String, String>>()
-        for ((title, artist) in knownSongs) {
-            if (q.contains(title) || title.contains(q)) {
-                results.add(title to artist)
-            }
-        }
-        return results.distinct().take(3)
-    }
-
-    fun resolveExact(title: String): Pair<String, String>? {
-        val nq = title.lowercase().trim()
-        return knownSongs[nq]?.let { nq to it }
-    }
-
-    fun resolveWithArtist(title: String, artist: String): Pair<String, String>? {
-        val nt = title.lowercase().trim()
-        val na = artist.lowercase().trim()
-        return knownSongs[nt]?.takeIf { it.lowercase() == na }?.let { nt to it }
-    }
-}
-
 object RadioBrain {
 
     private const val TAG = "VANTA_RADIO_BRAIN"
@@ -443,8 +140,8 @@ object RadioBrain {
                 continue
             }
 
-            val artistKey = track.track.artist?.lowercase()?.trim().orEmpty()
-            val titleArtistKey = "${track.track.title?.lowercase()?.trim()}|$artistKey"
+            val artistKey = track.track.artist.lowercase().trim()
+            val titleArtistKey = "${track.track.title.lowercase().trim()}|$artistKey"
 
             if (titleArtistKey in seenTitleArtist) {
                 rejections.add("duplicate:$titleArtistKey")
@@ -456,6 +153,54 @@ object RadioBrain {
                 val currentArtistCount = artistCount[artistKey] ?: 0
                 if (currentArtistCount >= intent.maxPerArtist) {
                     rejections.add("artist_cap:$artistKey")
+                    continue
+                }
+            }
+
+            // Song radio: keep seed artist around 20–25% of the verified queue.
+            if (intent.seedType == RadioSeedType.SONG &&
+                !intent.seedTrackArtist.isNullOrBlank() &&
+                SongRadioRelatedness.artistsMatch(intent.seedTrackArtist, artistKey)
+            ) {
+                val seedSoFar = artistCount.entries
+                    .filter { SongRadioRelatedness.artistsMatch(it.key, intent.seedTrackArtist) }
+                    .sumOf { it.value }
+                val nextShare = (seedSoFar + 1).toDouble() / (verified.size + 1).toDouble()
+                if (verified.size >= 3 && nextShare > 0.25) {
+                    rejections.add("seed_artist_share_cap:$artistKey")
+                    continue
+                }
+            }
+
+            // Song radio relatedness gate (Weeknd→Weekend, foreign covers, listicles).
+            if (intent.seedType == RadioSeedType.SONG) {
+                val title = track.track.title
+                val artist = track.track.artist
+                if (SongRadioRelatedness.isArtistNameCollision(
+                        intent.seedTrackArtist,
+                        title,
+                        artist,
+                        track.track.albumName
+                    ) ||
+                    SongRadioRelatedness.isWeakTitleTokenSpam(
+                        intent.seedTrackTitle,
+                        intent.seedTrackArtist,
+                        title,
+                        artist
+                    ) ||
+                    SongRadioRelatedness.isForeignHitCover(
+                        intent.seedTrackTitle,
+                        title,
+                        artist,
+                        intent.seedTrackArtist
+                    ) ||
+                    SongRadioRelatedness.isListicleOrCompilationAlbum(
+                        title,
+                        artist,
+                        track.track.albumName
+                    )
+                ) {
+                    rejections.add("song_radio_relatedness:$title:$artist")
                     continue
                 }
             }
@@ -523,8 +268,8 @@ object RadioBrain {
         totalQueries: Int
     ): RadioGenerationLog {
         val top10Reasons = verifiedQueue.take(10).map { track ->
-            val artist = track.track.artist ?: "unknown"
-            val title = track.track.title ?: "unknown"
+            val artist = track.track.artist
+            val title = track.track.title
             val genre = track.track.genre ?: "unknown"
             "$title by $artist (genre=$genre)"
         }

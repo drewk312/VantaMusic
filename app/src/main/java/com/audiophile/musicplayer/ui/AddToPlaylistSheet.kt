@@ -31,6 +31,7 @@ fun AddToPlaylistSheet(
     onAddToPlaylist: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val dismissKeyboard = rememberKeyboardDismissal()
     var showNewPlaylistInput by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
@@ -57,6 +58,15 @@ fun AddToPlaylistSheet(
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Playlist name", color = AppTextMuted) },
                     singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                        if (newPlaylistName.isNotBlank()) {
+                            onCreatePlaylist(newPlaylistName.trim())
+                            showNewPlaylistInput = false
+                            newPlaylistName = ""
+                            dismissKeyboard()
+                        }
+                    }),
                     textStyle = androidx.compose.ui.text.TextStyle(color = AppText, fontSize = 14.sp),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AppAccent,
@@ -70,20 +80,22 @@ fun AddToPlaylistSheet(
                     Icons.Filled.Check,
                     contentDescription = "Create",
                     tint = if (newPlaylistName.isNotBlank()) AppAccent else AppTextMuted,
-                    modifier = Modifier.size(28.dp).clickable(enabled = newPlaylistName.isNotBlank()) {
+                    modifier = Modifier.size(48.dp).clickable(enabled = newPlaylistName.isNotBlank()) {
+                        dismissKeyboard()
                         onCreatePlaylist(newPlaylistName.trim())
                         showNewPlaylistInput = false
                         newPlaylistName = ""
-                    }
+                    }.padding(10.dp)
                 )
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = "Cancel",
                     tint = AppTextSecondary,
-                    modifier = Modifier.size(28.dp).clickable {
+                    modifier = Modifier.size(48.dp).clickable {
+                        dismissKeyboard()
                         showNewPlaylistInput = false
                         newPlaylistName = ""
-                    }
+                    }.padding(10.dp)
                 )
             }
             VantaSheetDivider()
@@ -108,7 +120,7 @@ fun AddToPlaylistSheet(
         } else {
             playlists.forEach { playlist ->
                 VantaSheetAction(
-                    icon = Icons.Filled.PlaylistPlay,
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                     label = DisplayMetadataCleaner.cleanDisplayName(playlist.name).ifBlank { playlist.name },
                     subtitle = if (playlist.description != null) playlist.description else null,
                     onClick = {

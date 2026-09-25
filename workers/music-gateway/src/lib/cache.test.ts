@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { seconds, searchCacheTtl, healthCacheTtl } from "./cache.js";
+import { seconds, searchCacheTtl, healthCacheTtl, isStreamExpired, streamExpiresAtMs } from "./cache.js";
 import type { Env } from "../types";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -45,5 +45,16 @@ describe("cache helpers", () => {
     assert.equal(searchCacheTtl(e, 5), 600);
     assert.equal(searchCacheTtl(e, 0), 86_400);
     assert.equal(healthCacheTtl(e), 30);
+  });
+
+  it("normalizes and expires both second and millisecond timestamps", () => {
+    const nowMs = 1_800_000_000_000;
+    const expiredSeconds = 1_700_000_000;
+    const expiredMilliseconds = 1_700_000_000_000;
+    assert.equal(streamExpiresAtMs(expiredSeconds), expiredMilliseconds);
+    assert.equal(streamExpiresAtMs(expiredMilliseconds), expiredMilliseconds);
+    assert.equal(isStreamExpired({ url: "https://example.com/a", expiresAt: expiredSeconds }, nowMs), true);
+    assert.equal(isStreamExpired({ url: "https://example.com/b", expiresAt: expiredMilliseconds }, nowMs), true);
+    assert.equal(isStreamExpired({ url: "https://example.com/c", expiresAt: 1_900_000_000_000 }, nowMs), false);
   });
 });

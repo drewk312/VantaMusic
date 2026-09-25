@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.data.importer
 
 import android.util.Log
+import com.audiophile.musicplayer.common.VantaLogger
 import com.audiophile.musicplayer.data.metadata.apple.AppleMusicMetadataProvider
 import com.audiophile.musicplayer.data.metadata.deezer.DeezerApiClient
 import com.audiophile.musicplayer.data.metadata.deezer.toEnhancedMetadata
@@ -222,7 +223,7 @@ class PlatformLinkResolver(
                 )
             }
         }.onFailure {
-            Log.d("VANTA_IMPORT_LINK", "songlink_collection_failed url='${url.take(80)}' error='${it.message}'")
+            Log.d("VANTA_IMPORT_LINK", "songlink_collection_failed host='${VantaLogger.urlHost(url)}' error='${it.message}'")
         }.getOrNull()
     }
 
@@ -261,7 +262,7 @@ class PlatformLinkResolver(
                 )
             }
         }.onFailure {
-            Log.d("VANTA_IMPORT_LINK", "songlink_failed url='${url.take(80)}' error='${it.message}'")
+            Log.d("VANTA_IMPORT_LINK", "songlink_failed host='${VantaLogger.urlHost(url)}' error='${it.message}'")
         }.getOrNull()
     }
 
@@ -339,7 +340,7 @@ class PlatformLinkResolver(
                 )
             }
         }.onFailure {
-            Log.d("VANTA_IMPORT_LINK", "songlink_apple_failed url='${url.take(80)}' error='${it.message}'")
+            Log.d("VANTA_IMPORT_LINK", "songlink_apple_failed host='${VantaLogger.urlHost(url)}' error='${it.message}'")
         }.getOrNull()
     }
 

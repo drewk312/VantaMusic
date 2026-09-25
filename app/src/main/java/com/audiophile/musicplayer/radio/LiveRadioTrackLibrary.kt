@@ -7,6 +7,7 @@ import com.audiophile.musicplayer.data.metadata.MetadataResolver
 import com.audiophile.musicplayer.data.repository.TrackRepository
 import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.SourceSearchResult
+import com.audiophile.musicplayer.data.source.TrustedStreamSources
 import com.audiophile.musicplayer.data.source.canResolveStream
 
 class LiveRadioTrackLibrary(
@@ -32,7 +33,8 @@ class LiveRadioTrackLibrary(
         )
 
         val searchQuery = "${canonical.title} ${canonical.artist}".trim()
-        val sourceResults = sourceRegistry.searchAll(searchQuery)
+        val sourceResults = sourceRegistry.searchAll(searchQuery, includeSupplemental = false)
+            .filter { !com.audiophile.musicplayer.data.source.SourceIdentityGate.isSupplementalPlaybackProvider(it.providerId) }
             .filter { candidate ->
                 candidate.title.equals(canonical.title, ignoreCase = true) ||
                     candidate.title.contains(canonical.title, ignoreCase = true)
@@ -59,7 +61,7 @@ class LiveRadioTrackLibrary(
         if (playable == null || resolvedStream == null || resolvedStream.streamUrl.isBlank()) {
             return null
         }
-        if (resolvedStream.streamUrl.contains("soundhelix", ignoreCase = true)) {
+        if (!TrustedStreamSources.isTrustedStreamUrl(resolvedStream.streamUrl)) {
             return null
         }
 

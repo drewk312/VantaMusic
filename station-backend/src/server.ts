@@ -9,6 +9,7 @@ import { generateDjScript } from './services/gemini';
 import { generateSpeechBase64 } from './services/elevenlabs';
 import { Logger } from './utils/logger';
 import * as dotenv from 'dotenv';
+import { verifyFirebaseIdToken } from './services/firebaseAuth';
 
 dotenv.config();
 
@@ -38,7 +39,8 @@ interface JsonRpcError {
 
 interface RequestContext {
   userId: string | null;
-  sessionId: string;
+  partnerToken: string | null;
+  firebaseAuthenticated: boolean;
   ip: string;
   userAgent: string;
 }
@@ -47,6 +49,7 @@ interface MethodDefinition {
   description: string;
   params: Record<string, { type: string; required: boolean; description: string }>;
   auth: 'none' | 'optional' | 'required';
+  requiresPartner?: boolean;
   handler: (params: Record<string, unknown>, context: RequestContext) => Promise<Record<string, unknown>>;
 }
 
@@ -70,18 +73,59 @@ const ERROR_CODES = {
 const methods: Record<string, MethodDefinition> = {};
 
 function registerMethod(name: string, def: MethodDefinition) {
-  methods[name] = def;
+  methods[name] = {
+    ...def,
+    requiresPartner: def.requiresPartner ?? !PUBLIC_METHODS.has(name),
+  };
+}
+
+const PUBLIC_METHODS = new Set(['auth.partnerLogin', 'system.getCapabilities', 'system.ping']);
+const MIN_STATION_TRACK_COUNT = 5;
+const MAX_STATION_TRACK_COUNT = 30;
+const MIN_REFILL_TRACK_COUNT = 5;
+const MAX_REFILL_TRACK_COUNT = 20;
+
+export function normalizeRequestedCount(
+  value: unknown,
+  defaultValue: number,
+  min: number,
+  max: number
+): { value: number; clamped: boolean } | null {
+  if (value == null) return { value: defaultValue, clamped: false };
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) return null;
+  const normalized = Math.min(max, Math.max(min, value));
+  return { value: normalized, clamped: normalized !== value };
 }
 
 // ── App bootstrap ──
 
 const app = express();
 const PORT = process.env.PORT || 3456;
+const MAX_RPC_BATCH_SIZE = 20;
+const MAX_STRING_PARAM_LENGTH = 8_192;
+const configuredOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (isProduction && configuredOrigins.length === 0) {
+  throw new Error('ALLOWED_ORIGINS is required in production');
+}
+if (isProduction && !process.env.SESSION_STORE_PATH?.trim()) {
+  throw new Error('SESSION_STORE_PATH is required in production');
+}
+if (isProduction && !process.env.FIREBASE_PROJECT_ID?.trim()) {
+  throw new Error('FIREBASE_PROJECT_ID is required in production');
+}
+if (isProduction && !process.env.GEMINI_API_KEY?.trim()) {
+  throw new Error('GEMINI_API_KEY is required in production');
+}
 
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['*'],
+  origin: isProduction ? configuredOrigins : true,
   credentials: true,
 }));
 app.use(express.json({ limit: '256kb' }));
@@ -99,7 +143,11 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Services
-const sessions = new SessionStore();
+const sessions = new SessionStore({
+  environment: process.env.NODE_ENV,
+  demoPassword: process.env.DEMO_PASSWORD,
+  persistencePath: process.env.SESSION_STORE_PATH,
+});
 const resolver = new TrackResolver();
 const log = new Logger('server');
 
@@ -118,6 +166,7 @@ registerMethod('auth.partnerLogin', {
       appVersion: params.appVersion as string,
       ip: ctx.ip,
     });
+    if (!partnerToken) throw ERROR_CODES.RATE_LIMITED;
 
     return {
       partnerToken,
@@ -167,8 +216,9 @@ registerMethod('station.createStation', {
     hintKeywords: { type: 'string[]', required: false, description: 'Extra keywords to guide generation' },
     trackCount:   { type: 'number',  required: false, description: 'Number of tracks to generate (default 30)' },
   },
-  auth: 'optional',
+  auth: 'required',
   handler: async (params, ctx) => {
+    if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
     const seedText = params.seedText as string;
     if (!seedText) throw ERROR_CODES.INVALID_SEED;
 
@@ -184,7 +234,16 @@ registerMethod('station.createStation', {
     });
 
     // Step 2: Generate curated track list from Gemini
-    const trackCount = (params.trackCount as number) || 30;
+    const normalizedCount = normalizeRequestedCount(
+      params.trackCount,
+      30,
+      MIN_STATION_TRACK_COUNT,
+      MAX_STATION_TRACK_COUNT
+    );
+    if (!normalizedCount) throw ERROR_CODES.INVALID_PARAMS;
+    if (normalizedCount.clamped) log.warn('Clamped station trackCount for user=%s', ctx.userId);
+    if (!sessions.consumeModelQuota(ctx.userId)) throw ERROR_CODES.RATE_LIMITED;
+    const trackCount = normalizedCount.value;
     let recommendations: Array<{ id: string; title: string; artist: string; album?: string; reason?: string }> = [];
 
     try {
@@ -201,7 +260,7 @@ registerMethod('station.createStation', {
         count: trackCount,
       });
 
-      recommendations = (geminiResult.tracks || []).map((t: any, i: number) => ({
+      recommendations = (geminiResult.tracks || []).slice(0, trackCount).map((t: any, i: number) => ({
         id: `gemini_${i}`,
         title: t.title,
         artist: t.artist,
@@ -263,10 +322,12 @@ registerMethod('station.getPlaylist', {
     offset:       { type: 'number', required: false, description: 'Start index (default 0)' },
     limit:        { type: 'number', required: false, description: 'Max tracks to return (default 30)' },
   },
-  auth: 'optional',
-  handler: async (params, _ctx) => {
+  auth: 'required',
+  handler: async (params, ctx) => {
+    if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
     const station = await sessions.getStation(params.stationToken as string);
     if (!station) throw ERROR_CODES.STATION_NOT_FOUND;
+    if (station.userId !== ctx.userId) throw ERROR_CODES.INVALID_AUTH;
 
     const offset = (params.offset as number) || 0;
     const limit = (params.limit as number) || 30;
@@ -300,18 +361,23 @@ registerMethod('station.getPlaylistRefill', {
     playedTrackIds: { type: 'string[]', required: true,  description: 'Track IDs already played (for dedup)' },
     count:          { type: 'number',   required: false, description: 'Tracks to generate (default 20)' },
   },
-  auth: 'optional',
-  handler: async (params, _ctx) => {
+  auth: 'required',
+  handler: async (params, ctx) => {
+    if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
     const station = await sessions.getStation(params.stationToken as string);
     if (!station) throw ERROR_CODES.STATION_NOT_FOUND;
+    if (station.userId !== ctx.userId) throw ERROR_CODES.INVALID_AUTH;
 
-    const playedIds = new Set(params.playedTrackIds as string[]);
-    const count = (params.count as number) || 20;
-
-    const allPreviousIds = new Set([
-      ...station.resolvedTracks.map(t => t.id),
-      ...playedIds,
-    ]);
+    const normalizedCount = normalizeRequestedCount(
+      params.count,
+      20,
+      MIN_REFILL_TRACK_COUNT,
+      MAX_REFILL_TRACK_COUNT
+    );
+    if (!normalizedCount) throw ERROR_CODES.INVALID_PARAMS;
+    if (normalizedCount.clamped) log.warn('Clamped station refill count for user=%s', ctx.userId);
+    if (!sessions.consumeModelQuota(ctx.userId)) throw ERROR_CODES.RATE_LIMITED;
+    const count = normalizedCount.value;
 
     // Use Gemini refill (reuses generate with extra dedup context)
     try {
@@ -328,7 +394,7 @@ registerMethod('station.getPlaylistRefill', {
         count,
       });
 
-      const recommendations = (geminiResult.tracks || []).map((t: any, i: number) => ({
+      const recommendations = (geminiResult.tracks || []).slice(0, count).map((t: any, i: number) => ({
         id: `gemini_refill_${Date.now()}_${i}`,
         title: t.title,
         artist: t.artist,
@@ -497,10 +563,12 @@ registerMethod('track.explain', {
     stationToken: { type: 'string', required: true, description: 'Station token from createStation' },
     trackId:      { type: 'string', required: true, description: 'Track id to explain' },
   },
-  auth: 'optional',
-  handler: async (params, _ctx) => {
+  auth: 'required',
+  handler: async (params, ctx) => {
+    if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
     const station = await sessions.getStation(params.stationToken as string);
     if (!station) throw ERROR_CODES.STATION_NOT_FOUND;
+    if (station.userId !== ctx.userId) throw ERROR_CODES.INVALID_AUTH;
 
     const trackId = params.trackId as string;
     const track = station.resolvedTracks.find(t => t.id === trackId);
@@ -530,6 +598,9 @@ registerMethod('user.getFeedback', {
   auth: 'required',
   handler: async (params, ctx) => {
     if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
+    const station = await sessions.getStation(params.stationToken as string);
+    if (!station) throw ERROR_CODES.STATION_NOT_FOUND;
+    if (station.userId !== ctx.userId) throw ERROR_CODES.INVALID_AUTH;
 
     const feedback = await sessions.getFeedback({
       userId: ctx.userId,
@@ -562,6 +633,9 @@ registerMethod('user.addFeedback', {
   auth: 'required',
   handler: async (params, ctx) => {
     if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
+    const station = await sessions.getStation(params.stationToken as string);
+    if (!station) throw ERROR_CODES.STATION_NOT_FOUND;
+    if (station.userId !== ctx.userId) throw ERROR_CODES.INVALID_AUTH;
 
     await sessions.addFeedback({
       userId: ctx.userId,
@@ -591,8 +665,10 @@ registerMethod('dj.generateScript', {
     nextTrack:    { type: 'object', required: true, description: 'Upcoming track {title, artist}' },
     tone:         { type: 'string', required: false, description: 'Tone hint (e.g. "energetic", "chill")' },
   },
-  auth: 'optional',
-  handler: async (params, _ctx) => {
+  auth: 'required',
+  handler: async (params, ctx) => {
+    if (!ctx.userId) throw ERROR_CODES.MISSING_AUTH;
+    if (!sessions.consumeModelQuota(ctx.userId)) throw ERROR_CODES.RATE_LIMITED;
     try {
       const script = await generateDjScript({
         stationName: params.stationName as string,
@@ -679,7 +755,7 @@ function makeResult(id: number | string | null, result: Record<string, unknown>)
   };
 }
 
-async function dispatch(req: JsonRpcRequest, context: RequestContext): Promise<JsonRpcResponse> {
+export async function dispatch(req: JsonRpcRequest, context: RequestContext): Promise<JsonRpcResponse> {
   const { method, params = {}, id = null } = req;
 
   const methodDef = methods[method];
@@ -687,14 +763,25 @@ async function dispatch(req: JsonRpcRequest, context: RequestContext): Promise<J
     return makeError(id, ERROR_CODES.INVALID_METHOD, { method });
   }
 
+  if (methodDef.requiresPartner && !context.firebaseAuthenticated && (!context.partnerToken || !sessions.validatePartnerToken(context.partnerToken))) {
+    return makeError(id, ERROR_CODES.MISSING_AUTH);
+  }
+
   if (methodDef.auth === 'required' && !context.userId) {
     return makeError(id, ERROR_CODES.MISSING_AUTH);
   }
 
   for (const [paramName, paramDef] of Object.entries(methodDef.params)) {
-    if (paramDef.required && !(paramName in params)) {
+    const isPresent = Object.prototype.hasOwnProperty.call(params, paramName);
+    if (paramDef.required && !isPresent) {
       return makeError(id, ERROR_CODES.INVALID_PARAMS, {
         missingParam: paramName,
+        expectedType: paramDef.type,
+      });
+    }
+    if (isPresent && !matchesParamType(params[paramName], paramDef.type)) {
+      return makeError(id, ERROR_CODES.INVALID_PARAMS, {
+        invalidParam: paramName,
         expectedType: paramDef.type,
       });
     }
@@ -708,36 +795,100 @@ async function dispatch(req: JsonRpcRequest, context: RequestContext): Promise<J
       return makeError(id, err as typeof ERROR_CODES[keyof typeof ERROR_CODES]);
     }
     log.error('Unhandled error in %s: %O', method, err);
-    return makeError(id, ERROR_CODES.INTERNAL_ERROR, { method, thrown: String(err) });
+    return makeError(id, ERROR_CODES.INTERNAL_ERROR);
   }
+}
+
+function matchesParamType(value: unknown, expectedType: string): boolean {
+  if (expectedType.endsWith('[]')) {
+    const itemType = expectedType.slice(0, -2);
+    return Array.isArray(value) && value.length <= 100 && value.every(item => matchesParamType(item, itemType));
+  }
+  if (expectedType === 'string') {
+    return typeof value === 'string' && value.length <= MAX_STRING_PARAM_LENGTH;
+  }
+  if (expectedType === 'number') {
+    return typeof value === 'number' && Number.isFinite(value);
+  }
+  if (expectedType === 'boolean') {
+    return typeof value === 'boolean';
+  }
+  if (expectedType === 'object') {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+  return false;
+}
+
+async function requestContext(req: Request, rpcRequest: JsonRpcRequest): Promise<RequestContext> {
+  const authorization = req.get('Authorization');
+  const headerUserToken = authorization?.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length).trim()
+    : undefined;
+  const userToken = rpcRequest.userToken?.trim() || headerUserToken;
+  const partnerToken = rpcRequest.partnerToken?.trim() || req.get('X-Partner-Token')?.trim() || null;
+
+  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const firebaseUserId = firebaseProjectId && headerUserToken
+    ? await verifyFirebaseIdToken(headerUserToken, firebaseProjectId)
+    : null;
+  const allowLegacyUserTokens = process.env.NODE_ENV === 'development' && !firebaseProjectId;
+  return {
+    userId: firebaseUserId ?? (allowLegacyUserTokens && userToken ? sessions.validateUserToken(userToken) : null),
+    partnerToken,
+    firebaseAuthenticated: firebaseUserId != null,
+    ip: req.ip || 'unknown',
+    userAgent: req.get('User-Agent') || 'unknown',
+  };
 }
 
 // ── Routes ──
 
 app.post('/jsonrpc', async (req: Request, res: Response) => {
-  const requests: JsonRpcRequest[] = Array.isArray(req.body) ? req.body : [req.body];
+  const isBatch = Array.isArray(req.body);
+  const rawRequests: unknown[] = isBatch ? req.body : [req.body];
+  if (rawRequests.length === 0 || rawRequests.length > MAX_RPC_BATCH_SIZE) {
+    res.status(400).json(makeError(null, ERROR_CODES.INVALID_PARAMS, {
+      reason: `Batch size must be between 1 and ${MAX_RPC_BATCH_SIZE}`,
+    }));
+    return;
+  }
 
   const responses = await Promise.all(
-    requests.map(async (rawReq) => {
-      if (rawReq.jsonrpc !== '2.0' || !rawReq.method) {
-        return makeError(rawReq.id ?? null, ERROR_CODES.INVALID_PARAMS, {
+    rawRequests.map(async (value) => {
+      if (!isJsonRpcRequest(value)) {
+        const invalidId = typeof value === 'object' && value !== null && 'id' in value
+          ? (value as { id?: number | string }).id ?? null
+          : null;
+        return makeError(invalidId, ERROR_CODES.INVALID_PARAMS, {
           reason: 'Missing jsonrpc:"2.0" or method',
         });
       }
 
-      const context: RequestContext = {
-        userId: rawReq.userToken ? sessions.validateUserToken(rawReq.userToken) : null,
-        sessionId: rawReq.partnerToken || 'anonymous',
-        ip: req.ip || 'unknown',
-        userAgent: req.get('User-Agent') || 'unknown',
-      };
+      if (isBatch && value.method === 'auth.partnerLogin') {
+        return makeError(value.id ?? null, ERROR_CODES.RATE_LIMITED, {
+          reason: 'auth.partnerLogin must be called as a single JSON-RPC request',
+        });
+      }
 
-      return dispatch(rawReq, context);
+      const context = await requestContext(req, value);
+
+      return dispatch(value, context);
     })
   );
 
-  res.json(Array.isArray(req.body) ? responses : responses[0]);
+  const singleResponse = responses[0];
+  const status = !isBatch && singleResponse?.error &&
+    (singleResponse.error.code === ERROR_CODES.MISSING_AUTH.code || singleResponse.error.code === ERROR_CODES.INVALID_AUTH.code)
+    ? 401
+    : 200;
+  res.status(status).json(isBatch ? responses : singleResponse);
 });
+
+function isJsonRpcRequest(value: unknown): value is JsonRpcRequest {
+  if (typeof value !== 'object' || value === null) return false;
+  const request = value as Partial<JsonRpcRequest>;
+  return request.jsonrpc === '2.0' && typeof request.method === 'string' && request.method.length > 0;
+}
 
 // Auto-generated API documentation
 app.get('/methods', (_req: Request, res: Response) => {
@@ -783,12 +934,7 @@ app.post('/api/v1/radio/generate', async (req: Request, res: Response) => {
     },
     id: 1,
   };
-  const context: RequestContext = {
-    userId: null,
-    sessionId: 'legacy',
-    ip: req.ip || 'unknown',
-    userAgent: req.get('User-Agent') || 'unknown',
-  };
+  const context = await requestContext(req, rpcReq);
   const result = await dispatch(rpcReq, context);
   res.json(result.error ? { error: result.error.message } : result.result);
 });
@@ -806,24 +952,21 @@ app.post('/api/v1/radio/dj', async (req: Request, res: Response) => {
     },
     id: 1,
   };
-  const context: RequestContext = {
-    userId: null,
-    sessionId: 'legacy',
-    ip: req.ip || 'unknown',
-    userAgent: req.get('User-Agent') || 'unknown',
-  };
+  const context = await requestContext(req, rpcReq);
   const result = await dispatch(rpcReq, context);
   res.json(result.error ? { error: result.error.message } : result.result);
 });
 
 // ── Start ──
 
-app.listen(PORT, () => {
-  log.info('Station backend listening on :%d', PORT);
-  log.info('JSON-RPC endpoint: POST /jsonrpc');
-  log.info('API docs:         GET  /methods');
-  log.info('Health check:     GET  /health');
-  log.info('Legacy REST:      POST /api/v1/radio/generate, /api/v1/radio/dj');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    log.info('Station backend listening on :%d', PORT);
+    log.info('JSON-RPC endpoint: POST /jsonrpc');
+    log.info('API docs:         GET  /methods');
+    log.info('Health check:     GET  /health');
+    log.info('Legacy REST:      POST /api/v1/radio/generate, /api/v1/radio/dj');
+  });
+}
 
 export { app };

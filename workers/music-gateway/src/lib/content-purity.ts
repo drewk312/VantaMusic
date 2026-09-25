@@ -10,7 +10,10 @@ export function isAllowedTrack(track: GatewayTrack, query = ''): boolean {
   const album = (track.album ?? '').toLowerCase();
   const durationSec = track.duration ?? 0;
 
-  if (durationSec <= 0 || durationSec > 14_400) return false; // >4h or invalid
+  // Amazon's public search cards omit duration. A validated track ASIN is still
+  // usable catalog metadata; never fabricate a duration to pass this filter.
+  const unknownAmazonDuration = track.provider === 'amazon' && track.duration == null;
+  if ((durationSec <= 0 && !unknownAmazonDuration) || durationSec > 14_400) return false;
 
   const liveKeywords = [
     'beats to relax',
@@ -75,6 +78,12 @@ export function isAllowedTrack(track: GatewayTrack, query = ''): boolean {
     'emulation',
     'weeknights',
     'retro weeknd',
+    'originally performed',
+    'backing track',
+    'type beat',
+    'dj mix',
+    'tabata',
+    'the backing tracks',
   ];
   const stack = `${title} ${artist} ${album}`;
   if (junkKeywords.some((k) => stack.includes(k))) return false;

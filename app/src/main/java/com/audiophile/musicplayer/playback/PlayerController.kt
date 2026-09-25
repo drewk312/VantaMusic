@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.audiophile.musicplayer.common.AcceptanceTruth
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
 import com.audiophile.musicplayer.data.source.ResolvedStream
@@ -85,6 +86,21 @@ class PlayerController(
                         updatePosition()
                         if (isPlaying) startPolling() else stopPolling()
                     }
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        val hasVideo = videoSize.width > 0 && videoSize.height > 0
+                        playbackState.update { copy(hasVideo = hasVideo) }
+                        Log.d("VANTA_TV_VIDEO", "videoSize=${videoSize.width}x${videoSize.height} hasVideo=$hasVideo")
+                    }
+                    override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                        val hasVideo = tracks.groups.any { group ->
+                            group.mediaTrackGroup.length > 0 &&
+                                (0 until group.mediaTrackGroup.length).any { i ->
+                                    val format = group.mediaTrackGroup.getFormat(i)
+                                    format.sampleMimeType?.startsWith("video/") == true
+                                }
+                        }
+                        playbackState.update { copy(hasVideo = hasVideo) }
+                    }
                     override fun onPlaybackStateChanged(state: Int) {
                         val stateLabel = when (state) {
                             androidx.media3.common.Player.STATE_IDLE -> "IDLE"
@@ -153,7 +169,10 @@ class PlayerController(
         val current = playbackState.snapshot()
         val currentMediaTrackId = mediaItemTrackId(mc.currentMediaItem?.mediaId)
 
-        if (current.trackId != null && currentMediaTrackId != null && current.trackId != currentMediaTrackId) {
+        // Only compare when live trackId is a Room id. Optimistic UI may briefly
+        // hold null (or historically an external id); don't starve the progress bar.
+        val liveDbTrackId = current.trackId?.toLongOrNull()?.toString()
+        if (liveDbTrackId != null && currentMediaTrackId != null && liveDbTrackId != currentMediaTrackId) {
             Log.d(
                 "VANTA_PLAYBACK",
                 "skip stale position mediaId=${mc.currentMediaItem?.mediaId} liveTrackId=${current.trackId}"
@@ -190,6 +209,13 @@ class PlayerController(
                 bufferedMs = buffered
             )
         }
+        AcceptanceTruth.position(
+            trackId = current.trackId ?: currentMediaTrackId,
+            positionMs = newPosition,
+            durationMs = duration,
+            isPlaying = mc.isPlaying,
+            reason = "poll"
+        )
         // Log stability metrics only when buffering or significant change
         if (mc.playbackState == androidx.media3.common.Player.STATE_BUFFERING) {
             Log.d("VANTA_BUFFERING", "poll pos=$newPosition buffered=$buffered bufferedPct=$bufferedPct% duration=$duration")
@@ -282,16 +308,10 @@ class PlayerController(
         )
         pendingSeekTargetMs = clamped
         pendingSeekDeadlineMs = System.currentTimeMillis() + 2_000L
-        if (seekableController != null) {
-            seekableController.seekTo(clamped)
-        } else {
-            // Controller missing or its command grant lacks seek — route through the
-            // service, which calls player.seekTo() directly and cannot be dropped.
-            appContext.startService(
-                PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_SEEK_TO)
-                    .putExtra(PlaybackService.EXTRA_POSITION_MS, clamped)
-            )
-        }
+        appContext.startService(
+            PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_SEEK_TO)
+                .putExtra(PlaybackService.EXTRA_POSITION_MS, clamped)
+        )
         queueManager.markPlaybackPosition(clamped)
         playbackState.update { copy(positionMs = clamped) }
     }
@@ -315,6 +335,9 @@ class PlayerController(
     }
 
     fun isPlaying(): Boolean = mediaController?.isPlaying == true
+
+    /** Media3 controller for attaching a [androidx.media3.ui.PlayerView] (TV video). */
+    fun mediaControllerOrNull(): MediaController? = mediaController
 
     /**
      * A restored now-playing card is only UI state. After a process restart the
@@ -436,6 +459,9 @@ class PlayerController(
                     val headers = android.os.Bundle().apply {
                         stream.requestHeaders.forEach { (name, value) -> putString(name, value) }
                     }
+                    val drmHeaders = android.os.Bundle().apply {
+                        stream.drm?.licenseRequestHeaders?.forEach { (name, value) -> putString(name, value) }
+                    }
                     playIntent
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_URL, stream.streamUrl)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_BITRATE, stream.bitrateKbps)
@@ -443,12 +469,24 @@ class PlayerController(
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_EXPIRES_AT, stream.expiresAt ?: -1L)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_QUALITY, stream.qualityLabel)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_FORMAT, stream.format)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_BIT_DEPTH, stream.bitDepth ?: -1)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SAMPLE_RATE, stream.sampleRateHz ?: -1)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_CHANNELS, stream.channelCount ?: -1)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_CODEC, stream.codec)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_CONTAINER, stream.container)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_LOSSLESS, stream.isLossless)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SOURCE_LABEL, stream.sourceLabel)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_ECLIPSA, stream.isEclipsaAudio)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_PROVIDER, stream.providerId)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_FULFILLED_BY, stream.fulfillmentProviderId)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SPATIAL, stream.isSpatialAudio)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_ATMOS, stream.isDolbyAtmos)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_SURROUND, stream.isSurround)
                         .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_HEADERS, headers)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_DRM_SCHEME, stream.drm?.scheme)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_DRM_LICENSE_URL, stream.drm?.licenseUrl)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_DRM_FORCE_DEFAULT, stream.drm?.forceDefaultLicenseUri ?: true)
+                        .putExtra(PlaybackService.EXTRA_RESOLVED_STREAM_DRM_HEADERS, drmHeaders)
                 }
                 appContext.startService(playIntent)
             }
@@ -457,5 +495,28 @@ class PlayerController(
 
     private fun sendAction(action: String) {
         appContext.startService(PlaybackCommandAuth.createIntent(appContext, action))
+    }
+
+    fun speakDjVoice(audioPath: String) {
+        if (audioPath.isBlank()) return
+        val intent = PlaybackCommandAuth.createIntent(appContext, PlaybackService.ACTION_SPEAK_DJ_VOICE)
+        intent.putExtra(PlaybackService.EXTRA_DJ_VOICE_AUDIO_PATH, audioPath)
+        appContext.startService(intent)
+    }
+
+    fun toggleShuffle() {
+        scope.launch {
+            val enabled = queueManager.toggleShuffle()
+            mediaController?.shuffleModeEnabled = enabled
+            refreshQueueTimeline()
+        }
+    }
+
+    fun shuffleQueue() {
+        scope.launch {
+            queueManager.shuffleUpNext()
+            mediaController?.shuffleModeEnabled = true
+            refreshQueueTimeline()
+        }
     }
 }

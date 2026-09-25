@@ -409,14 +409,14 @@ typedef struct
 	int *positionQ, *positionQQ;
 	char *correspondingValueQ, *correspondingValueQQ;
 } constraintsSparseMtx;
-void eqconPrecompute(unsigned int L, char *C, constraintsSparseMtx *sparseMtx)
+void eqconPrecompute(unsigned int L, int8_t *C, constraintsSparseMtx *sparseMtx)
 {
 	unsigned int i, j;
 	unsigned int Lh = L >> 1;
 	unsigned int *activeConstraint = (unsigned int*)malloc(L * sizeof(unsigned int));
 	unsigned int *opCnts = (unsigned int*)malloc(L * sizeof(unsigned int));
 	unsigned int numCon = 0;
-	char *U0l = (char*)malloc(L * Lh * sizeof(char));
+	int8_t *U0l = (int8_t*)malloc(L * Lh * sizeof(int8_t));
 	for (unsigned int actL = 0; actL < L; actL++)
 	{
 		unsigned char allzero = 1;
@@ -486,7 +486,7 @@ void eqconPrecompute(unsigned int L, char *C, constraintsSparseMtx *sparseMtx)
 	sparseMtx->correspondingValueQQ = (char*)malloc(numCon * constraintMatSize * sizeof(char));
 	memset(sparseMtx->correspondingValueQ, 0, numCon * constraintMatSize * sizeof(char));
 	memset(sparseMtx->correspondingValueQQ, 0, numCon * constraintMatSize * sizeof(char));
-	char *QQ = (char*)malloc(Lh * Lh * sizeof(char));
+	int8_t *QQ = (int8_t*)malloc(Lh * Lh * sizeof(int8_t));
 	for (unsigned int ii = 1; ii < numCon; ii++)
 	{
 		unsigned int actL = activeConstraint[ii];
@@ -561,7 +561,7 @@ void eqconPrecompute(unsigned int L, char *C, constraintsSparseMtx *sparseMtx)
 	free(activeConstraint);
 	free(U0l);
 }
-void genC(unsigned int N, unsigned int L, char *C)
+void genC(unsigned int N, unsigned int L, int8_t *C)
 {
 	unsigned int i, j;
 	unsigned int N2 = N << 1;
@@ -876,7 +876,7 @@ void cos_fib_paraunitary1(unsigned int N, unsigned int m, unsigned int L, double
 	transpose(P, PT, Lh, Lh);
 	free(P);
 	double a = N * 0.5;
-	char *C = (char*)malloc(L * L * sizeof(char));
+	int8_t *C = (int8_t*)malloc(L * L * sizeof(int8_t));
 	genC(N, L, C);
 	constraintsSparseMtx sparseMtx;
 	eqconPrecompute(L, C, &sparseMtx);

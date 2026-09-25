@@ -1,4 +1,5 @@
 package com.audiophile.musicplayer.ui
+import androidx.compose.foundation.layout.imePadding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,7 @@ fun ImportTextScreen(
     onTextChanged: (String, String) -> Unit,
     onPreview: (String, String) -> Unit
 ) {
+    val dismissKeyboard = rememberKeyboardDismissal()
     var importName by remember { mutableStateOf(initialImportName.ifBlank { "Imported Playlist" }) }
     var pastedText by remember {
         mutableStateOf(initialPastedText)
@@ -52,6 +54,7 @@ fun ImportTextScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
@@ -64,7 +67,7 @@ fun ImportTextScreen(
                 Text("Import Music", color = AppText, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Paste links, exported playlists, CSV, JSON, XML, M3U, or plain song lists.",
+                    "Paste a Spotify or Apple Music playlist link — no login needed. Also works with exports, CSV, JSON, XML, M3U, or plain song lists.",
                     color = AppTextSecondary,
                     fontSize = 14.sp,
                     lineHeight = 20.sp
@@ -116,14 +119,15 @@ fun ImportTextScreen(
                 VantaCard {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Supported formats:", color = AppAccent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text("• Apple Music / Spotify / Tidal share links", color = AppTextSecondary, fontSize = 13.sp)
-                        Text("• Eclipse Music playlist links", color = AppTextSecondary, fontSize = 13.sp)
+                        Text("• Public Spotify / Apple Music playlist links (no login)", color = AppTextSecondary, fontSize = 13.sp)
+                        Text("• Single-track share links + Eclipse playlists", color = AppTextSecondary, fontSize = 13.sp)
+                        Text("• Private library? Drop a Spotify/Apple export file", color = AppTextSecondary, fontSize = 13.sp)
                         Text("• Song Title - Artist / CSV / JSON / XML / M3U", color = AppTextSecondary, fontSize = 13.sp)
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { onPreview(importName, pastedText) },
+                        onClick = { dismissKeyboard(); onPreview(importName, pastedText) },
                         enabled = pastedText.isNotBlank(),
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = AppAccent)

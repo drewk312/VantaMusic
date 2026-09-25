@@ -4,18 +4,29 @@ import android.util.Log
 import com.audiophile.musicplayer.data.source.ContentPurityFilter
 import com.audiophile.musicplayer.data.source.external.ExternalSourceProvider
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 
 class SourceRegistry(
     private val providers: List<MusicSourceProvider>
 ) {
-    suspend fun searchAll(query: String, timeoutMs: Long = 25_000L): List<SourceSearchResult> = coroutineScope {
+    suspend fun searchAll(
+        query: String,
+        timeoutMs: Long = 8_000L,
+        includeSupplemental: Boolean = false
+    ): List<SourceSearchResult> = coroutineScope {
+        val searchable = if (includeSupplemental) {
+            providers
+        } else {
+            providers.filterNot { SourceIdentityGate.isSupplementalPlaybackProvider(it.providerId) }
+        }
         val results = mutableListOf<SourceSearchResult>()
-        val searchGroups = providers.groupBy { searchGroupKey(it) }
+        val searchGroups = searchable.groupBy { searchGroupKey(it) }
         Log.d(
             "VANTA_SEARCH",
-            "SourceRegistry query='$query' providerCount=${providers.size} searchGroups=${searchGroups.size} timeoutMs=$timeoutMs"
+            "SourceRegistry query='$query' providerCount=${searchable.size} searchGroups=${searchGroups.size} " +
+                "timeoutMs=$timeoutMs includeSupplemental=$includeSupplemental"
         )
 
         val deferred = searchGroups.entries
@@ -51,6 +62,13 @@ class SourceRegistry(
                             "durationMs=$durationMs timeout=true"
                     )
                     emptyList()
+                } catch (e: CancellationException) {
+                    Log.d(
+                        "VANTA_SEARCH_INPUT",
+                        "provider_search_cancelled query='$query' groupKey=$groupKey " +
+                            "representative=${representative.providerId}"
+                    )
+                    throw e
                 } catch (e: Exception) {
                     Log.e(
                         "VANTA_SEARCH_PERF",
@@ -72,21 +90,27 @@ class SourceRegistry(
     private fun searchGroupKey(provider: MusicSourceProvider): String =
         when (provider) {
             is ExternalSourceProvider -> provider.searchGroupKey
+            is CloudflareGatewaySource -> provider.searchGroupKey
             else -> provider.providerId
         }
 
     /** Gateway/catalog before supplemental providers (e.g. YouTube). */
     private fun searchGroupPriority(provider: MusicSourceProvider): Int = when {
-        provider is ExternalSourceProvider -> 0
+        provider is ExternalSourceProvider || provider is CloudflareGatewaySource -> 0
         provider.providerId == "youtube_music" -> 2
         else -> 1
     }
 
-    suspend fun resolveStream(providerId: String, trackId: String, timeoutMs: Long = 10000L): ResolvedStream? {
+    suspend fun resolveStream(providerId: String, trackId: String, timeoutMs: Long = CloudLibraryHelpers.TAP_PLAY_RESOLVE_TIMEOUT_MS): ResolvedStream? {
         val provider = providers.find { it.providerId == providerId } ?: return null
         Log.d("VANTA_PLAY_TRACK_REQUEST", "resolveStream provider=$providerId trackId=$trackId timeoutMs=$timeoutMs")
+        // Capture late successes: Deezer/gateway often finish a few ms after withTimeout
+        // fires. Discarding them caused "gateway_get_stream_ok" followed by TIMEOUT → no play.
+        val lateSuccess = java.util.concurrent.atomic.AtomicReference<ResolvedStream?>(null)
         return try {
-            val resolved = withTimeout(timeoutMs) { provider.resolveStream(trackId) }
+            val resolved = withTimeout(timeoutMs) {
+                provider.resolveStream(trackId)?.also { lateSuccess.set(it) }
+            }
             if (resolved != null) {
                 Log.d("VANTA_SEARCH", "SourceRegistry resolveStream success for ${provider.providerId}:$trackId")
             } else {
@@ -94,11 +118,83 @@ class SourceRegistry(
             }
             resolved
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            Log.e("VANTA_SEARCH", "SourceRegistry resolveStream TIMEOUT for ${provider.providerId}:$trackId (${timeoutMs}ms exceeded)")
-            null
+            val kept = lateSuccess.get()
+            if (kept != null && kept.streamUrl.isNotBlank()) {
+                Log.w(
+                    "VANTA_SEARCH",
+                    "SourceRegistry resolveStream late_success_after_timeout for ${provider.providerId}:$trackId (${timeoutMs}ms)"
+                )
+                kept
+            } else {
+                Log.e("VANTA_SEARCH", "SourceRegistry resolveStream TIMEOUT for ${provider.providerId}:$trackId (${timeoutMs}ms exceeded)")
+                null
+            }
         } catch (e: Exception) {
             Log.e("VANTA_SEARCH", "SourceRegistry resolveStream error for ${provider.providerId}:$trackId", e)
             null
+        }
+    }
+
+    suspend fun resolveVideoStream(
+        providerId: String,
+        trackId: String,
+        timeoutMs: Long = CloudLibraryHelpers.TAP_PLAY_RESOLVE_TIMEOUT_MS
+    ): ResolvedStream? {
+        val provider = providers.find { it.providerId == providerId } ?: return null
+        return try {
+            withTimeout(timeoutMs) { provider.resolveVideoStream(trackId) }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolveVideoStream TIMEOUT for ${provider.providerId}:$trackId")
+            null
+        } catch (e: Exception) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolveVideoStream error for ${provider.providerId}:$trackId", e)
+            null
+        }
+    }
+
+    suspend fun resolvePlayback(
+        providerId: String,
+        trackId: String,
+        timeoutMs: Long = CloudLibraryHelpers.TAP_PLAY_RESOLVE_TIMEOUT_MS,
+        requestedQuality: com.audiophile.musicplayer.data.source.playback.RequestedAudioQuality =
+            com.audiophile.musicplayer.data.source.playback.RequestedAudioQuality.HI_RES_24
+    ): com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome {
+        val provider = providers.find { it.providerId == providerId }
+        if (provider == null) {
+            return com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Failed(
+                com.audiophile.musicplayer.data.source.playback.PlaybackSourceFailure.of(
+                    code = com.audiophile.musicplayer.data.source.playback.PlaybackSourceErrorCode.NOT_FOUND,
+                    sourceLabel = providerId,
+                    adapterId = "catalog"
+                )
+            )
+        }
+        Log.d("VANTA_PLAY_TRACK_REQUEST", "resolvePlayback provider=$providerId trackId=$trackId timeoutMs=$timeoutMs")
+        return try {
+            kotlinx.coroutines.withTimeout(timeoutMs) {
+                provider.resolvePlayback(trackId, requestedQuality)
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolvePlayback TIMEOUT for ${provider.providerId}:$trackId")
+            com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Failed(
+                com.audiophile.musicplayer.data.source.playback.PlaybackSourceFailure.of(
+                    code = com.audiophile.musicplayer.data.source.playback.PlaybackSourceErrorCode.SOURCE_OFFLINE,
+                    sourceLabel = provider.providerName,
+                    adapterId = "catalog",
+                    detail = "Timed out."
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: java.io.IOException) {
+            Log.e("VANTA_SEARCH", "SourceRegistry resolvePlayback IO error for ${provider.providerId}:$trackId")
+            com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Failed(
+                com.audiophile.musicplayer.data.source.playback.PlaybackSourceFailure.of(
+                    code = com.audiophile.musicplayer.data.source.playback.PlaybackSourceErrorCode.SOURCE_OFFLINE,
+                    sourceLabel = provider.providerName,
+                    adapterId = "catalog"
+                )
+            )
         }
     }
 
@@ -162,8 +258,9 @@ class SourceRegistry(
         if (successes.isEmpty()) return@coroutineScope null
 
         val best = successes.maxWithOrNull(
-            compareByDescending<Pair<String, ResolvedStream>> { it.second.bitrateKbps }
-                .thenBy { providerIds.indexOf(it.first).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+            compareByDescending<Pair<String, ResolvedStream>> {
+                SourceIdentityGate.streamPlaybackScore(it.first, it.second)
+            }.thenBy { providerIds.indexOf(it.first).let { index -> if (index < 0) Int.MAX_VALUE else index } }
         )
         best?.let {
             Log.d(
@@ -220,23 +317,58 @@ class SourceRegistry(
          */
         fun extractExpiryFromUrl(url: String): Long? {
             return try {
-                val query = java.net.URI(url).query ?: return null
-                val params = query.split('&').associate {
-                    val parts = it.split('=', limit = 2)
-                    parts[0] to (parts.getOrNull(1) ?: "")
-                }
-                // Try common parameter names for expiry timestamps
-                params["expires"]?.toLongOrNull()
-                    ?: params["Expires"]?.toLongOrNull()
-                    ?: params["etsp"]?.toLongOrNull()
-                    ?: params["exp"]?.toLongOrNull()
-                    ?: params["e"]?.toLongOrNull()
-                    // Akamai: hdnts=exp=1234567890~acl=/...~hmac=...
-                    ?: params["hdnts"]?.let { hdnts ->
-                        hdnts.split('~').firstOrNull { it.startsWith("exp=") }
-                            ?.removePrefix("exp=")?.toLongOrNull()
+                val uri = java.net.URI(url)
+                val query = uri.query
+                if (query != null) {
+                    val params = query.split('&').associate {
+                        val parts = it.split('=', limit = 2)
+                        parts[0] to (parts.getOrNull(1) ?: "")
                     }
-            } catch (_: Exception) { null }
+                    val fromQuery = params["expires"]?.toLongOrNull()
+                        ?: params["Expires"]?.toLongOrNull()
+                        ?: params["etsp"]?.toLongOrNull()
+                        ?: params["exp"]?.toLongOrNull()
+                        ?: params["e"]?.toLongOrNull()
+                        ?: params["hdnts"]?.let { hdnts ->
+                            hdnts.split('~').firstOrNull { it.startsWith("exp=") }
+                                ?.removePrefix("exp=")?.toLongOrNull()
+                        }
+                    if (fromQuery != null) return fromQuery
+                }
+                neteasePathExpiryEpochMs(uri)
+            } catch (_: java.net.URISyntaxException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
+
+        /**
+         * NetEase / GDStudio signed paths embed issued-at as `/20YYMMDDHHmmss/`
+         * in China Standard Time. Those URLs die in minutes, not days.
+         */
+        internal fun neteasePathExpiryEpochMs(uri: java.net.URI): Long? {
+            val host = uri.host?.lowercase() ?: return null
+            if (!host.contains("126.net") && !host.contains("163.com")) return null
+            val stamp = Regex("""/(20\d{12})(?:/|$)""")
+                .find(uri.rawPath ?: uri.path.orEmpty())
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: return null
+            val year = stamp.substring(0, 4).toIntOrNull() ?: return null
+            val month = stamp.substring(4, 6).toIntOrNull() ?: return null
+            val day = stamp.substring(6, 8).toIntOrNull() ?: return null
+            val hour = stamp.substring(8, 10).toIntOrNull() ?: return null
+            val minute = stamp.substring(10, 12).toIntOrNull() ?: return null
+            val second = stamp.substring(12, 14).toIntOrNull() ?: return null
+            return try {
+                java.time.OffsetDateTime.of(
+                    year, month, day, hour, minute, second, 0,
+                    java.time.ZoneOffset.ofHours(8)
+                ).toInstant().toEpochMilli() + 15L * 60_000L
+            } catch (_: java.time.DateTimeException) {
+                null
+            }
         }
 
         /**
@@ -255,6 +387,8 @@ class SourceRegistry(
                 host.contains("deezer", ignoreCase = true) -> 300_000L
                 host.contains("spotify", ignoreCase = true) ||
                 host.contains("scdn", ignoreCase = true) -> 180_000L // Spotify: ~3 min
+                host.contains("126.net", ignoreCase = true) ||
+                host.contains("163.com", ignoreCase = true) -> 480_000L // NetEase signed: ~8 min
                 else -> null // Unknown host; no inference
             }
         }

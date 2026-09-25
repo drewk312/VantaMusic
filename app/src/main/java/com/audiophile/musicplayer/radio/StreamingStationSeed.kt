@@ -26,7 +26,7 @@ enum class StreamingStationKind {
 }
 
 /**
- * Canonical seed for Pandora-style streaming stations.
+ * Canonical seed for VANTA streaming stations.
  * Supports genre, mood, activity, era, artist, song, and arbitrary free-text requests.
  */
 data class StreamingStationSeed(
@@ -39,7 +39,8 @@ data class StreamingStationSeed(
     val seedArtist: String? = null,
     val seedTitle: String? = null,
     val seedArtists: List<String> = emptyList(),
-    val hintKeywords: List<String> = emptyList()
+    val hintKeywords: List<String> = emptyList(),
+    val genomeMode: com.audiophile.musicplayer.radio.genome.PandoraStationMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED
 ) {
     val primaryQuery: String
         get() = StationQuerySanitizer.resolvePrimaryQuery(
@@ -191,7 +192,12 @@ object StreamingStationSeedResolver {
                 id = slug("similar_${title}_$artist"),
                 displayName = "Songs like $title",
                 kind = StreamingStationKind.SONG_SIMILAR,
-                queryPhrases = listOf("songs like $title $artist", "$title $artist similar songs"),
+                queryPhrases = listOf(
+                    "$artist $title",
+                    "artists like $artist",
+                    "$artist similar artists",
+                    "$artist top songs"
+                ),
                 seedTitle = title,
                 seedArtist = artist
             )
@@ -205,7 +211,12 @@ object StreamingStationSeedResolver {
                     id = slug("song_${title}_$artist"),
                     displayName = "$title Radio",
                     kind = StreamingStationKind.SONG,
-                    queryPhrases = listOf("$title $artist", "songs like $title $artist"),
+                    queryPhrases = listOf(
+                        "$artist $title",
+                        "artists like $artist",
+                        "$artist top songs",
+                        "$artist deep cuts"
+                    ),
                     seedTitle = title,
                     seedArtist = artist
                 )
@@ -360,7 +371,8 @@ object StreamingStationSeedResolver {
             eraStart = station.decadeStart,
             eraEnd = station.decadeEnd,
             seedArtists = artists,
-            hintKeywords = station.genreKeywords
+            hintKeywords = station.genreKeywords,
+            genomeMode = station.genomeMode ?: com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED
         )
     }
 
@@ -444,7 +456,7 @@ fun StreamingSeedParams.toStationSeed(): StreamingStationSeed {
     val genreKey = hintKeywords.firstOrNull().orEmpty().ifBlank {
         seedText.replace(Regex("(?i)\\s+radio$"), "").trim()
     }
-    val artists = when (kind) {
+    val artists = if (seedArtists.isNotEmpty()) seedArtists else when (kind) {
         StreamingStationKind.GENRE -> GenreStationSeeds.seedArtistsFor(genreKey)
         StreamingStationKind.ARTIST -> listOfNotNull(artistName?.trim()?.takeIf { it.isNotBlank() })
         else -> emptyList()
@@ -480,6 +492,16 @@ fun StreamingSeedParams.toStationSeed(): StreamingStationSeed {
                     }
             }
             else -> {
+                artists.take(6).forEach { artist ->
+                    add(artist)
+                    add("$artist greatest hits")
+                }
+                hintKeywords.filter { it.isNotBlank() && !StationQuerySanitizer.isStationMetaPhrase(it) }
+                    .take(4)
+                    .forEach { keyword ->
+                        add(keyword)
+                        add("$keyword classics")
+                    }
                 if (!StationQuerySanitizer.isStationMetaPhrase(seedText)) {
                     add(seedText)
                 }
@@ -496,7 +518,8 @@ fun StreamingSeedParams.toStationSeed(): StreamingStationSeed {
         seedArtist = artistName,
         seedTitle = trackTitle,
         seedArtists = artists,
-        hintKeywords = hintKeywords
+        hintKeywords = hintKeywords,
+        genomeMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.fromName(genomeMode)
     )
 }
 
@@ -507,5 +530,7 @@ fun StreamingStationSeed.toStreamingSeedParams(): StreamingSeedParams = Streamin
     eraEnd = eraEnd,
     artistName = seedArtist,
     trackTitle = seedTitle,
-    hintKeywords = hintKeywords
+    hintKeywords = hintKeywords,
+    seedArtists = seedArtists,
+    genomeMode = genomeMode.name
 )

@@ -90,7 +90,7 @@ class StationViewModel @Inject constructor(
 
     fun startJukeboxStation(stationId: String, shuffle: Boolean = false) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, statusMessage = "Curating station...", error = null) }
+            _uiState.update { it.copy(isLoading = true, statusMessage = "Building station…", error = null) }
             try {
                 val station = JukeboxCatalog.resolveStation(stationId, container.customStationStore)
                 if (station == null) {
@@ -463,7 +463,7 @@ class StationViewModel @Inject constructor(
     private fun interleaveByArtist(tracks: List<UnifiedTrackWithSources>): List<UnifiedTrackWithSources> {
         if (tracks.size <= 2) return tracks
         val buckets = tracks
-            .groupBy { it.track.artist?.trim()?.lowercase().orEmpty().ifBlank { "unknown" } }
+            .groupBy { it.track.artist.trim().lowercase().ifBlank { "unknown" } }
             .mapValues { (_, items) -> items.toMutableList() }
             .toMutableMap()
         val order = buckets.keys.toList()

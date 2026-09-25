@@ -22,6 +22,7 @@ build/
 app/build/
 shared/build/
 desktopApp/build/
+vanta-showcase/
 
 # Kotlin
 .kotlin/
@@ -77,6 +78,9 @@ venv/
 # Environment
 .env
 .env.local
+.dev.vars
+workers/music-gateway/community_session.json
+workers/music-gateway/zarz_*_session.json
 app/google-services.json
 
 # VANTA temporary / generated artifacts
@@ -105,3 +109,7 @@ app/src/main/cpp/libjamesdsp-tmp/
 
 
 desktopApp/bin/
+
+# Spatial native dependency build outputs
+native/openjoc/target/
+native/ittiam-mpegh/build/

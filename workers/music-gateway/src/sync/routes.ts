@@ -8,6 +8,14 @@ import {
   putActivity,
   putLibrarySnapshot,
 } from "../lib/social";
+import {
+  getContinuitySnapshot,
+  putContinuityHeartbeat,
+  putContinuitySession,
+  type ContinuityRole,
+  type ContinuitySessionDto,
+  type ContinuityTrackRefDto,
+} from "../lib/continuity";
 import type { Env } from "../types";
 import type {
   ActivityEventDto,
@@ -16,7 +24,7 @@ import type {
   LibrarySnapshotDto,
 } from "./types";
 
-const SYNC_PATH = /^\/sync\/(activity|library|friends)\/([^/]+)$/;
+const SYNC_PATH = /^\/sync\/(activity|library|friends|continuity)\/([^/]+)$/;
 
 export async function handleSyncRoute(
   request: Request,
@@ -57,6 +65,9 @@ export async function handleSyncRoute(
   }
   if (resource === "library") {
     return handleLibraryRoute(request, env, canonicalUserId, rateHeaders);
+  }
+  if (resource === "continuity") {
+    return handleContinuityRoute(request, env, canonicalUserId, rateHeaders);
   }
   return handleFriendsRoute(request, env, canonicalUserId, rateHeaders);
 }
@@ -157,6 +168,64 @@ async function handleFriendsRoute(
   if (request.method === "GET") {
     const friendIds = await getFriendIds(env, userId);
     return json({ friendIds } satisfies FriendsListDto, 200, rateHeaders);
+  }
+
+  return withHeaders(badRequest("method_not_allowed"), rateHeaders);
+}
+
+async function handleContinuityRoute(
+  request: Request,
+  env: Env,
+  userId: string,
+  rateHeaders: Record<string, string>
+): Promise<Response> {
+  if (request.method === "GET") {
+    const snapshot = await getContinuitySnapshot(env, userId);
+    return json(snapshot, 200, rateHeaders);
+  }
+
+  if (request.method === "POST") {
+    const body = await readJson<{
+      action?: string;
+      deviceId?: string;
+      role?: ContinuityRole;
+      name?: string;
+      mode?: ContinuitySessionDto["mode"];
+      leaderDeviceId?: string | null;
+      followerDeviceIds?: string[];
+      track?: ContinuityTrackRefDto | null;
+      positionMs?: number;
+      isPlaying?: boolean;
+    }>(request);
+
+    const action = (body?.action ?? "heartbeat").trim().toLowerCase();
+    if (action === "heartbeat") {
+      if (!body?.deviceId?.trim()) {
+        return withHeaders(badRequest("missing deviceId"), rateHeaders);
+      }
+      const snapshot = await putContinuityHeartbeat(env, userId, {
+        deviceId: body.deviceId,
+        role: body.role ?? "other",
+        name: body.name ?? "VANTA",
+      });
+      return json(snapshot, 200, rateHeaders);
+    }
+
+    if (action === "session") {
+      const session = await putContinuitySession(env, userId, {
+        deviceId: body?.deviceId,
+        mode: body?.mode,
+        leaderDeviceId: body?.leaderDeviceId,
+        followerDeviceIds: body?.followerDeviceIds,
+        track: body?.track,
+        positionMs: body?.positionMs,
+        isPlaying: body?.isPlaying,
+      });
+      const snapshot = await getContinuitySnapshot(env, userId);
+      return json({ ...snapshot, session }, 200, rateHeaders);
+    }
+
+    return withHeaders(badRequest("unsupported continuity action"), rateHeaders);
   }
 
   return withHeaders(badRequest("method_not_allowed"), rateHeaders);

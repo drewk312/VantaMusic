@@ -2,7 +2,7 @@ package com.audiophile.musicplayer.playback.dsp
 
 import android.util.Log
 
-class VantaEqualizerNative private constructor(private val handle: Long) {
+class VantaEqualizerNative private constructor(private val handle: Long) : VantaDspEngine {
 
     fun setSampleRate(sampleRate: Float, forceRefresh: Boolean = false) {
         nativeSetSampleRate(handle, sampleRate, forceRefresh)
@@ -12,7 +12,7 @@ class VantaEqualizerNative private constructor(private val handle: Long) {
         nativeEnsureBlockSize(handle, blockSize)
     }
 
-    fun applyConfig(config: VantaEqualizerConfig) {
+    override fun applyConfig(config: VantaEqualizerConfig) {
         nativeConfigureSpatial(
             handle,
             config.spatialEnabled,
@@ -39,15 +39,15 @@ class VantaEqualizerNative private constructor(private val handle: Long) {
         nativeConfigureConvolver(handle, enable, irAssetPath ?: "")
     }
 
-    fun getSpectrumMagnitudes(): FloatArray? {
+    override fun getSpectrumMagnitudes(): FloatArray? {
         return nativeGetSpectrum(handle)
     }
 
-    fun processDeinterleaved(left: FloatArray, right: FloatArray, offset: Int, frameCount: Int) {
+    override fun processDeinterleaved(left: FloatArray, right: FloatArray, offset: Int, frameCount: Int) {
         nativeProcessDeinterleaved(handle, left, right, offset, frameCount)
     }
 
-    fun destroy() {
+    override fun destroy() {
         if (handle != 0L) {
             nativeDestroy(handle)
         }

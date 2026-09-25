@@ -127,6 +127,12 @@ internal class InMemoryLibraryDao : LibraryDao {
         }
     }
 
+    override suspend fun likeSongs(songIds: List<Long>, updatedAt: Long) {
+        songs.indices.filter { songs[it].id in songIds }.forEach { index ->
+            songs[index] = songs[index].copy(isFavorite = true, updatedAt = updatedAt)
+        }
+    }
+
     override suspend fun updateRecentlyPlayed(songId: Long, playedAt: Long) {
         val index = songs.indexOfFirst { it.id == songId }
         if (index >= 0) {
@@ -206,6 +212,9 @@ internal class InMemoryLibraryDao : LibraryDao {
             song.isrc?.equals(isrc, ignoreCase = true) == true
         }
 
+    override suspend fun findSongByCanonicalTrackId(canonicalTrackId: Long): LocalSongEntity? =
+        songs.firstOrNull { it.canonicalTrackId == canonicalTrackId }
+
     override suspend fun getPlaylistSongs(playlistId: Long): List<LocalSongEntity> {
         val idsInOrder = playlistRefs
             .filter { it.playlistId == playlistId }
@@ -213,6 +222,8 @@ internal class InMemoryLibraryDao : LibraryDao {
             .map { it.songId }
         return idsInOrder.mapNotNull { id -> songs.firstOrNull { it.id == id } }
     }
+
+    override suspend fun clearPlaylistMembership(playlistId: Long) { playlistRefs.removeAll { it.playlistId == playlistId } }
 
     override suspend fun deletePlaylist(playlistId: Long) {
         playlists.removeAll { it.id == playlistId }

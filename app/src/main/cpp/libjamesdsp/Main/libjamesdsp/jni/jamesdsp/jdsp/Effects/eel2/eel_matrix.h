@@ -86,7 +86,7 @@ static float NSEEL_CGEN_CALL _eel_matPinvFast(void *opaque, INT_PTR num_param, f
 	float *outputMatrix = __NSEEL_RAMAlloc(blocks, offs2);
 	int32_t offs3 = (int32_t)(*parms[4] + NSEEL_CLOSEFACTOR);
 	float *outputInfo = __NSEEL_RAMAlloc(blocks, offs3);
-	int32_t size[2];
+	unsigned int size[2];
 	double *matIn = (double*)malloc(rows1 * cols1 * sizeof(double));
 	double *matOut = (double*)malloc(rows1 * cols1 * sizeof(double));
 	for (int i = 0; i < rows1 * cols1; i++)

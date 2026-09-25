@@ -125,7 +125,7 @@ fun MixDetailScreen(
             if (tracks.isEmpty()) {
                 item {
                     Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                        Text("Not enough playable tracks for this mood yet.", color = AppTextMuted, fontSize = 14.sp)
+                        Text("Not enough playable tracks yet — refresh and try again.", color = AppTextMuted, fontSize = 14.sp)
                     }
                 }
             } else {

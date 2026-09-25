@@ -13,7 +13,8 @@ class AiDjSessionManager(
     private val queuePlanner: AiDjQueuePlanner,
     private val narrationGenerator: AiDjNarrationGenerator,
     private val recommendationEngine: AiDjRecommendationEngine,
-    private val customStationStore: CustomStationStore? = null
+    private val customStationStore: CustomStationStore? = null,
+    private val listeningHistory: com.audiophile.musicplayer.data.local.ListeningHistoryRepository? = null
 ) {
     private val sessionLock = Any()
     private var currentSession: AiDjSession? = null
@@ -32,21 +33,33 @@ class AiDjSessionManager(
         recommendationEngine.getSimilarTracks(artist, genre)
 
     suspend fun buildTasteProfile(): AiDjTasteProfile = withContext(Dispatchers.IO) {
-        val allTracks = trackRepository.getAllTracks()
+        val allTracks = trackRepository.getAllTracks().filterNot {
+            com.audiophile.musicplayer.data.source.ContentPurityFilter.isClearlyNonMusicContent(
+                it.track.title, it.track.artist, durationMs = it.track.durationMs)
+        }
         val localSongs = localLibraryRepository.allSongsSnapshot()
 
-        val favoriteArtists = localSongs
-            .filter { it.isFavorite }
+        val historyArtists = listeningHistory?.recommendationArtists().orEmpty()
+        val recentHistoryArtists = listeningHistory?.recent(20).orEmpty()
             .map { it.artist }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val favoriteArtists = (
+            localSongs.filter { it.isFavorite }.map { it.artist } + historyArtists
+        )
             .filter { it.isNotBlank() }
             .distinct()
 
         val allArtists = allTracks.map { it.track.artist }.filter { it.isNotBlank() }
         val artistPlayCounts = allArtists.groupBy { it }.mapValues { it.value.size }
-        val topArtistsByPlayCount = artistPlayCounts.entries
+        val libraryTopArtists = artistPlayCounts.entries
             .sortedByDescending { it.value }
-            .take(10)
             .map { it.key }
+        val topArtistsByPlayCount = (historyArtists + libraryTopArtists)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(10)
 
         val genres = allTracks.mapNotNull { it.track.genre }.filter { it.isNotBlank() }
         val genreCounts = genres.groupBy { it }.mapValues { it.value.size }
@@ -55,10 +68,9 @@ class AiDjSessionManager(
             .take(5)
             .map { it.key }
 
-        val recentArtists = allTracks
+        val recentArtists = (recentHistoryArtists + allTracks
             .sortedByDescending { it.track.trackId }
-            .take(20)
-            .map { it.track.artist }
+            .map { it.track.artist })
             .filter { it.isNotBlank() }
             .distinct()
             .take(5)
@@ -82,23 +94,29 @@ class AiDjSessionManager(
     ): AiDjSession {
         val chapterPlanner = PulseChapterPlanner()
         val chapterPlan = chapterPlanner.planChapter(profile, previousCluster = null, likes = 0, skips = 0)
-        val introNarration = narrationGenerator.generateModeIntro(
-            listener.copy(mode = AiDjMode.DAILY_DJ)
-        ).text
+        // Playback must not wait for optional AI narration.
+        val introNarration = "Your Live DJ is ready. Let’s settle into the music."
         val recentTrackIds = recommendationEngine.recentTrackIds()
         val newSessionId = nextSessionId++
-        val segment = queuePlanner.planChapterSegment(
+        var segment = queuePlanner.planChapterSegment(
             profile = profile,
             chapterPlan = chapterPlan,
             feedbackHistory = emptyList(),
             excludeTrackIds = recentTrackIds,
-            rotationSalt = newSessionId.toLong()
+            rotationSalt = newSessionId
         )
+        if (segment.tracks.isEmpty() && profile.favoriteArtists.isNotEmpty()) {
+            recommendationEngine.expandStation(JukeboxStation(
+                id = "pulse-live-seeds", name = "Your Live DJ", description = "Your artists",
+                seedArtists = profile.favoriteArtists.take(2), genreKeywords = profile.favoriteGenres.take(1)
+            ))
+            segment = queuePlanner.planChapterSegment(profile, chapterPlan, emptyList(), emptySet(), newSessionId)
+        }
         val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration, mode = AiDjMode.DAILY_DJ)
         val session = AiDjSession(
             id = newSessionId,
             mode = AiDjMode.DAILY_DJ,
-            title = "Pulse Live — ${chapterPlan.vibeDescription}",
+            title = "Your Live DJ",
             currentSegmentIndex = 0,
             segments = listOf(segmentWithNarration),
             feedbackHistory = emptyList(),
@@ -125,7 +143,7 @@ class AiDjSessionManager(
             profile = profile,
             feedbackHistory = emptyList(),
             excludeTrackIds = recentTrackIds,
-            rotationSalt = newSessionId.toLong()
+            rotationSalt = newSessionId
         )
         if (segment.tracks.isEmpty()) {
             recommendationEngine.expandStation(station)
@@ -134,7 +152,7 @@ class AiDjSessionManager(
                 profile = profile,
                 feedbackHistory = emptyList(),
                 excludeTrackIds = recentTrackIds,
-                rotationSalt = newSessionId.toLong()
+                rotationSalt = newSessionId
             )
         }
         if (segment.tracks.isEmpty()) {
@@ -156,7 +174,7 @@ class AiDjSessionManager(
                     profile = profile,
                     feedbackHistory = emptyList(),
                     excludeTrackIds = recentTrackIds,
-                    rotationSalt = newSessionId.toLong()
+                    rotationSalt = newSessionId
                 )
             }
         }
@@ -189,7 +207,7 @@ class AiDjSessionManager(
         } else discovered
         val segment = AiDjSegment(
             id = nextDiscoverySegmentId++,
-            title = "Release Radar",
+            title = "Just Dropped",
             vibeDescription = "New and recent tracks from your artists",
             tracks = tracks,
             picks = tracks.mapIndexed { i, t ->
@@ -200,7 +218,7 @@ class AiDjSessionManager(
         val session = AiDjSession(
             id = newSessionId,
             mode = AiDjMode.DISCOVER_NEW,
-            title = "Release Radar",
+            title = "Just Dropped",
             currentSegmentIndex = 0,
             segments = listOf(segment),
             feedbackHistory = emptyList(),
@@ -250,7 +268,7 @@ class AiDjSessionManager(
         val tracks = recommendationEngine.forgottenFavorites(profile)
         val segment = AiDjSegment(
             id = nextDiscoverySegmentId++,
-            title = "Forgotten Favorites",
+            title = "Remember This?",
             vibeDescription = "Rediscover tracks you loved",
             tracks = tracks,
             picks = tracks.mapIndexed { i, t ->
@@ -261,7 +279,7 @@ class AiDjSessionManager(
         val session = AiDjSession(
             id = newSessionId,
             mode = AiDjMode.DAILY_DJ,
-            title = "Forgotten Favorites",
+            title = "Remember This?",
             currentSegmentIndex = 0,
             segments = listOf(segment),
             feedbackHistory = emptyList(),
@@ -311,7 +329,7 @@ class AiDjSessionManager(
             chapterSkips = 0,
             chapterTrackTarget = chapterPlan.targetTracks,
             chapterTracksPlayed = 0,
-            title = "Pulse Live — ${chapterPlan.vibeDescription}"
+            title = "Your Live DJ"
         )
         currentSession = updated
         return updated
@@ -375,7 +393,7 @@ class AiDjSessionManager(
             feedbackHistory = emptyList(),
             seedTrack = seedTrack,
             excludeTrackIds = recentTrackIds,
-            rotationSalt = newSessionId.toLong()
+            rotationSalt = newSessionId
         )
 
         val segmentWithNarration = segmentWithIntroOrPlannerMessage(segment, introNarration, mode = mode)
@@ -383,7 +401,7 @@ class AiDjSessionManager(
         val session = AiDjSession(
             id = newSessionId,
             mode = mode,
-            title = "${mode.displayName} — ${segmentWithNarration.vibeDescription}",
+            title = mode.displayName,
             currentSegmentIndex = 0,
             segments = listOf(segmentWithNarration),
             feedbackHistory = emptyList(),
@@ -460,4 +478,5 @@ class AiDjSessionManager(
         }
     }
 }
+
 

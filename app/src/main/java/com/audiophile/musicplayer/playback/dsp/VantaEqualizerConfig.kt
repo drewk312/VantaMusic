@@ -80,6 +80,7 @@ enum class VantaEqualizerPreset(val label: String, val gains: List<Float>) {
     LOFI("Lo-Fi Cozy", listOf(1.5f,1.5f,1.5f,1.5f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,-0.5f,-0.5f,-1f,-1f,-1.5f,-1.5f,-2f,-2f,-2.5f,-2.5f,-3f,-3.5f,-4f)),
     WARM("Warm Analog", listOf(1.5f,1.5f,1.5f,1f,1f,1f,0.5f,0.5f,0.5f,0.5f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-0.5f,-1f,-1f)),
     LOUDNESS("Loudness", listOf(3f,3f,2.5f,2.5f,2f,2f,1.5f,1f,0.5f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0.5f,0.5f,1f,1f,1.5f,1.5f,2f,2f,2.5f,2.5f,2.5f)),
+    SONY_WH1000XM5("Sony WH-1000XM5", listOf(-1.84f,-2.03f,-1.98f,-1.73f,-1.21f,-0.4f,0.01f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,0.0f,-0.5f,-1.2f,-1.8f,-1.5f,-0.8f,0f,0.5f,1.2f,2.1f,1.8f,0.9f,0.3f,0f)),
 }
 
 object VantaEqualizerHolder {

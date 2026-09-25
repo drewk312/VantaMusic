@@ -55,6 +55,17 @@ interface VantaGatewayApi {
     suspend fun getFriends(
         @Path("userId") userId: String
     ): Response<FriendsListDto>
+
+    @GET("sync/continuity/{userId}")
+    suspend fun getContinuity(
+        @Path("userId") userId: String
+    ): Response<com.audiophile.musicplayer.continuity.ContinuitySnapshotDto>
+
+    @POST("sync/continuity/{userId}")
+    suspend fun postContinuity(
+        @Path("userId") userId: String,
+        @Body body: com.audiophile.musicplayer.continuity.ContinuityPostBody
+    ): Response<com.audiophile.musicplayer.continuity.ContinuitySnapshotDto>
 }
 
 data class LibrarySnapshotDto(

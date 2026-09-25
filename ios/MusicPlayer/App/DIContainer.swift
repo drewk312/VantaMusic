@@ -51,8 +51,8 @@ final class DIContainer {
         setupBindings()
     }
 
-    func initialize() {
-        databaseManager.initialize()
+    func initialize() throws {
+        try databaseManager.initialize()
         audioEngine.initialize()
         dspProcessor.initialize()
     }

@@ -46,8 +46,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.platform.LocalContext
-import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
@@ -61,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.data.dj.StationSearchResolver
 import com.audiophile.musicplayer.data.canonical.CanonicalAlbum
 import com.audiophile.musicplayer.data.canonical.CanonicalArtist
+import com.audiophile.musicplayer.data.canonical.CanonicalPlaylist
 import com.audiophile.musicplayer.data.canonical.CanonicalTrack
 import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.display.TrackDisplayResolver
@@ -72,7 +71,6 @@ import com.audiophile.musicplayer.data.source.isConfirmedPlayable
 import com.audiophile.musicplayer.data.source.isUnavailable
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import com.audiophile.musicplayer.data.source.userFacingLabel
-import androidx.core.content.edit
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -83,19 +81,25 @@ import androidx.compose.ui.draw.clipToBounds
 
 @Composable
 fun SearchScreen(
-    uiState: MainUiState,
+    uiState: SearchUiState,
+    library: List<UnifiedTrackWithSources>,
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
     onSearchQuery: (String) -> Unit,
     onBrowseCategory: (String) -> Unit,
+    onRememberSearch: (String) -> Unit,
+    onRemoveRecentSearch: (String) -> Unit,
+    onClearRecentSearches: () -> Unit,
     onPlay: (UnifiedTrackWithSources) -> Unit,
     onPlaySourceResult: (CanonicalTrack) -> Unit,
+    onPlaySourceResultList: ((List<CanonicalTrack>, Int) -> Unit)? = null,
     onSaveSourceResult: (CanonicalTrack) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit = { _, _ -> },
     onNavigateToAlbum: (String, String, String?) -> Unit = { _, _, _ -> },
     onNavigateToStation: (String) -> Unit = {},
     onStartStation: (String) -> Unit = {},
     onOpenTrackSheet: ((CanonicalTrack) -> Unit)? = null,
+    onOpenCatalogPlaylist: (CanonicalPlaylist) -> Unit = {},
     onQuickPlay: (String) -> Unit = {},
     onImportEclipsePlaylist: (String) -> Unit = {},
 
@@ -103,48 +107,40 @@ fun SearchScreen(
     bottomNavVisible: Boolean = false,
     isKeyboardVisible: Boolean = false
 ) {
-    val context = LocalContext.current
-    val sharedPrefs = remember(context) {
-        context.getSharedPreferences("vanta_search_history", Context.MODE_PRIVATE)
+    val recentSearches = uiState.searchHistory
+    val dismissKeyboard = rememberKeyboardDismissal()
+    val mergedSearchSuggestions = remember(
+        uiState.query,
+        recentSearches,
+        uiState.suggestions
+    ) {
+        val normalizedQuery = uiState.query.trim()
+        if (normalizedQuery.length < 2) {
+            emptyList()
+        } else {
+            (
+                recentSearches.filter { term ->
+                    com.audiophile.musicplayer.search.MusicTypeahead.matchesPrefix(term, normalizedQuery)
+                } + uiState.suggestions
+            ).distinctBy { it.lowercase() }
+                .filterNot { it.equals(normalizedQuery, ignoreCase = true) }
+                .take(6)
+        }
     }
-    
-    var recentSearches by remember {
-        val saved = sharedPrefs.getString("history_list", "") ?: ""
-        mutableStateOf(
-            if (saved.isBlank()) emptyList<String>() else saved.split("\n").filter { it.isNotBlank() }
-        )
-    }
-
-    val addRecentSearch = { term: String ->
-        val trimmed = term.trim()
-        if (trimmed.isNotEmpty()) {
-            val updated = listOf(trimmed) + recentSearches.filter { !it.equals(trimmed, ignoreCase = true) }
-            val limited = updated.take(8)
-            sharedPrefs.edit {
-                    putString("history_list", limited.joinToString("\n"))
-                }
-            recentSearches = limited
+    val predictionRemainder = remember(uiState.query, mergedSearchSuggestions) {
+        mergedSearchSuggestions.firstNotNullOfOrNull { suggestion ->
+            com.audiophile.musicplayer.search.MusicTypeahead.completionRemainder(uiState.query, suggestion)
         }
     }
 
-    val removeRecentSearch = { term: String ->
-        val updated = recentSearches.filter { !it.equals(term, ignoreCase = true) }
-        sharedPrefs.edit {
-                putString("history_list", updated.joinToString("\n"))
-            }
-        recentSearches = updated
-    }
-
-    val clearAllRecentSearches = {
-        sharedPrefs.edit {
-                remove("history_list")
-            }
-        recentSearches = emptyList()
-    }
+    val addRecentSearch = onRememberSearch
+    val removeRecentSearch = onRemoveRecentSearch
+    val clearAllRecentSearches = onClearRecentSearches
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .dismissKeyboardOnScroll()
             .imePadding()
             .padding(horizontal = 24.dp)
             .padding(
@@ -154,19 +150,60 @@ fun SearchScreen(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Search", style = VantaType.pageTitle)
+        if (uiState.query.isBlank() && uiState.activeBrowseCategory == null) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = "EXPLORE VANTA",
+                style = VantaType.caption.copy(
+                    color = AppAccentSecondary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.8.sp
+                )
+            )
+            Text(
+                text = "Search",
+                style = VantaType.pageTitle.copy(fontSize = 30.sp, lineHeight = 34.sp)
+            )
+            Text(
+                text = "Find the song. Follow the feeling.",
+                style = VantaType.subtitle.copy(color = AppTextSecondary.copy(alpha = 0.76f))
+            )
+        }
 
         VantaSearchField(
             query = uiState.query,
+            predictionRemainder = predictionRemainder,
             onQueryChanged = onQueryChanged,
             onSearch = {
+                dismissKeyboard()
                 if (uiState.query.isNotBlank()) {
                     addRecentSearch(uiState.query)
                 }
                 onSearch()
             },
+            onAcceptPrediction = {
+                val completed = uiState.query.trimStart() + (predictionRemainder ?: "")
+                if (completed.isNotBlank()) onSearchQuery(completed)
+            },
             modifier = Modifier.fillMaxWidth()
         )
+
+        if (mergedSearchSuggestions.isNotEmpty() &&
+            uiState.query.trim().isNotEmpty() &&
+            uiState.activeBrowseCategory == null
+        ) {
+            SearchPredictiveList(
+                query = uiState.query,
+                suggestions = mergedSearchSuggestions,
+                onSelect = onSearchQuery
+            )
+        }
+
+        if (isKeyboardVisible) {
+            androidx.compose.material3.TextButton(
+                onClick = dismissKeyboard,
+                modifier = Modifier.align(Alignment.End)
+            ) { Text("Done", color = AppAccent) }
+        }
 
         val isUrl = remember(uiState.query) {
             val trimmed = uiState.query.trim()
@@ -196,8 +233,8 @@ fun SearchScreen(
         val trimmedQuery = uiState.query.trim()
         val activeBrowseCategory = uiState.activeBrowseCategory
 
-        val searchIntent = remember(trimmedQuery, uiState.searchArtists, uiState.searchAlbums) {
-            detectSearchIntent(trimmedQuery, uiState.searchArtists, uiState.searchAlbums)
+        val matchedArtist = remember(trimmedQuery, uiState.artists, uiState.songs) {
+            com.audiophile.musicplayer.search.SearchPresentation.artistMatch(trimmedQuery, uiState.artists, uiState.songs)
         }
 
         BackHandler(enabled = activeBrowseCategory != null) {
@@ -241,80 +278,28 @@ fun SearchScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 items(recentSearches) { term ->
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(20.dp))
+                                    Row(
+                                        modifier = Modifier.clip(RoundedCornerShape(24.dp))
                                             .background(AppSurfaceSoft)
-                                            .border(0.5.dp, AppOutline, RoundedCornerShape(20.dp))
-                                            .clickable {
-                                                addRecentSearch(term)
-                                                val station = StationSearchResolver.resolveSingle(term)
-                                                if (station != null) {
-                                                    onNavigateToStation(station.id)
-                                                } else if (isBrowseCategory(term)) {
-                                                    onBrowseCategory(term)
-                                                } else {
-                                                    onSearchQuery(term)
-                                                }
-                                            }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .border(0.5.dp, AppOutline, RoundedCornerShape(24.dp)),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(term, color = AppText, fontSize = 13.sp)
-                                            Icon(
-                                                imageVector = Icons.Filled.Close,
-                                                contentDescription = "Remove",
-                                                tint = AppTextSecondary,
-                                                modifier = Modifier
-                                                    .size(14.dp)
-                                                    .clickable { removeRecentSearch(term) }
-                                            )
+                                        Box(
+                                            modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 64.dp)
+                                                .clickable {
+                                                    addRecentSearch(term)
+                                                    val station = StationSearchResolver.resolveForSearch(term).firstOrNull()
+                                                    if (isBrowseCategory(term)) onBrowseCategory(term)
+                                                    else if (station != null) onNavigateToStation(station.id)
+                                                    else onSearchQuery(term)
+                                                }.padding(start = 16.dp, end = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) { Text(term, color = AppText, fontSize = 13.sp) }
+                                        IconButton(onClick = { removeRecentSearch(term) }) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Remove $term from recent searches",
+                                                tint = AppTextSecondary, modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-
-                    // Trending Now
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "AI Radio Presets",
-                            color = AppText,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val presets = remember {
-                            listOf("80s Synth Pop", "Late Night Drive", "Focus & Code", "Rainy Day Jazz", "Workout Hype", "90s R&B")
-                        }
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(presets) { preset ->
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(AppAccent.copy(alpha = 0.08f))
-                                        .border(0.5.dp, AppAccent.copy(alpha = 0.24f), RoundedCornerShape(20.dp))
-                                        .clickable {
-                                            addRecentSearch(preset)
-                                            onStartStation(preset)
-                                        }
-                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
-                                        contentDescription = null,
-                                        tint = AppAccent,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(preset, color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -329,46 +314,20 @@ fun SearchScreen(
                             fontWeight = FontWeight.Bold
                         )
                         
-                        val categories = remember {
-                            listOf(
-                                SearchCategory("Alternative", Color(0xFFC5A059), Color(0xFFD4A574)),
-                                SearchCategory("Pop", Color(0xFFE05275), Color(0xFFF78FA7)),
-                                SearchCategory("Country", Color(0xFFD37C44), Color(0xFFE89E6C)),
-                                SearchCategory("Hits", Color(0xFFE5B83B), Color(0xFFF7D565)),
-                                SearchCategory("Hip-Hop", Color(0xFFB87333), Color(0xFFD4A373)),
-                                SearchCategory("Dance", Color(0xFF2CB07B), Color(0xFF5ED8A5)),
-                                SearchCategory("Rock", Color(0xFFDF523E), Color(0xFFF58A78)),
-                                SearchCategory("Chill", Color(0xFF1E8D91), Color(0xFF4DB6AC)),
-                                SearchCategory("Sleep", Color(0xFF6B48B3), Color(0xFF9E7CDB)),
-                                SearchCategory("Focus", Color(0xFF8C5D3A), Color(0xFFB3835C)),
-                                SearchCategory("Feel Good", Color(0xFFE09025), Color(0xFFF7B956)),
-                                SearchCategory("Party", Color(0xFFC03C9E), Color(0xFFE874C8))
-                            )
-                        }
-
-                        val chunked = categories.chunked(2)
-                        chunked.forEach { rowCategories ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                rowCategories.forEach { cat ->
-                                    CategoryCard(
-                                        category = cat,
-                                        onClick = {
-                                            addRecentSearch(cat.title)
-                                            val station = StationSearchResolver.resolveSingle(cat.title)
-                                            if (station != null) {
-                                                onNavigateToStation(station.id)
-                                            } else {
-                                                onBrowseCategory(cat.title)
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                if (rowCategories.size < 2) {
-                                    Spacer(modifier = Modifier.weight(1f))
+                        val groups = remember { com.audiophile.musicplayer.data.catalog.BrowseCatalog.categories.groupBy { it.group } }
+                        groups.entries.forEachIndexed { groupIndex, (group, categories) ->
+                            Text(group, color = AppTextSecondary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = 14.dp))
+                            categories.chunked(2).forEachIndexed { rowIndex, row ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    row.forEachIndexed { index, category ->
+                                        val colors = listOf(Color(0xFFAF526F), Color(0xFF497F85), Color(0xFF8268A6), Color(0xFFAE7943))
+                                        val color = colors[(groupIndex + rowIndex + index) % colors.size]
+                                        CategoryCard(SearchCategory(category.title, color, color.copy(alpha = 0.8f)),
+                                            onClick = { addRecentSearch(category.title); onBrowseCategory(category.title) },
+                                            modifier = Modifier.weight(1f))
+                                    }
+                                    if (row.size == 1) Spacer(Modifier.weight(1f))
                                 }
                             }
                         }
@@ -377,8 +336,8 @@ fun SearchScreen(
             }
             uiState.isSearching &&
                 trimmedQuery.isNotEmpty() &&
-                uiState.searchSongs.isEmpty() &&
-                uiState.visibleTracks.isEmpty() &&
+                uiState.songs.isEmpty() &&
+                uiState.libraryMatches.isEmpty() &&
                 uiState.matchedStations.isEmpty() &&
                 activeBrowseCategory == null -> {
                 Column(
@@ -397,7 +356,11 @@ fun SearchScreen(
                 ) {
                     BrowseCategoryResults(
                         category = activeBrowseCategory,
-                        songs = uiState.searchSongs,
+                        songs = uiState.songs,
+                        albums = uiState.albums,
+                        artists = uiState.artists,
+                        isLoading = uiState.isSearching,
+                        onRetry = { onBrowseCategory(activeBrowseCategory) },
                         onBack = { onQueryChanged("") },
                         onPlaySourceResult = onPlaySourceResult,
                         onSaveSourceResult = onSaveSourceResult,
@@ -408,11 +371,12 @@ fun SearchScreen(
                     )
                 }
             }
-            uiState.searchSongs.isEmpty() &&
-                uiState.searchAlbums.isEmpty() &&
-                uiState.searchArtists.isEmpty() &&
-                uiState.visibleTracks.isEmpty() &&
-                uiState.searchSuggestions.isEmpty() &&
+            uiState.songs.isEmpty() &&
+                uiState.albums.isEmpty() &&
+                uiState.artists.isEmpty() &&
+                uiState.playlists.isEmpty() &&
+                uiState.libraryMatches.isEmpty() &&
+                mergedSearchSuggestions.isEmpty() &&
                 uiState.matchedStations.isEmpty() -> {
                 VantaEmptyState(
                     title = "No Results",
@@ -423,19 +387,28 @@ fun SearchScreen(
                 )
             }
             else -> {
-                val songs = uiState.searchSongs
-                val localTracks = uiState.visibleTracks
-                val albums = uiState.searchAlbums
-                val artists = uiState.searchArtists
+                val songs = remember(uiState.songs) { com.audiophile.musicplayer.search.SearchPresentation.songs(uiState.songs) }
+                val localTracks = uiState.libraryMatches
+                val albums = remember(uiState.albums, songs, matchedArtist) {
+                    com.audiophile.musicplayer.search.SearchPresentation.albums(uiState.albums, songs, matchedArtist)
+                }
+                val artists = (listOfNotNull(matchedArtist) + uiState.artists)
+                    .distinctBy { com.audiophile.musicplayer.search.SearchPresentation.key(it.name) }
+                val playlists = remember(uiState.playlists) {
+                    com.audiophile.musicplayer.search.SearchPresentation.playlists(uiState.playlists)
+                }
                 val matchedStations = uiState.matchedStations
                 var selectedSearchTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("All") }
-                val searchTabs = listOf("All", "Artists", "Albums", "Songs")
+                val searchTabs = listOf("All", "Artists", "Albums", "Songs", "Playlists")
 
                 androidx.compose.runtime.LaunchedEffect(trimmedQuery) {
                     selectedSearchTab = "All"
                 }
 
                 val searchListState = rememberLazyListState()
+                androidx.compose.runtime.LaunchedEffect(trimmedQuery, selectedSearchTab, uiState.isSearching) {
+                    if (!uiState.isSearching) searchListState.scrollToItem(0)
+                }
 
                 Box(
                     modifier = Modifier
@@ -447,7 +420,7 @@ fun SearchScreen(
                         .fillMaxWidth()
                         .padding(bottom = 28.dp)
                 ) {
-                    if (trimmedQuery.isNotEmpty() && (songs.isNotEmpty() || artists.isNotEmpty() || albums.isNotEmpty())) {
+                    if (trimmedQuery.isNotEmpty() && (songs.isNotEmpty() || artists.isNotEmpty() || albums.isNotEmpty() || playlists.isNotEmpty())) {
                         androidx.compose.material3.ScrollableTabRow(
                             selectedTabIndex = searchTabs.indexOf(selectedSearchTab),
                             containerColor = Color.Transparent,
@@ -482,213 +455,150 @@ fun SearchScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
-                    // Search Suggestions
-                    if (selectedSearchTab == "All" && uiState.searchSuggestions.isNotEmpty()) {
-                        item {
-                            Text(
-                                "Suggestions",
-                                color = AppTextSecondary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                        }
-                        uiState.searchSuggestions.forEach { suggestion ->
-                            item(key = "suggestion_$suggestion") {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            onSearchQuery(suggestion)
-                                        }
-                                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Search,
-                                        contentDescription = null,
-                                        tint = AppTextSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(suggestion, color = AppText, fontSize = 16.sp)
-                                }
-                            }
-                        }
-                    }
+                    // Suggestions sit under the search field while typing.
 
-                    // Intent badge
-                    val intentLabel = when {
-                        trimmedQuery.trim().lowercase().startsWith("artist ") ||
-                            trimmedQuery.trim().lowercase().startsWith("artist:") -> "Artist Search"
-                        trimmedQuery.trim().lowercase().startsWith("album ") ||
-                            trimmedQuery.trim().lowercase().startsWith("album:") -> "Album Search"
-                        trimmedQuery.trim().lowercase().startsWith("song ") ||
-                            trimmedQuery.trim().lowercase().startsWith("song:") -> "Song Search"
-                        else -> null
-                    }
-                    if (intentLabel != null) {
-                        item { VantaStatusBadge(intentLabel, AppAccent) }
-                    }
-
-                    // AI Radio Prompt Card
-                    if (selectedSearchTab == "All" && trimmedQuery.isNotBlank()) {
-                        item(key = "ai_radio") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SearchSectionLabel("AI Radio")
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .searchResultSurface(featured = true)
-                                        .clickable { onStartStation(trimmedQuery) }
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(CircleShape)
-                                            .background(AppAccent.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
-                                            contentDescription = null,
-                                            tint = AppAccent,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            "Start Station: $trimmedQuery",
-                                            color = AppText,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            "Stream music from your connected sources",
-                                            color = AppTextSecondary,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Filled.PlayArrow,
-                                        contentDescription = null,
-                                        tint = AppAccent,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                    if (selectedSearchTab == "All" && matchedArtist != null) {
+                        item(key = "artist_hero") {
+                            SearchArtistHero(matchedArtist,
+                                onOpen = { onNavigateToArtist(matchedArtist.name, matchedArtist.id) },
+                                onRadio = { onStartStation(matchedArtist.name) })
                         }
-                    }
-
-                    if (selectedSearchTab == "All" && matchedStations.isNotEmpty()) {
-                        item(key = "stations") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SearchSectionLabel("Stations")
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    matchedStations.forEach { station ->
-                                        RadioStationSearchCard(
-                                            station = station,
-                                            onOpen = { onNavigateToStation(station.id) },
-                                            onStart = { onStartStation(station.id) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Top result — first catalog hit, same order the API returned
-                    val topResult = uiState.searchTopResult
-                    if (selectedSearchTab == "All" && topResult != null) {
+                    } else if (selectedSearchTab == "All" && uiState.topResult != null) {
                         item(key = "top_result") {
+                            val track = uiState.topResult
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SearchSectionLabel("Top Result")
+                                SearchSectionLabel("Top result")
                                 TopResultCard(
-                                    track = topResult,
-                                    onPlay = onPlaySourceResult,
-                                    onSave = onSaveSourceResult,
-                                    onNavigateToArtist = onNavigateToArtist,
-                                    onNavigateToAlbum = onNavigateToAlbum,
-                                    onStartStation = { onStartStation("${topResult.title} by ${topResult.artist}") }
-                                )
-                            }
-                        }
-                    }
-
-                    // Artists
-                    if ((selectedSearchTab == "All" || selectedSearchTab == "Artists") && artists.isNotEmpty()) {
-                        item(key = "artists") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SearchSectionLabel("Artists")
-                                if (searchIntent == SearchIntent.ARTIST) {
-                                    artists.take(3).forEach { artist ->
-                                        RichArtistCard(
-                                            artist = artist,
-                                            library = uiState.library,
-                                            onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
-                                            onStartStation = { onStartStation(artist.name) }
-                                        )
-                                        Spacer(Modifier.height(12.dp))
-                                    }
-                                } else {
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                        items(artists.take(10)) { artist ->
-                                            SearchArtistCard(
-                                                artist = artist,
-                                                onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
-                                                onStartStation = { onStartStation(artist.name) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Albums
-                    if ((selectedSearchTab == "All" || selectedSearchTab == "Albums") && albums.isNotEmpty()) {
-                        item(key = "albums") {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SearchSectionLabel("Albums")
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    items(albums.take(10)) { album ->
-                                        SearchAlbumCard(
-                                            album = album,
-                                            onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
-                                            onStartStation = { onStartStation("${album.title} by ${album.artist}") }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Songs — catalog order
-                    if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && songs.isNotEmpty() && searchIntent != SearchIntent.ARTIST) {
-                        item(key = "songs_label") {
-                            SearchSectionLabel("Songs")
-                        }
-                        songs.take(20).forEachIndexed { idx, track ->
-                            item(key = "song_$idx") {
-                                SearchSongRow(
                                     track = track,
-                                    onPlay = onPlaySourceResult,
+                                    onPlay = {
+                                        if (onPlaySourceResultList != null) {
+                                            onPlaySourceResultList(listOf(track) + songs.filter { it.externalTrackId != track.externalTrackId }, 0)
+                                        } else {
+                                            onPlaySourceResult(track)
+                                        }
+                                    },
                                     onSave = onSaveSourceResult,
                                     onNavigateToArtist = onNavigateToArtist,
                                     onNavigateToAlbum = onNavigateToAlbum,
-                                    onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
                                     onStartStation = { onStartStation("${track.title} by ${track.artist}") }
                                 )
                             }
                         }
                     }
 
+                    if ((selectedSearchTab == "All" && matchedArtist != null || selectedSearchTab == "Albums") && albums.isNotEmpty()) {
+                        item(key = "artist_albums") {
+                            SearchResultsHeading("Albums & singles", if (selectedSearchTab == "All") "See all" else null,
+                                onMore = { selectedSearchTab = "Albums" })
+                            Spacer(Modifier.height(12.dp))
+                            if (selectedSearchTab == "All") LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                items(albums.take(6)) { album ->
+                                    SearchAlbumCard(album, onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
+                                        showStationAction = false)
+                                }
+                            }
+                        }
+                    }
+
+                    if (selectedSearchTab == "Albums") {
+                        item(key = "release_count") { Text("${albums.size} releases", color = AppTextSecondary, fontSize = 12.sp) }
+                        items(albums.chunked(2)) { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                row.forEach { album ->
+                                    SearchAlbumCard(album, onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
+                                        showStationAction = false)
+                                }
+                            }
+                        }
+                    }
+
+                    if ((selectedSearchTab == "All" || selectedSearchTab == "Playlists") && playlists.isNotEmpty()) {
+                        item(key = "playlists") {
+                            SearchResultsHeading(
+                                "Playlists",
+                                if (selectedSearchTab == "All" && playlists.size > 6) "See all" else null,
+                                onMore = { selectedSearchTab = "Playlists" }
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            if (selectedSearchTab == "All") {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    items(playlists.take(6), key = { it.id ?: it.title }) { playlist ->
+                                        SearchPlaylistCard(playlist, onOpen = { onOpenCatalogPlaylist(playlist) })
+                                    }
+                                }
+                            }
+                        }
+                        if (selectedSearchTab == "Playlists") {
+                            items(playlists.chunked(2), key = { row -> row.joinToString("|") { it.id ?: it.title } }) { row ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    row.forEach { playlist ->
+                                        SearchPlaylistCard(
+                                            playlist,
+                                            onOpen = { onOpenCatalogPlaylist(playlist) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && songs.isNotEmpty()) {
+                        item(key = "songs_label") {
+                            SearchResultsHeading(if (matchedArtist != null) "Top songs" else "Songs",
+                                if (selectedSearchTab == "All" && songs.size > 5) "See all" else null,
+                                onMore = { selectedSearchTab = "Songs" })
+                        }
+                        val visibleSongs = if (selectedSearchTab == "All") songs.take(5) else songs
+                        items(visibleSongs.size, key = { "song_$it" }) { index ->
+                            val track = visibleSongs[index]
+                            SearchSongRow(
+                                track = track,
+                                onPlay = {
+                                    if (onPlaySourceResultList != null) {
+                                        onPlaySourceResultList(visibleSongs, index)
+                                    } else {
+                                        onPlaySourceResult(track)
+                                    }
+                                },
+                                onNavigateToArtist = onNavigateToArtist,
+                                onNavigateToAlbum = onNavigateToAlbum,
+                                onSave = onSaveSourceResult,
+                                onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
+                                onStartStation = { onStartStation("${track.title} by ${track.artist}") }
+                            )
+                        }
+                    }
+
+                    if ((selectedSearchTab == "All" && matchedArtist == null || selectedSearchTab == "Artists") && artists.isNotEmpty()) {
+                        item(key = "artists") {
+                            SearchResultsHeading("Artists", if (selectedSearchTab == "All") "See all" else null,
+                                onMore = { selectedSearchTab = "Artists" })
+                            Spacer(Modifier.height(12.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                items(if (selectedSearchTab == "All") artists.take(5) else artists) { artist ->
+                                    SearchArtistCard(artist, onNavigateToArtist = { onNavigateToArtist(artist.name, artist.id) },
+                                        showStationAction = false)
+                                }
+                            }
+                        }
+                    }
+                    if (selectedSearchTab == "All" && matchedArtist == null && albums.isNotEmpty()) {
+                        item(key = "albums") {
+                            SearchResultsHeading("Albums & singles", "See all", onMore = { selectedSearchTab = "Albums" })
+                            Spacer(Modifier.height(12.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                items(albums.take(6)) { album ->
+                                    SearchAlbumCard(album, onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
+                                        showStationAction = false)
+                                }
+                            }
+                        }
+                    }
+
                     // Library Matches
-                    if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && localTracks.isNotEmpty() && searchIntent != SearchIntent.ARTIST) {
+                    if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && localTracks.isNotEmpty()) {
                         item(key = "library_label") {
                             SearchSectionLabel("Library")
                         }
@@ -704,6 +614,76 @@ fun SearchScreen(
                             }
                         }
                     }
+
+                    if (selectedSearchTab == "All" && !uiState.isSearching && trimmedQuery.isNotBlank()) {
+                        item(key = "search_station_action") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Explore More")
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .searchResultSurface(featured = false)
+                                        .clickable { onStartStation(trimmedQuery) }
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .background(AppAccent.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
+                                            contentDescription = null,
+                                            tint = AppAccent,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "Start a station from $trimmedQuery",
+                                            color = AppText,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            "Build a related mix from this search",
+                                            color = AppTextSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        contentDescription = "Start station",
+                                        tint = AppAccent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (selectedSearchTab == "All" && !uiState.isSearching && matchedStations.isNotEmpty()) {
+                        item(key = "matching_stations") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SearchSectionLabel("Matching Stations")
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    matchedStations.forEach { station ->
+                                        RadioStationSearchCard(
+                                            station = station,
+                                            onOpen = { onNavigateToStation(station.id) },
+                                            onStart = { onStartStation(station.id) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     }
                 }
             }
@@ -716,6 +696,10 @@ fun SearchScreen(
 private fun BrowseCategoryResults(
     category: String,
     songs: List<CanonicalTrack>,
+    albums: List<CanonicalAlbum>,
+    artists: List<CanonicalArtist>,
+    isLoading: Boolean,
+    onRetry: () -> Unit,
     onBack: () -> Unit,
     onPlaySourceResult: (CanonicalTrack) -> Unit,
     onSaveSourceResult: (CanonicalTrack) -> Unit,
@@ -724,56 +708,72 @@ private fun BrowseCategoryResults(
     onOpenTrackSheet: ((CanonicalTrack) -> Unit)?,
     onStartStation: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    androidx.compose.runtime.key(category) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(AppSurfaceRaised.copy(alpha = 0.70f))
-                    .border(0.5.dp, AppOutline.copy(alpha = 0.72f), CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AppText, modifier = Modifier.size(20.dp))
-            }
-            Column {
-                Text(category, color = AppText, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                Text("Browse", color = AppTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-
-        if (songs.isEmpty()) {
-            VantaEmptyState(
-                title = "Nothing Found",
-                description = "No clean $category results came back from the connected sources.",
-                icon = Icons.Filled.Search
-            )
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SearchSectionLabel("Songs")
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    songs.take(30).forEach { track ->
-                        SearchSongRow(
-                            track = track,
-                            onPlay = onPlaySourceResult,
-                            onSave = onSaveSourceResult,
-                            onNavigateToArtist = onNavigateToArtist,
-                            onNavigateToAlbum = onNavigateToAlbum,
-                            onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
-                            onStartStation = { onStartStation("${track.title} by ${track.artist}") }
-                        )
+            item {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                        .background(Brush.linearGradient(listOf(AppAccent.copy(alpha = 0.22f), AppSurfaceRaised)))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to categories", tint = AppText)
                     }
+                    Text(category, color = AppText, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text("Find your next favorite", color = AppTextSecondary, fontSize = 15.sp)
+                }
+            }
+            if (isLoading) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Finding the music...", color = AppTextSecondary)
+                        SearchShimmer()
+                    }
+                }
+            } else if (songs.isEmpty()) {
+                item {
+                    VantaEmptyState(title = "Couldn’t load this category",
+                        description = "We couldn't load $category right now. Try again in a moment.",
+                        icon = Icons.Filled.Search)
+                    androidx.compose.material3.TextButton(onClick = onRetry) { Text("Try again", color = AppAccent) }
+                }
+            } else {
+                if (albums.isNotEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SearchSectionLabel("Albums to explore")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            items(albums) { album ->
+                                SearchAlbumCard(album, onNavigateToAlbum = {
+                                    onNavigateToAlbum(album.title, album.artist, album.artworkUrl)
+                                }, showStationAction = false)
+                            }
+                        }
+                    }
+                }
+                if (artists.isNotEmpty()) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SearchSectionLabel("Artists to explore")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            items(artists) { artist ->
+                                SearchArtistCard(artist, onNavigateToArtist = {
+                                    onNavigateToArtist(artist.name, artist.id)
+                                }, showStationAction = false)
+                            }
+                        }
+                    }
+                }
+                item { SearchSectionLabel("Songs") }
+                items(songs) { track ->
+                    SearchSongRow(track = track, onPlay = onPlaySourceResult,
+                        onSave = onSaveSourceResult, onNavigateToArtist = onNavigateToArtist,
+                        onNavigateToAlbum = onNavigateToAlbum,
+                        onOpenTrackSheet = onOpenTrackSheet?.let { fn -> { fn(track) } },
+                        onStartStation = { onStartStation("${track.title} by ${track.artist}") })
                 }
             }
         }
@@ -783,24 +783,35 @@ private fun BrowseCategoryResults(
 @Composable
 private fun VantaSearchField(
     query: String,
+    predictionRemainder: String?,
     onQueryChanged: (String) -> Unit,
     onSearch: () -> Unit,
+    onAcceptPrediction: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val hasText = query.isNotBlank()
+    val fieldStyle = TextStyle(
+        fontFamily = com.audiophile.musicplayer.ui.theme.VantaSans,
+        color = AppText,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium
+    )
     BasicTextField(
         value = query,
         onValueChange = onQueryChanged,
         modifier = modifier,
         singleLine = true,
-        textStyle = TextStyle(
-            color = AppText,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium
-        ),
+        textStyle = fieldStyle,
         cursorBrush = SolidColor(AppAccent),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+        keyboardOptions = KeyboardOptions(
+            imeAction = ImeAction.Search,
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Text
+        ),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                onSearch()
+            }
+        ),
         decorationBox = { innerTextField ->
             Row(
                 modifier = Modifier
@@ -842,11 +853,25 @@ private fun VantaSearchField(
                 ) {
                     if (!hasText) {
                         Text(
-                            "Search lossless music, artists, stations…",
+                            "Artists, songs, albums…",
                             color = AppTextMuted,
                             fontSize = 15.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
+                        )
+                    } else if (!predictionRemainder.isNullOrEmpty()) {
+                        Text(
+                            text = androidx.compose.ui.text.buildAnnotatedString {
+                                pushStyle(androidx.compose.ui.text.SpanStyle(color = Color.Transparent))
+                                append(query)
+                                pop()
+                                pushStyle(androidx.compose.ui.text.SpanStyle(color = AppTextMuted.copy(alpha = 0.55f)))
+                                append(predictionRemainder)
+                                pop()
+                            },
+                            style = fieldStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip
                         )
                     }
                     innerTextField()
@@ -870,13 +895,68 @@ private fun VantaSearchField(
 }
 
 @Composable
+private fun SearchPredictiveList(
+    query: String,
+    suggestions: List<String>,
+    onSelect: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(VantaRadius.card))
+            .background(AppSurfaceRaised.copy(alpha = 0.82f))
+            .padding(vertical = 4.dp)
+    ) {
+        suggestions.forEach { suggestion ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(suggestion) }
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = AppTextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                val remainder = com.audiophile.musicplayer.search.MusicTypeahead.completionRemainder(query, suggestion)
+                if (remainder != null) {
+                    Text(
+                        text = androidx.compose.ui.text.buildAnnotatedString {
+                            append(query)
+                            pushStyle(androidx.compose.ui.text.SpanStyle(color = AppTextMuted))
+                            append(remainder)
+                            pop()
+                        },
+                        color = AppText,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        suggestion,
+                        color = AppText,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SearchSectionLabel(title: String) {
     Text(
-        text = title.uppercase(),
-        color = AppTextSecondary.copy(alpha = 0.74f),
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        maxLines = 1
+        text = title,
+        color = AppText,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.SemiBold
     )
 }
 
@@ -1086,19 +1166,27 @@ private fun TopResultCard(
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 if (cleaned.explicit == true) VantaExplicitBadge()
+                TitleSpatialIndicator(
+                    qualityInfo = track.qualityInfo,
+                    atmosMixAvailable = track.atmosMixAvailable
+                )
                 if (statusLabel != null) {
                     track.qualityInfo?.let { q ->
-                        if (q.isDolbyAtmos) VantaStatusBadge(spatialBadgeLabel("Dolby Atmos", q.spatialEvidence), AppAccent)
-                        else if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
-                        else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
-                        if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                        if (spatialIdentityKind(q) == null && !track.atmosMixAvailable) {
+                            if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
+                            else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
+                            if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                        }
                     }
                     VantaStatusBadge(
                         text = statusLabel,
                         color = if (sourceStatus.isUnavailable()) AppWarning else AppTextSecondary
                     )
                 } else if (sourceStatus != SearchItemStatus.PREVIEW) {
-                    VantaQualityBadge(track.qualityInfo?.bestQualityLabel())
+                    val q = track.qualityInfo
+                    if ((q == null || spatialIdentityKind(q) == null) && !track.atmosMixAvailable) {
+                        VantaQualityBadge(q?.compactQualityLabel())
+                    }
                 }
             }
             SearchSubtitleLine(
@@ -1107,18 +1195,26 @@ private fun TopResultCard(
                 onArtistClick = { onNavigateToArtist(dArtist, null) },
                 onAlbumClick = dAlbum?.let { { onNavigateToAlbum(it, dArtist, track.artworkUrl) } }
             )
+            if (!track.matchedLyricSnippet.isNullOrBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    VantaStatusBadge("Lyrics match", Color(0xFFFFD54F))
+                    Text(
+                        text = "\"${track.matchedLyricSnippet}\"",
+                        color = Color(0xFFFFD54F).copy(alpha = 0.85f),
+                        fontSize = 11.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
 
-        SearchIconAction(
-            icon = ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
-            contentDescription = "Start station",
-            onClick = onStartStation
-        )
-        SearchIconAction(
-            icon = Icons.Filled.Add,
-            contentDescription = "Save to library",
-            onClick = { onSave(track) }
-        )
+        SearchOverflowMenu(onSave = { onSave(track) }, onStartStation = onStartStation)
         SearchPlayAction(track = track, onPlay = onPlay, enabled = canPlay)
     }
 }
@@ -1153,15 +1249,15 @@ private fun SearchSongRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .searchResultSurface()
             .clickable(enabled = canPlay) { onPlay(track) }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 2.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .size(50.dp)
+                .clickable { if (dAlbum != null) onNavigateToAlbum(dAlbum, dArtist, track.artworkUrl) }
                 .clip(RoundedCornerShape(12.dp))
                 .border(0.5.dp, AppOutline.copy(alpha = 0.60f), RoundedCornerShape(12.dp))
         ) {
@@ -1184,47 +1280,68 @@ private fun SearchSongRow(
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 if (cleaned.explicit == true) VantaExplicitBadge()
+                TitleSpatialIndicator(
+                    qualityInfo = track.qualityInfo,
+                    atmosMixAvailable = track.atmosMixAvailable
+                )
                 if (statusLabel != null) {
                     track.qualityInfo?.let { q ->
-                        if (q.isDolbyAtmos) VantaStatusBadge(spatialBadgeLabel("Dolby Atmos", q.spatialEvidence), AppAccent)
-                        else if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
-                        else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
-                        if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                        if (spatialIdentityKind(q) == null && !track.atmosMixAvailable) {
+                            if (q.isSpatialAudio) VantaStatusBadge(spatialBadgeLabel("Spatial", q.spatialEvidence), AppAccent)
+                            else if (q.isSurround) VantaStatusBadge(spatialBadgeLabel("Surround", q.spatialEvidence), AppAccent)
+                            if (q.isHiRes == true) VantaStatusBadge("Hi-Res", AppAccent)
+                        }
                     }
                     VantaStatusBadge(
                         text = statusLabel,
                         color = if (sourceStatus.isUnavailable()) AppWarning else AppTextSecondary
                     )
                 } else if (sourceStatus != SearchItemStatus.PREVIEW) {
-                    VantaQualityBadge(track.qualityInfo?.bestQualityLabel())
+                    val q = track.qualityInfo
+                    if ((q == null || spatialIdentityKind(q) == null) && !track.atmosMixAvailable) {
+                        VantaQualityBadge(q?.compactQualityLabel())
+                    }
                 }
             }
-            SearchSubtitleLine(
-                artist = dArtistLine,
-                album = dAlbum,
-                onArtistClick = { onNavigateToArtist(dArtist, null) },
-                onAlbumClick = dAlbum?.let { { onNavigateToAlbum(it, dArtist, track.artworkUrl) } }
-            )
+            Text(dArtistLine, color = AppTextSecondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!track.matchedLyricSnippet.isNullOrBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 1.dp)
+                ) {
+                    VantaStatusBadge("Lyrics match", Color(0xFFFFD54F))
+                    Text(
+                        text = "\"${track.matchedLyricSnippet}\"",
+                        color = Color(0xFFFFD54F).copy(alpha = 0.85f),
+                        fontSize = 11.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
 
-        if (onOpenTrackSheet != null) {
-            SearchIconAction(
-                icon = Icons.Filled.MoreVert,
-                contentDescription = "More options",
-                onClick = onOpenTrackSheet
-            )
-        }
-        SearchIconAction(
-            icon = ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
-            contentDescription = "Start station",
-            onClick = onStartStation
-        )
-        SearchIconAction(
-            icon = Icons.Filled.Add,
-            contentDescription = "Save to library",
-            onClick = { onSave(track) }
-        )
+        SearchOverflowMenu(onSave = { onSave(track) }, onStartStation = onStartStation, onDetails = onOpenTrackSheet)
         SearchPlayAction(track = track, onPlay = onPlay, enabled = canPlay)
+    }
+}
+
+@Composable
+private fun SearchOverflowMenu(onSave: () -> Unit, onStartStation: () -> Unit, onDetails: (() -> Unit)? = null) {
+    var expanded by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberKeyboardDismissal()
+    Box {
+        SearchIconAction(icon = Icons.Filled.MoreVert, contentDescription = "More options", onClick = {
+            dismissKeyboard()
+            expanded = true
+        })
+        androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            androidx.compose.material3.DropdownMenuItem(text = { Text("Save to library") }, onClick = { expanded = false; onSave() })
+            androidx.compose.material3.DropdownMenuItem(text = { Text("Start radio") }, onClick = { expanded = false; onStartStation() })
+            if (onDetails != null) androidx.compose.material3.DropdownMenuItem(text = { Text("Track details") }, onClick = { expanded = false; onDetails() })
+        }
     }
 }
 
@@ -1259,7 +1376,7 @@ private fun LibrarySongRow(
         VantaQualityInfo.fromTrackSource(
             source = track.sources.maxByOrNull { it.bitrate },
             status = track.sourceValidityStatus()
-        )?.bestQualityLabel()
+        )?.compactQualityLabel()
     }
     Row(
         modifier = Modifier
@@ -1322,7 +1439,8 @@ private fun LibrarySongRow(
 private fun SearchAlbumCard(
     album: CanonicalAlbum,
     onNavigateToAlbum: () -> Unit,
-    onStartStation: () -> Unit = {}
+    onStartStation: () -> Unit = {},
+    showStationAction: Boolean = true
 ) {
     val isMetadataOnly = album.trackCount == null || album.trackCount == 0
     Column(
@@ -1341,7 +1459,7 @@ private fun SearchAlbumCard(
                 seed = album.title,
                 modifier = Modifier.fillMaxSize()
             )
-            if (isMetadataOnly) {
+            if (isMetadataOnly && showStationAction) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -1360,7 +1478,7 @@ private fun SearchAlbumCard(
                 Text(DisplayMetadataCleaner.cleanDisplayName(album.title).ifBlank { album.title }, color = AppText, fontWeight = FontWeight.SemiBold, maxLines = 1, fontSize = 13.sp, overflow = TextOverflow.Ellipsis)
                 Text(DisplayMetadataCleaner.cleanDisplayName(album.artist).ifBlank { album.artist }, color = AppTextSecondary, maxLines = 1, fontSize = 12.sp, overflow = TextOverflow.Ellipsis)
             }
-            Icon(
+            if (showStationAction) Icon(
                 ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
                 contentDescription = "Start station",
                 tint = AppTextSecondary,
@@ -1374,7 +1492,8 @@ private fun SearchAlbumCard(
 private fun SearchArtistCard(
     artist: CanonicalArtist,
     onNavigateToArtist: () -> Unit,
-    onStartStation: () -> Unit = {}
+    onStartStation: () -> Unit = {},
+    showStationAction: Boolean = true
 ) {
     Column(
         modifier = Modifier
@@ -1417,7 +1536,7 @@ private fun SearchArtistCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Icon(
+            if (showStationAction) Icon(
                 ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
                 contentDescription = "Start station",
                 tint = AppTextSecondary,
@@ -1427,94 +1546,76 @@ private fun SearchArtistCard(
     }
 }
 
-private enum class SearchIntent { ARTIST, ALBUM, SONG, GENERAL }
-
-private fun detectSearchIntent(
-    query: String,
-    artists: List<CanonicalArtist>,
-    albums: List<CanonicalAlbum>
-): SearchIntent {
-    val q = query.trim().lowercase()
-    if (q.isBlank()) return SearchIntent.GENERAL
-
-    if (q.startsWith("artist ") || q.startsWith("artist:")) return SearchIntent.ARTIST
-    if (q.startsWith("album ") || q.startsWith("album:")) return SearchIntent.ALBUM
-    if (q.startsWith("song ") || q.startsWith("song:")) return SearchIntent.SONG
-
-    return SearchIntent.GENERAL
+@Composable
+private fun SearchPlaylistCard(
+    playlist: CanonicalPlaylist,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier.width(140.dp)
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onOpen)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(VantaRadius.artwork))
+                .border(0.5.dp, AppOutline, RoundedCornerShape(VantaRadius.artwork))
+        ) {
+            NetworkArtwork(
+                artworkUrl = playlist.artworkUrl,
+                seed = playlist.title,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            DisplayMetadataCleaner.cleanDisplayName(playlist.title).ifBlank { playlist.title },
+            color = AppText,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            fontSize = 13.sp,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            listOfNotNull(
+                playlist.curator?.takeIf { it.isNotBlank() }?.let { com.audiophile.musicplayer.data.source.debrandCuratorLabel(it) },
+                playlist.trackCount?.takeIf { it > 0 }?.let { "$it songs" }
+            ).joinToString(" · ").ifBlank { "Playlist" },
+            color = AppTextSecondary,
+            maxLines = 1,
+            fontSize = 12.sp,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Composable
-private fun RichArtistCard(
-    artist: CanonicalArtist,
-    library: List<UnifiedTrackWithSources>,
-    onNavigateToArtist: () -> Unit,
-    onStartStation: () -> Unit = {}
-) {
-    val topTracks = remember(artist.name, library) {
-        library
-            .filter { it.track.artist.equals(artist.name, ignoreCase = true) }
-            .filter { it.isConfirmedPlayable() }
-            .distinctBy { it.track.title.trim().lowercase() }
-            .take(5)
+private fun SearchResultsHeading(title: String, more: String?, onMore: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(title, color = AppText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        if (more != null) androidx.compose.material3.TextButton(onClick = onMore) { Text(more, color = AppAccent) }
     }
+}
 
-    VantaCard(onClick = onNavigateToArtist) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(VantaRadius.artwork))
-                    .border(0.5.dp, AppOutline, RoundedCornerShape(VantaRadius.artwork))
-            ) {
-                NetworkArtwork(
-                    artworkUrl = artist.artworkUrl,
-                    seed = artist.name,
-                    modifier = Modifier.fillMaxSize()
-                )
+@Composable
+private fun SearchArtistHero(artist: CanonicalArtist, onOpen: () -> Unit, onRadio: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+        .background(Brush.linearGradient(listOf(AppAccent.copy(alpha = 0.18f), AppSurfaceSoft)))
+        .clickable(onClick = onOpen).padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            NetworkArtwork(artworkUrl = artist.artworkUrl, seed = artist.name,
+                modifier = Modifier.size(96.dp).clip(CircleShape))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("ARTIST", color = AppAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(artist.name, color = AppText, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Songs, albums and more", color = AppTextSecondary, fontSize = 12.sp)
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(DisplayMetadataCleaner.cleanDisplayName(artist.name).ifBlank { artist.name }, color = AppText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                if (artist.genre != null) {
-                    Text(artist.genre, color = AppTextSecondary, fontSize = 13.sp)
-                }
-                Text(
-                    "${library.count { it.track.artist.equals(artist.name, ignoreCase = true) }} tracks in library",
-                    color = AppTextMuted,
-                    fontSize = 12.sp
-                )
-            }
-            Icon(
-                ImageVector.vectorResource(id = com.audiophile.musicplayer.R.drawable.ic_radio),
-                contentDescription = "Start Station",
-                tint = AppAccent,
-                modifier = Modifier.size(24.dp).clickable(onClick = onStartStation)
-            )
         }
-        if (topTracks.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            topTracks.forEachIndexed { i, track ->
-                val display = remember(track.track) { TrackDisplayResolver.resolve(track.track) }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "${i + 1}",
-                        color = AppTextMuted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.width(20.dp)
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(display.title, color = AppText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.material3.Button(onClick = onOpen, modifier = Modifier.weight(1f)) { Text("View artist") }
+            androidx.compose.material3.OutlinedButton(onClick = onRadio, modifier = Modifier.weight(1f)) { Text("Artist radio") }
         }
     }
 }
@@ -1525,23 +1626,9 @@ private data class SearchCategory(
     val endColor: Color
 )
 
-private fun isBrowseCategory(title: String): Boolean {
-    return title.trim().lowercase() in setOf(
-        "alternative",
-        "pop",
-        "country",
-        "hits",
-        "hip-hop",
-        "hip hop",
-        "dance",
-        "rock",
-        "chill",
-        "sleep",
-        "focus",
-        "feel good",
-        "party"
-    )
-}
+private fun isBrowseCategory(title: String): Boolean =
+    com.audiophile.musicplayer.data.catalog.BrowseCatalog.find(title) != null
+
 
 @Composable
 private fun CategoryCard(
@@ -1913,4 +2000,3 @@ private fun SearchShimmer(modifier: Modifier = Modifier) {
         }
     }
 }
-

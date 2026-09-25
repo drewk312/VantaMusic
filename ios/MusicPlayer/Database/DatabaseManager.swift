@@ -1,24 +1,22 @@
 import Foundation
 import Combine
 import GRDB
+import Security
 
 final class DatabaseManager {
     private var dbWriter: DatabaseWriter?
     private let dbPath: String
+    private let credentialStore = SourceCredentialStore()
 
     init() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         dbPath = docs.appendingPathComponent("vanta_music.db").path
     }
 
-    func initialize() {
-        do {
-            let db = try DatabaseQueue(path: dbPath)
-            dbWriter = db
-            try migrator.migrate(db)
-        } catch {
-            print("Database initialization error: \(error)")
-        }
+    func initialize() throws {
+        let db = try DatabaseQueue(path: dbPath)
+        try migrator.migrate(db)
+        dbWriter = db
     }
 
     func shutdown() {
@@ -124,6 +122,27 @@ final class DatabaseManager {
                 t.column("quality", .text).notNull()
                 t.column("expiresAt", .datetime).notNull()
                 t.column("createdAt", .datetime).notNull()
+            }
+        }
+
+        migrator.registerMigration("v2_move_source_credentials_to_keychain") { [credentialStore] db in
+            let rows = try Row.fetchAll(db, sql: "SELECT id, apiKey, username, password, extraConfig FROM sourceConfig")
+            for row in rows {
+                guard let id = row["id"] as? String else { continue }
+                let credentials = SourceCredentials(
+                    apiKey: row["apiKey"] as? String,
+                    username: row["username"] as? String,
+                    password: row["password"] as? String,
+                    extraConfig: decodeExtraConfig(row["extraConfig"] as? Data)
+                )
+                guard credentials.hasValues else { continue }
+
+                // Do not remove legacy values until their Keychain write succeeds.
+                try credentialStore.save(credentials, for: id)
+                try db.execute(
+                    sql: "UPDATE sourceConfig SET apiKey = NULL, username = NULL, password = NULL, extraConfig = NULL WHERE id = ?",
+                    arguments: [id]
+                )
             }
         }
 
@@ -242,7 +261,13 @@ final class DatabaseManager {
     // MARK: - Source Config
     func saveSourceConfig(_ config: ExternalSourceConfig) {
         try? dbWriter?.write { db in
-            let data = try? JSONEncoder().encode(config.extraConfig)
+            let credentials = SourceCredentials(
+                apiKey: config.apiKey,
+                username: config.username,
+                password: config.password,
+                extraConfig: config.extraConfig
+            )
+            try credentialStore.save(credentials, for: config.id)
             try db.execute(
                 sql: """
                 INSERT OR REPLACE INTO sourceConfig 
@@ -251,8 +276,8 @@ final class DatabaseManager {
                 """,
                 arguments: [
                     config.id, config.name, config.kind.rawValue,
-                    config.isEnabled, config.serverUrl, config.apiKey,
-                    config.username, config.password, data
+                    config.isEnabled, config.serverUrl, nil,
+                    nil, nil, nil
                 ]
             )
         }
@@ -273,23 +298,17 @@ final class DatabaseManager {
                           let kind = PlaybackProviderKind(rawValue: kindRaw) else {
                         return nil
                     }
-                    let extra: [String: String]
-                    if let blob = row["extraConfig"] as? Data,
-                       let decoded = try? JSONDecoder().decode([String: String].self, from: blob) {
-                        extra = decoded
-                    } else {
-                        extra = [:]
-                    }
+                    let credentials = self?.credentialStore.load(for: id) ?? SourceCredentials()
                     return ExternalSourceConfig(
                         id: id,
                         name: name,
                         kind: kind,
                         isEnabled: (row["isEnabled"] as? Bool) ?? false,
                         serverUrl: row["serverUrl"] as? String,
-                        apiKey: row["apiKey"] as? String,
-                        username: row["username"] as? String,
-                        password: row["password"] as? String,
-                        extraConfig: extra
+                        apiKey: credentials.apiKey,
+                        username: credentials.username,
+                        password: credentials.password,
+                        extraConfig: credentials.extraConfig
                     )
                 }
                 promise(.success(configs))
@@ -297,6 +316,94 @@ final class DatabaseManager {
         }
         .eraseToAnyPublisher()
     }
+}
+
+private struct SourceCredentials: Codable {
+    let apiKey: String?
+    let username: String?
+    let password: String?
+    let extraConfig: [String: String]
+
+    init(
+        apiKey: String? = nil,
+        username: String? = nil,
+        password: String? = nil,
+        extraConfig: [String: String] = [:]
+    ) {
+        self.apiKey = apiKey?.nilIfBlank
+        self.username = username?.nilIfBlank
+        self.password = password?.nilIfBlank
+        self.extraConfig = extraConfig
+    }
+
+    var hasValues: Bool {
+        apiKey != nil || username != nil || password != nil || !extraConfig.isEmpty
+    }
+}
+
+private final class SourceCredentialStore {
+    private let service = "com.audiophile.musicplayer.source-credentials"
+
+    func save(_ credentials: SourceCredentials, for sourceId: String) throws {
+        if !credentials.hasValues {
+            try delete(for: sourceId)
+            return
+        }
+
+        let data = try JSONEncoder().encode(credentials)
+        let query = baseQuery(for: sourceId)
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData] = data
+            addQuery[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw KeychainError.status(addStatus) }
+        } else if status != errSecSuccess {
+            throw KeychainError.status(status)
+        }
+    }
+
+    func load(for sourceId: String) -> SourceCredentials? {
+        var query = baseQuery(for: sourceId)
+        query[kSecReturnData] = true
+        query[kSecMatchLimit] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(SourceCredentials.self, from: data)
+    }
+
+    private func delete(for sourceId: String) throws {
+        let status = SecItemDelete(baseQuery(for: sourceId) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.status(status)
+        }
+    }
+
+    private func baseQuery(for sourceId: String) -> [CFString: Any] {
+        [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: sourceId,
+        ]
+    }
+}
+
+private enum KeychainError: Error {
+    case status(OSStatus)
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private func decodeExtraConfig(_ data: Data?) -> [String: String] {
+    guard let data else { return [:] }
+    return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
 }
 
 // MARK: - GRDB Record Conformance

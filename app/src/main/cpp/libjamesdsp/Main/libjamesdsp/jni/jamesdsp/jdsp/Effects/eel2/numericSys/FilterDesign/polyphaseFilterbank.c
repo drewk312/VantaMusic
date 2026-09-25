@@ -52,6 +52,7 @@ double getOptimalDF(unsigned int N, unsigned int m)
 	}
 	else
 		return 1.0 / (1.5 * max(N, m));
+	return 1.0 / (1.5 * max(N, m));
 }
 void initWarpedPFB(WarpedPFB *pfb, double fs, unsigned int N, unsigned int m)
 {

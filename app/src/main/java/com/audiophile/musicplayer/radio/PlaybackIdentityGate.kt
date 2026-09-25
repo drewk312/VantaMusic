@@ -2,6 +2,7 @@ package com.audiophile.musicplayer.radio
 
 import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import com.audiophile.musicplayer.data.source.VariantClassifier
 import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
 
 sealed class GateVerdict {
@@ -22,7 +23,9 @@ object PlaybackIdentityGate {
         "tiktok version", "reels version", "tiktok remix",
         "backing track", "sing along", "vocal version",
         "sound-a-like", "sound alike",
-        "top electronic", "edm tribe", "electronic songs"
+        "top electronic", "edm tribe", "electronic songs",
+        "artists to listen", "billboard hot", "muchmusic",
+        "full body workout", "workout routine"
     )
 
     private val videoLiveMarkers = listOf(
@@ -75,6 +78,11 @@ object PlaybackIdentityGate {
             return GateVerdict.Failed("hard_block:$matched")
         }
 
+        if (VariantClassifier.isWorkoutOrStylePackVariant(title, artist, album)) {
+            Log.w("VANTA_RADIO_GATE", "WORKOUT_STYLE_PACK_BLOCK title='$title' artist='$artist'")
+            return GateVerdict.Failed("hard_block:workout_style_pack")
+        }
+
         if (videoLiveMarkers.any { haystack.contains(it) }) {
             val matched = videoLiveMarkers.first { haystack.contains(it) }
             Log.w("VANTA_RADIO_GATE", "LIVE_VIDEO_BLOCK title='$title' artist='$artist' marker='$matched'")
@@ -104,6 +112,9 @@ object PlaybackIdentityGate {
         if (hardBlockMarkers.any { haystack.contains(it) }) {
             val matched = hardBlockMarkers.first { haystack.contains(it) }
             return GateVerdict.Failed("hard_block:$matched")
+        }
+        if (VariantClassifier.isWorkoutOrStylePackVariant(title, artist, album)) {
+            return GateVerdict.Failed("hard_block:workout_style_pack")
         }
         if (videoLiveMarkers.any { haystack.contains(it) }) {
             val matched = videoLiveMarkers.first { haystack.contains(it) }

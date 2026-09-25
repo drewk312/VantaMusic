@@ -8,7 +8,8 @@ import androidx.room.PrimaryKey
     tableName = "local_songs",
     indices = [
         Index(value = ["artist", "title"]),
-        Index(value = ["isrc"])
+        Index(value = ["isrc"]),
+        Index(value = ["canonicalTrackId"])
     ]
 )
 data class LocalSongEntity(
@@ -20,6 +21,8 @@ data class LocalSongEntity(
     val durationMs: Long? = null,
     val artworkUrl: String? = null,
     val isrc: String? = null,
+    /** VANTA canonical graph track id when known. */
+    val canonicalTrackId: Long? = null,
     val explicit: Boolean? = null,
     val genres: List<String> = emptyList(),
     val quality: String? = null,

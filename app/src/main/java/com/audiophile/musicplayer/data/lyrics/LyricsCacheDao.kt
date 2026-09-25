@@ -22,6 +22,9 @@ interface LyricsCacheDao {
     @Query("DELETE FROM lyrics_cache WHERE isrc = :isrc")
     suspend fun deleteLyricsByIsrc(isrc: String)
     
+    @Query("SELECT * FROM lyrics_cache WHERE lyricsJson LIKE '%' || :query || '%' LIMIT 10")
+    suspend fun searchByLyricsContent(query: String): List<LyricsCacheEntity>
+
     @Query("DELETE FROM lyrics_cache")
     suspend fun clearAll()
 }

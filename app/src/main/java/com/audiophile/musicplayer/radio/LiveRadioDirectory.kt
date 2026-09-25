@@ -109,7 +109,7 @@ class LiveRadioDirectory {
             return array.mapNotNull { element ->
                 val item = element.asJsonObject
                 val stream = item.get("url_resolved")?.asString
-                    ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                    ?.takeIf { it.startsWith("https://") }
                     ?: return@mapNotNull null
                 val lastCheckOk = item.get("lastcheckok")?.asInt ?: 0
                 if (lastCheckOk != 1) return@mapNotNull null

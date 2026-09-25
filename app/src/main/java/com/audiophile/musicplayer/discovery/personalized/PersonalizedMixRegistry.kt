@@ -52,13 +52,6 @@ class PersonalizedMixRegistry {
                 tags = setOf("discovery", "curated")
             )
         )
-        stub(PersonalizedMixKind.HIDDEN_GEMS, "Hidden Gems")
-        stub(PersonalizedMixKind.DAILY_MIX, "Daily Mix")
-        stub(PersonalizedMixKind.DISCOVERY_SHUFFLE, "Discovery Shuffle")
-        stub(PersonalizedMixKind.POPULAR_PICKS, "Popular Picks")
-        stub(PersonalizedMixKind.TIME_MACHINE, "Time Machine")
-        stub(PersonalizedMixKind.GENRE_PLAYLIST, "Genre Mix")
-        stub(PersonalizedMixKind.SEASONAL_MIX, "Seasonal Mix")
     }
 
     fun get(kind: PersonalizedMixKind): PersonalizedMixKindSpec? = specs[kind]
@@ -71,23 +64,4 @@ class PersonalizedMixRegistry {
     private fun register(spec: PersonalizedMixKindSpec) {
         specs[spec.kind] = spec
     }
-
-    private fun stub(kind: PersonalizedMixKind, name: String) {
-        specs[kind] = PersonalizedMixKindSpec(
-            kind = kind,
-            displayName = name,
-            subtitle = "Coming soon",
-            defaultConfig = PersonalizedMixConfig(),
-            generator = StubPersonalizedMixGenerator(),
-            tags = setOf("stub")
-        )
-    }
-}
-
-private class StubPersonalizedMixGenerator : PersonalizedMixGenerator {
-    override suspend fun generate(
-        deps: PersonalizedMixDeps,
-        variant: String,
-        config: PersonalizedMixConfig
-    ): List<MixCandidate> = emptyList()
 }

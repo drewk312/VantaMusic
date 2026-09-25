@@ -24,6 +24,7 @@ enum class VantaActionSheetAction {
     PLAY_NEXT,
     ADD_TO_QUEUE,
     START_RADIO,
+    START_SONIC_RADIO,
     ADD_TO_LIBRARY,
     REMOVE_FROM_LIBRARY,
     FAVORITE,
@@ -39,6 +40,7 @@ enum class VantaActionSheetAction {
     SLEEP_TIMER,
     REMOVE_FROM_QUEUE,
     MOVE_QUEUE_ITEM,
+    SHUFFLE_QUEUE,
 }
 
 data class VantaActionAvailability(
@@ -67,7 +69,9 @@ sealed class VantaActionContext {
         val canShare: Boolean,
         val qualityLabel: String?,
         val explicit: Boolean,
-        val isNowPlaying: Boolean = false
+        val isNowPlaying: Boolean = false,
+        val qualityInfo: com.audiophile.musicplayer.data.display.VantaQualityInfo? = null,
+        val acousticness: Double? = null
     ) : VantaActionContext()
 
     data class Album(
@@ -121,7 +125,9 @@ sealed class VantaActionContext {
         val canQueue: Boolean,
         val canShare: Boolean,
         val qualityLabel: String?,
-        val explicit: Boolean
+        val explicit: Boolean,
+        val qualityInfo: com.audiophile.musicplayer.data.display.VantaQualityInfo? = null,
+        val acousticness: Double? = null
     ) : VantaActionContext()
 
     data class Station(
@@ -142,6 +148,7 @@ class VantaActionResolver {
                 actions.add(VantaActionAvailability(VantaActionSheetAction.PLAY_NEXT, visible = !context.isNowPlaying, enabled = context.canQueue))
                 actions.add(VantaActionAvailability(VantaActionSheetAction.ADD_TO_QUEUE, visible = !context.isNowPlaying, enabled = context.canQueue))
                 actions.add(VantaActionAvailability(VantaActionSheetAction.START_RADIO, visible = true, enabled = context.canStartRadio))
+                actions.add(VantaActionAvailability(VantaActionSheetAction.START_SONIC_RADIO, visible = true, enabled = context.canStartRadio))
 
                 // Library Group
                 if (context.isInLibrary) {
@@ -167,6 +174,9 @@ class VantaActionResolver {
                 val hasSource = !context.sourceProviderId.isNullOrBlank()
                 actions.add(VantaActionAvailability(VantaActionSheetAction.DOWNLOAD_LOCAL, visible = hasSource, enabled = hasSource))
                 actions.add(VantaActionAvailability(VantaActionSheetAction.SLEEP_TIMER, visible = true, enabled = true))
+                if (context.isNowPlaying) {
+                    actions.add(VantaActionAvailability(VantaActionSheetAction.SHUFFLE_QUEUE, visible = true, enabled = true))
+                }
             }
             is VantaActionContext.Album -> {
                 actions.add(VantaActionAvailability(VantaActionSheetAction.PLAY, visible = true, enabled = true))
@@ -184,6 +194,7 @@ class VantaActionResolver {
                 actions.add(VantaActionAvailability(VantaActionSheetAction.PLAY, visible = !context.isCurrent, enabled = true))
                 actions.add(VantaActionAvailability(VantaActionSheetAction.REMOVE_FROM_QUEUE, visible = true, enabled = true))
                 actions.add(VantaActionAvailability(VantaActionSheetAction.MOVE_QUEUE_ITEM, visible = true, enabled = true))
+                actions.add(VantaActionAvailability(VantaActionSheetAction.SHUFFLE_QUEUE, visible = true, enabled = true))
             }
             is VantaActionContext.SearchResult -> {
                 actions.add(VantaActionAvailability(VantaActionSheetAction.PLAY, visible = true, enabled = context.isPlayable))
@@ -269,6 +280,18 @@ fun VantaActionSheet(
         else -> null
     }
 
+    val contextQualityInfo = when (context) {
+        is VantaActionContext.Track -> context.qualityInfo
+        is VantaActionContext.SearchResult -> context.qualityInfo
+        else -> null
+    }
+
+    val contextAcousticness = when (context) {
+        is VantaActionContext.Track -> context.acousticness
+        is VantaActionContext.SearchResult -> context.acousticness
+        else -> null
+    }
+
     val cleaned = remember(headerTitle, headerSubtitle) {
         DisplayMetadataCleaner.computeDisplayMetadata(
             rawTitle = headerTitle,
@@ -309,7 +332,6 @@ fun VantaActionSheet(
                         overflow = TextOverflow.Ellipsis
                     )
                     if (explicit) VantaExplicitBadge()
-                    if (qualityLabel != null) VantaQualityBadge(qualityLabel)
                 }
                 Text(
                     text = sheetArtist,
@@ -318,6 +340,23 @@ fun VantaActionSheet(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (contextQualityInfo != null || qualityLabel != null || contextAcousticness != null) {
+                    val resolvedInfo = contextQualityInfo ?: qualityLabel?.let {
+                        com.audiophile.musicplayer.data.display.VantaQualityInfo.fromSource(
+                            bitrate = null,
+                            quality = it,
+                            mime = null,
+                            status = null,
+                            isValidated = true
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    VantaFormatBadgeRow(
+                        qualityInfo = resolvedInfo,
+                        acousticness = contextAcousticness,
+                        size = FormatBadgeSize.Compact
+                    )
+                }
             }
         }
 
@@ -335,7 +374,8 @@ fun VantaActionSheet(
                     VantaActionSheetAction.PLAY,
                     VantaActionSheetAction.PLAY_NEXT,
                     VantaActionSheetAction.ADD_TO_QUEUE,
-                    VantaActionSheetAction.START_RADIO
+                    VantaActionSheetAction.START_RADIO,
+                    VantaActionSheetAction.START_SONIC_RADIO
                 ) && it.visible
             }
             if (primaryActions.isNotEmpty()) {
@@ -395,6 +435,7 @@ fun VantaActionSheet(
             // Group 5: Manage actions
             val manageActions = availabilities.filter {
                 it.action in listOf(
+                    VantaActionSheetAction.SHUFFLE_QUEUE,
                     VantaActionSheetAction.DOWNLOAD_LOCAL,
                     VantaActionSheetAction.SLEEP_TIMER,
                     VantaActionSheetAction.REMOVE_FROM_QUEUE,
@@ -421,6 +462,7 @@ private fun ActionItem(
         VantaActionSheetAction.PLAY_NEXT -> Icons.Filled.SkipNext
         VantaActionSheetAction.ADD_TO_QUEUE -> Icons.AutoMirrored.Filled.QueueMusic
         VantaActionSheetAction.START_RADIO -> Icons.Filled.Radio
+        VantaActionSheetAction.START_SONIC_RADIO -> Icons.Filled.GraphicEq
         VantaActionSheetAction.ADD_TO_LIBRARY -> Icons.Filled.LibraryAdd
         VantaActionSheetAction.REMOVE_FROM_LIBRARY -> Icons.Filled.LibraryAddCheck
         VantaActionSheetAction.FAVORITE -> Icons.Filled.FavoriteBorder
@@ -436,6 +478,7 @@ private fun ActionItem(
         VantaActionSheetAction.SLEEP_TIMER -> Icons.Filled.Timer
         VantaActionSheetAction.REMOVE_FROM_QUEUE -> Icons.Filled.RemoveCircle
         VantaActionSheetAction.MOVE_QUEUE_ITEM -> Icons.Filled.ArrowUpward
+        VantaActionSheetAction.SHUFFLE_QUEUE -> Icons.Filled.Shuffle
     }
 
     val label = when (availability.action) {
@@ -443,6 +486,7 @@ private fun ActionItem(
         VantaActionSheetAction.PLAY_NEXT -> "Play Next"
         VantaActionSheetAction.ADD_TO_QUEUE -> "Add to Queue"
         VantaActionSheetAction.START_RADIO -> "Start Radio"
+        VantaActionSheetAction.START_SONIC_RADIO -> "Sonic Match Radio"
         VantaActionSheetAction.ADD_TO_LIBRARY -> "Add to Library"
         VantaActionSheetAction.REMOVE_FROM_LIBRARY -> "Remove from Library"
         VantaActionSheetAction.FAVORITE -> "Favorite"
@@ -458,6 +502,7 @@ private fun ActionItem(
         VantaActionSheetAction.SLEEP_TIMER -> "Sleep Timer"
         VantaActionSheetAction.REMOVE_FROM_QUEUE -> "Remove from Queue"
         VantaActionSheetAction.MOVE_QUEUE_ITEM -> "Move Up Next"
+        VantaActionSheetAction.SHUFFLE_QUEUE -> "Shuffle Queue"
     }
 
     VantaSheetAction(

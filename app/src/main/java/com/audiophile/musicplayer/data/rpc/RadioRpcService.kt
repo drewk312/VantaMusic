@@ -6,6 +6,7 @@ import com.audiophile.musicplayer.radio.DjSegmentRequestV1
 import com.audiophile.musicplayer.radio.DjSegmentResponseV1
 import com.audiophile.musicplayer.radio.SimpleTrackRef
 import com.audiophile.musicplayer.radio.RadioApiService
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 class RadioRpcService(
     private val client: RadioRpcClient
@@ -42,7 +43,7 @@ class RadioRpcService(
             )
             retrofit2.Response.success(response)
         } catch (e: Exception) {
-            retrofit2.Response.error(500, okhttp3.ResponseBody.create(null, e.message ?: "RPC error"))
+            retrofit2.Response.error(500, (e.message ?: "RPC error").toResponseBody())
         }
     }
 
@@ -63,7 +64,7 @@ class RadioRpcService(
             )
             retrofit2.Response.success(response)
         } catch (e: Exception) {
-            retrofit2.Response.error(500, okhttp3.ResponseBody.create(null, e.message ?: "RPC error"))
+            retrofit2.Response.error(500, (e.message ?: "RPC error").toResponseBody())
         }
     }
 }

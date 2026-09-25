@@ -22,6 +22,8 @@ class LRCLibLyricsProvider : LyricsProvider {
     private val gson = Gson()
 
     override suspend fun getLyrics(track: UnifiedTrack, isrc: String?): LyricsData? = withContext(Dispatchers.IO) {
+        var fallbackPlainLyrics: LyricsData? = null
+
         for (url in buildExactUrls(track, isrc)) {
             val response = fetchSingle(url) ?: continue
             if (!durationAcceptable(response, track)) {
@@ -37,7 +39,13 @@ class LRCLibLyricsProvider : LyricsProvider {
                 continue
             }
             val lyrics = response.toLyricsData(track)
-            if (lyrics != null) return@withContext lyrics
+            if (lyrics != null) {
+                if (lyrics.isSynced) {
+                    return@withContext lyrics
+                } else if (fallbackPlainLyrics == null) {
+                    fallbackPlainLyrics = lyrics
+                }
+            }
         }
 
         for (url in buildSearchUrls(track)) {
@@ -50,17 +58,23 @@ class LRCLibLyricsProvider : LyricsProvider {
             for ((response, score) in scored) {
                 Log.d("VANTA_LYRICS_TRUTH", "lrclib search url='$url' title='${response.trackName}' artist='${response.artistName}' score=$score synced=${!response.syncedLyrics.isNullOrBlank()}")
                 val lyrics = response.toLyricsData(track)
-                if (lyrics != null) return@withContext lyrics
+                if (lyrics != null) {
+                    if (lyrics.isSynced) {
+                        return@withContext lyrics
+                    } else if (fallbackPlainLyrics == null) {
+                        fallbackPlainLyrics = lyrics
+                    }
+                }
             }
         }
 
-        return@withContext null
+        return@withContext fallbackPlainLyrics
     }
 
     private fun durationAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
         if (response.duration == null || track.durationMs == null || track.durationMs <= 0L) return true
         val diffSec = kotlin.math.abs(response.duration - track.durationMs / 1000.0)
-        return diffSec <= 5.0
+        return diffSec <= 18.0
     }
 
     private fun artistAcceptable(response: LRCLibResponse, track: UnifiedTrack): Boolean {
@@ -237,7 +251,7 @@ class LRCLibLyricsProvider : LyricsProvider {
             if (diff < 2_000L) score += 25 else if (diff < 8_000L) score += 10
             else if (diff > 30_000L) score -= 20
         }
-        if (!response.syncedLyrics.isNullOrBlank()) score += 6
+        if (!response.syncedLyrics.isNullOrBlank()) score += 50
         if (!response.plainLyrics.isNullOrBlank()) score += 3
         if (response.instrumental == true) score -= 40
         return score
@@ -272,16 +286,52 @@ class LRCLibLyricsProvider : LyricsProvider {
             .split(" ")
             .joinToString(" ") { numberWords[it] ?: it }
 
+    suspend fun searchByLyrics(query: String, limit: Int = 8): List<com.audiophile.musicplayer.data.canonical.CanonicalTrack> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 4) return@withContext emptyList()
+        val url = "https://lrclib.net/api/search?q=${encode(q)}"
+        val results = fetchSearch(url)
+        val queryTokens = q.lowercase().split(" ").filter { it.length > 2 }
+        buildList {
+            for (res in results.take(limit * 2)) {
+                val trackName = (res.trackName ?: res.name)?.trim() ?: continue
+                val artistName = res.artistName?.trim() ?: continue
+                val rawLyrics = res.plainLyrics ?: res.syncedLyrics ?: continue
+                val cleanLines = rawLyrics.lines()
+                    .map { it.replace(Regex("""^\[\d{2}:\d{2}\.\d{2}\]"""), "").trim() }
+                    .filter { it.isNotBlank() && !it.startsWith("[") }
+
+                val matchingLine = cleanLines.firstOrNull { line ->
+                    val lower = line.lowercase()
+                    lower.contains(q.lowercase()) || (queryTokens.isNotEmpty() && queryTokens.all { lower.contains(it) })
+                } ?: continue
+
+                add(
+                    com.audiophile.musicplayer.data.canonical.CanonicalTrack(
+                        title = trackName,
+                        artist = artistName,
+                        album = res.albumName,
+                        durationMs = res.duration?.let { (it * 1000).toLong() },
+                        sourceStatus = com.audiophile.musicplayer.data.source.SearchItemStatus.SOURCE_FOUND,
+                        sourceProviderId = "lrclib",
+                        matchedLyricSnippet = matchingLine
+                    )
+                )
+                if (size >= limit) break
+            }
+        }
+    }
+
     private fun encode(value: String): String =
         java.net.URLEncoder.encode(value, "UTF-8")
 
     private data class LRCLibResponse(
-        val id: Long? = null,
-        val name: String? = null,
+        @SerializedName("id") val id: Long? = null,
+        @SerializedName("name") val name: String? = null,
         @SerializedName("trackName") val trackName: String? = null,
         @SerializedName("artistName") val artistName: String? = null,
         @SerializedName("albumName") val albumName: String? = null,
-        val duration: Double? = null,
+        @SerializedName("duration") val duration: Double? = null,
         @SerializedName("instrumental") val instrumental: Boolean? = null,
         @SerializedName("plainLyrics") val plainLyrics: String? = null,
         @SerializedName("syncedLyrics") val syncedLyrics: String? = null

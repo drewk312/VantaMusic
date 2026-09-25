@@ -45,8 +45,8 @@ fun PremiumTransportButton(
     enabled: Boolean = true,
     contentDescription: String
 ) {
-    val size = if (isPrimary) 76.dp else 54.dp
-    val iconSize = if (isPrimary) 42.dp else 30.dp
+    val size = if (isPrimary) 72.dp else 54.dp
+    val iconSize = if (isPrimary) 38.dp else 30.dp
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -72,7 +72,15 @@ fun PremiumTransportButton(
             )
             .clip(CircleShape)
             .let { m ->
-                if (isPrimary) m.background(Color.White)
+                if (isPrimary) m.background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.96f),
+                            AppAccent.copy(alpha = 0.92f),
+                            AppAccentSecondary.copy(alpha = 0.80f)
+                        )
+                    )
+                )
                 else m.background(
                     Brush.radialGradient(
                         colors = listOf(
@@ -85,7 +93,9 @@ fun PremiumTransportButton(
             }
             .border(
                 width = 1.dp,
-                brush = if (isPrimary) Brush.verticalGradient(listOf(Color.White, Color.White))
+                brush = if (isPrimary) Brush.linearGradient(
+                    listOf(Color.White.copy(alpha = 0.82f), AppAccentSecondary.copy(alpha = 0.44f))
+                )
                 else Brush.verticalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = 0.15f),
@@ -105,22 +115,23 @@ fun PremiumTransportButton(
     ) {
         if (isLoading && isPrimary) {
             CircularProgressIndicator(
-                modifier = Modifier.size(iconSize + 8.dp),
-                color = AppAccent.copy(alpha = 0.7f),
-                strokeWidth = 2.dp
+                modifier = Modifier.size(iconSize - 2.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                strokeWidth = 3.dp
             )
-        }
-        AnimatedContent(
-            targetState = isPlaying,
-            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
-            label = "playPauseIcon"
-        ) { playing ->
-            Icon(
-                imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = null,
-                tint = if (isPrimary) Color.Black else Color.White,
-                modifier = Modifier.size(iconSize)
-            )
+        } else {
+            AnimatedContent(
+                targetState = isPlaying,
+                transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
+                label = "playPauseIcon"
+            ) { playing ->
+                Icon(
+                    imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    tint = if (isPrimary) AppBackground else Color.White,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
         }
     }
 }
@@ -149,18 +160,18 @@ fun PremiumSkipButton(
                 scaleY = scale
                 alpha = if (enabled) 0.78f else 0.35f
             }
-            .shadow(6.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.4f))
+            .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.5f), spotColor = AppAccentGlow.copy(alpha = 0.12f))
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.12f),
-                        Color.White.copy(alpha = 0.05f),
-                        Color.Black.copy(alpha = 0.28f)
+                        Color.White.copy(alpha = 0.16f),
+                        AppAccent.copy(alpha = 0.08f),
+                        Color.Black.copy(alpha = 0.30f)
                     )
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+            .border(0.75.dp, Color.White.copy(alpha = 0.18f), CircleShape)
             .semantics { contentDescription = description }
             .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center

@@ -111,9 +111,9 @@ class AiDjPlaybackManager(
         prefetchJob = scope.launch(Dispatchers.IO) {
             try {
                 val recentRefs = recentTracks.map { 
-                    SimpleTrackRef(title = it.track.title ?: "", artist = it.track.artist ?: "") 
+                    SimpleTrackRef(title = it.track.title, artist = it.track.artist)
                 }
-                val nextRef = SimpleTrackRef(title = nextTrack.track.title ?: "", artist = nextTrack.track.artist ?: "")
+                val nextRef = SimpleTrackRef(title = nextTrack.track.title, artist = nextTrack.track.artist)
 
                 val tone = selectTone(recentTracks, nextTrack)
                 val stationName = recentTracks.firstOrNull()?.track?.genre?.let { "$it station" }

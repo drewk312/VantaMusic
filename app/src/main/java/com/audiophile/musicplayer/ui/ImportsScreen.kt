@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.ui
 
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,10 +17,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +42,7 @@ import com.audiophile.musicplayer.permissions.MediaPermissions
 import com.audiophile.musicplayer.data.local.entities.ImportBatchEntity
 import com.audiophile.musicplayer.data.importer.SpotifyExportImporter
 import com.audiophile.musicplayer.data.importer.readBoundedText
+import androidx.compose.material.icons.filled.Favorite
 import java.text.DateFormat
 import java.util.Date
 
@@ -53,7 +56,10 @@ fun ImportsScreen(
     onNewImport: () -> Unit,
     onScanDevice: () -> Unit,
     onImportFile: (android.net.Uri) -> Unit,
-    onImportTracklistFile: (String, String) -> Unit
+    onImportTracklistFile: (String, String) -> Unit,
+    onImportSpotifyHistory: (android.net.Uri) -> Unit,
+    onImportAppleLibrary: (android.net.Uri) -> Unit,
+    onImportLikedCsv: (String) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -71,6 +77,12 @@ fun ImportsScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
             onImportFile(uri)
         }
     }
@@ -86,6 +98,23 @@ fun ImportsScreen(
         }
     }
 
+    val appleLibraryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) onImportAppleLibrary(uri)
+    }
+
+    val likedCsvPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readBoundedText(50_000_000) }.orEmpty()
+            }.getOrDefault("")
+            if (text.isNotBlank()) onImportLikedCsv(text)
+        }
+    }
+
     val spotifyExportPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -93,6 +122,7 @@ fun ImportsScreen(
             val tracklist = runCatching {
                 context.contentResolver.openInputStream(uri)?.use(SpotifyExportImporter::extractTracklist).orEmpty()
             }.getOrDefault("")
+            onImportSpotifyHistory(uri)
             if (tracklist.isNotBlank()) onImportTracklistFile("Spotify Library", tracklist)
         }
     }
@@ -124,7 +154,7 @@ fun ImportsScreen(
                 onClick = { spotifyExportPickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed")) }
             )
             ImportActionRow(
-                icon = Icons.Filled.QueueMusic,
+                icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Apple Music or iTunes library",
                 subtitle = "Import an exported XML or text library file",
                 onClick = {
@@ -132,6 +162,28 @@ fun ImportsScreen(
                         arrayOf("text/*", "application/xml", "text/xml", "application/octet-stream")
                     )
                 }
+            )
+            ImportActionRow(
+                icon = Icons.AutoMirrored.Filled.QueueMusic,
+                title = "Pandora or another music library",
+                subtitle = "Import a CSV or text song list; automatic Pandora sync requires partner access",
+                onClick = { tracklistFilePickerLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream")) }
+            )
+            ImportActionRow(
+                icon = Icons.Filled.History,
+                title = "Apple Music listening history",
+                subtitle = "Import library.xml or library.json to power your recs and Wrapped",
+                onClick = {
+                    appleLibraryPickerLauncher.launch(
+                        arrayOf("application/xml", "text/xml", "application/json", "text/*", "application/octet-stream")
+                    )
+                }
+            )
+            ImportActionRow(
+                icon = Icons.Filled.History,
+                title = "Spotify listening history",
+                subtitle = "Import Extended Streaming History ZIP to power your recs and Wrapped",
+                onClick = { spotifyExportPickerLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed")) }
             )
             ImportActionRow(
                 icon = Icons.Filled.LibraryMusic,
@@ -150,7 +202,7 @@ fun ImportsScreen(
             )
 
             ImportActionRow(
-                icon = Icons.Filled.QueueMusic,
+                icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Import an audio file",
                 subtitle = "Choose a song or album from your files",
                 onClick = { filePickerLauncher.launch(arrayOf("audio/*")) }
@@ -162,7 +214,7 @@ fun ImportsScreen(
                 onClick = onNewImport
             )
             ImportActionRow(
-                icon = Icons.Filled.QueueMusic,
+                icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Other library file",
                 subtitle = "CSV, JSON, XML, or a plain text list",
                 onClick = {
@@ -175,6 +227,17 @@ fun ImportsScreen(
                                 "text/xml",
                                 "application/octet-stream"
                             )
+                    )
+                }
+            )
+            ImportActionRow(
+                icon = Icons.Filled.Favorite,
+                title = "Liked songs CSV",
+                subtitle = "Auto-like every song in a loved-songs export",
+                emphasized = true,
+                onClick = {
+                    likedCsvPickerLauncher.launch(
+                        arrayOf("text/*", "text/csv", "application/octet-stream")
                     )
                 }
             )

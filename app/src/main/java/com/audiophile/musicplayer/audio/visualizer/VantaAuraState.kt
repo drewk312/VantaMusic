@@ -44,28 +44,39 @@ data class AuraPalette(
 ) {
     fun forArtwork(artworkColors: List<Color>): AuraPalette {
         if (artworkColors.isEmpty()) return this
-        
-        // Pick top 3 colors for a richer palette
+
         val primaryRaw = artworkColors.getOrNull(0) ?: AppAccent
         val secondaryRaw = artworkColors.getOrNull(1) ?: primaryRaw
         val tertiaryRaw = artworkColors.getOrNull(2) ?: secondaryRaw
 
         val p = clampSaturation(primaryRaw)
         val s = clampSaturation(secondaryRaw)
-        
-        val warmP = warmFilter(p)
-        val dimP = darken(warmP, 0.4f)
-        val glow = darken(warmP, 0.8f)
+        // Preserve cover fidelity — only a light warm nudge for saturated hues.
+        val warmP = if (saturationOf(p) < 0.14f) p else warmFilter(p)
+        val dimP = darken(warmP, 0.45f)
+        val glow = darken(warmP, 0.75f)
+        val cream = when {
+            isLight(tertiaryRaw) -> tertiaryRaw
+            isLight(secondaryRaw) -> secondaryRaw
+            saturationOf(p) < 0.14f -> Color(0xFFE8E0D4)
+            else -> warmCream
+        }
 
         return copy(
             primary = warmP,
             secondary = s,
-            ambient = dimP.copy(alpha = 0.25f),
-            glowLow = glow.copy(alpha = 0.12f),
-            glowMedium = glow.copy(alpha = 0.22f),
-            glowHigh = glow.copy(alpha = 0.35f),
-            warmCream = if (isLight(tertiaryRaw)) tertiaryRaw else warmCream
+            ambient = dimP.copy(alpha = 0.32f),
+            glowLow = glow.copy(alpha = 0.16f),
+            glowMedium = glow.copy(alpha = 0.28f),
+            glowHigh = glow.copy(alpha = 0.42f),
+            warmCream = cream
         )
+    }
+
+    private fun saturationOf(color: Color): Float {
+        val max = maxOf(color.red, color.green, color.blue)
+        val min = minOf(color.red, color.green, color.blue)
+        return if (max > 0f) (max - min) / max else 0f
     }
 
     private fun isLight(color: Color): Boolean {
@@ -80,6 +91,8 @@ data class AuraPalette(
         val max = maxOf(r, g, b)
         val min = minOf(r, g, b)
         val saturation = if (max > 0f) (max - min) / max else 0f
+        // Leave near-monochrome covers alone so charcoal/cream stays charcoal/cream.
+        if (saturation < 0.14f) return color
         if (saturation <= 0.6f) return color
         val factor = 0.6f / saturation
         val avg = (r + g + b) / 3f

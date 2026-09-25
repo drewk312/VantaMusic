@@ -27,6 +27,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.ui.AppAccent
+import com.audiophile.musicplayer.ui.AppAccentSecondary
+import com.audiophile.musicplayer.ui.AppSurfaceRaised
+import com.audiophile.musicplayer.ui.AppText
 import com.audiophile.musicplayer.ui.AppTextMuted
 import com.audiophile.musicplayer.ui.AppTextSecondary
 
@@ -38,8 +41,15 @@ fun PortraitUtilityBar(
     onModeChange: (NowPlayingMode) -> Unit
 ) {
     val context = LocalContext.current
+    val dockShape = RoundedCornerShape(24.dp)
     Row(
-        modifier = Modifier.fillMaxWidth().height(52.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clip(dockShape)
+            .background(AppSurfaceRaised.copy(alpha = 0.92f))
+            .border(0.75.dp, Color.White.copy(alpha = 0.12f), dockShape)
+            .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         UtilityAction(icon = Icons.AutoMirrored.Filled.QueueMusic, label = "Queue", active = mode == NowPlayingMode.QUEUE, modifier = Modifier.weight(1f), onClick = { onModeChange(if (mode == NowPlayingMode.QUEUE) NowPlayingMode.ARTWORK else NowPlayingMode.QUEUE) })
@@ -53,15 +63,25 @@ fun PortraitUtilityBar(
 
 @Composable
 private fun UtilityAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val tint = if (active) AppAccent else AppTextSecondary
+    val tint = if (active) AppAccentSecondary else AppTextSecondary.copy(alpha = 0.84f)
     Column(
-        modifier = modifier.fillMaxHeight().clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+        modifier = modifier
+            .fillMaxHeight()
+            .padding(vertical = 5.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (active) AppAccent.copy(alpha = 0.16f) else Color.Transparent)
+            .border(
+                0.5.dp,
+                if (active) AppAccentSecondary.copy(alpha = 0.14f) else Color.Transparent,
+                RoundedCornerShape(16.dp)
+            )
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(3.dp))
-        Text(label, color = tint, fontSize = 10.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.35.sp)
+        Spacer(Modifier.height(2.dp))
+        Text(label, color = if (active) AppText else tint, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp)
     }
 }
 

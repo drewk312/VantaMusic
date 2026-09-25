@@ -110,11 +110,23 @@ data class SourceSearchResult(
     val qualityLabel: String?,
     val featuredArtists: List<String> = emptyList(),
     val isDolbyAtmos: Boolean = false,
+    val isSony360RealityAudio: Boolean = false,
     val isSpatialAudio: Boolean = false,
     val isSurround: Boolean = false,
     val isHiRes: Boolean = false,
     /** Catalog/metadata discovery is useful, but it is not stream codec proof. */
-    val spatialEvidence: String? = null
+    val spatialEvidence: String? = null,
+    /** An Atmos mix exists on Tidal/Amazon. This row may still be stereo FLAC. */
+    val atmosMixAvailable: Boolean = false,
+    /** ISO catalog release date. Null means the provider did not prove recency. */
+    val releaseDate: String? = null,
+    /** `chart` results must never be presented as verified new releases. */
+    val discoveryKind: String? = null,
+    val qobuzId: String? = null,
+    val tidalId: String? = null,
+    val amazonId: String? = null,
+    val deezerId: String? = null,
+    val appleId: String? = null
 ) {
     val artworkUrl: String?
         get() {
@@ -122,6 +134,15 @@ data class SourceSearchResult(
             if (seed.startsWith("http://") || seed.startsWith("https://")) return seed
             return null
         }
+
+    val hasQobuz: Boolean
+        get() = !qobuzId.isNullOrBlank() || id.startsWith("qobuz:") || providerId == "qobuz"
+
+    val hasTidal: Boolean
+        get() = !tidalId.isNullOrBlank() || id.startsWith("tidal:") || providerId == "tidal"
+
+    val hasAmazon: Boolean
+        get() = !amazonId.isNullOrBlank() || id.startsWith("amazon:") || providerId == "amazon"
 }
 
 fun SourceSearchResult.isLikelyMusicTrack(): Boolean {
@@ -268,8 +289,8 @@ fun isBroadcastLikeMetadata(title: String, artist: String, album: String? = null
     val titleText = title.lowercase().replace(Regex("\\s+"), " ").trim()
     val artistText = artist.lowercase().replace(Regex("\\s+"), " ").trim()
     val albumText = album.orEmpty().lowercase().replace(Regex("\\s+"), " ").trim()
-    val combined = "$titleText $artistText $albumText"
 
+    val combined = "$titleText $artistText $albumText"
     val explicitBroadcastMarkers = listOf(
         "24/7", "24 7", "24-7", "live radio", "radio live", "radio station",
         "internet radio", "nonstop radio", "non-stop radio", "radio stream",
@@ -319,10 +340,10 @@ fun isPlaylistCompilationArtifact(
     album: String? = null,
     durationMs: Long? = null
 ): Boolean {
+    if (ContentPurityFilter.isCompilationUpload(title, durationMs)) return true
     val titleText = title.lowercase().replace(Regex("\\s+"), " ").trim()
     val artistText = artist.lowercase().replace(Regex("\\s+"), " ").trim()
     val albumText = album.orEmpty().lowercase().replace(Regex("\\s+"), " ").trim()
-    val combined = "$titleText $artistText $albumText"
 
     val decades = Regex("""\b(\d{2})s\b""").findAll(titleText).map { it.value }.distinct().toList()
     if (decades.size >= 2) return true
@@ -332,9 +353,25 @@ fun isPlaylistCompilationArtifact(
         "full album", "mix playlist", "hours of", "continuous",
         "greatest hits mix", "best hits mix", "mega mix", "super mix",
         "playlist mix", "music mix", "collection mix", "evergreen songs",
-        "songs ever", "all time hits", "best songs", "top songs mix"
+        "songs ever", "all time hits", "best songs", "top songs mix",
+        "now that's what i call", "now thats what i call",
+        "songs you need", "tracks you need", "listicle",
+        "greatest hits compilation", "hit compilation",
+        "essentials"
     )
-    if (compilationMarkers.any { combined.contains(it) }) return true
+    if (compilationMarkers.any { titleText.contains(it) }) return true
+    // Album names like "Greatest Hits Compilation" are legitimate anthology
+    // releases; only continuous DJ/upload session markers identify them as
+    // streaming artifacts when they appear on the album line.
+    val albumUploadMarkers = listOf(
+        " nonstop", "non-stop", "non stop", "continuous", "hours of",
+        "mega mix", "super mix", "mix playlist", "playlist mix",
+        "collection mix", "music mix", "evergreen songs", "songs ever",
+        "songs you need", "tracks you need", "listicle",
+        "party essentials", "mix essentials", "edm essentials",
+        "workout mix", "gym mix", "study mix", "car mix", "driving mix"
+    )
+    if (albumUploadMarkers.any { albumText.contains(it) }) return true
 
     if (title.length > 100 &&
         (title.contains('–') || title.contains('—') || title.contains(" - "))
@@ -362,15 +399,30 @@ fun isPlaylistCompilationArtifact(
     val artistLooksLikeChannel = artistText in knownChannelArtists ||
         channelArtistMarkers.any { artistText.contains(it.trim()) }
 
+    if (artistText.startsWith("playlist:") || artistText.startsWith("playlist -") || artistText.startsWith("playlist ")) {
+        return true
+    }
+
     if (titleLooksLikePlaylist && artistLooksLikeChannel) return true
     if (artistLooksLikeChannel && decades.isNotEmpty()) return true
+
+    val artistIsVarious = artistText in setOf("various artists", "various", "va", "compilation")
+    if (artistIsVarious && (
+            titleLooksLikePlaylist ||
+                albumText.contains("hits") ||
+                albumText.contains("compilation") ||
+                albumText.contains("now that's") ||
+                albumText.contains("best of")
+            )
+    ) {
+        return true
+    }
 
     return false
 }
 
-/** Unified guard for DJ sets, queue autofill, and recommendation feeds. */
-fun com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources.isPlayableMusicCandidate(): Boolean {
-    if (!sourceValidityStatus().canEnterPlaybackFlow()) return false
+/** Metadata-only guard shared by persistence, UI history, queue restore and playback. */
+fun com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources.isMusicContentAllowed(): Boolean {
     if (!ContentPurityFilter.isAllowed(
             title = track.title.orEmpty(),
             artist = track.artist.orEmpty(),
@@ -399,12 +451,26 @@ fun com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources.isPla
     ) {
         return false
     }
+    return true
+}
+
+/** Unified guard for DJ sets, queue autofill, and recommendation feeds. */
+fun com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources.isPlayableMusicCandidate(): Boolean {
+    if (!sourceValidityStatus().canEnterPlaybackFlow()) return false
+    if (!isMusicContentAllowed()) return false
     return sources.any {
         it.streamUrl.isNotBlank() &&
             it.sourceType != com.audiophile.musicplayer.data.local.entities.SourceType.APPLE_MUSIC &&
             it.sourceType != com.audiophile.musicplayer.data.local.entities.SourceType.SPOTIFY
     }
 }
+
+data class StreamDrmConfiguration(
+    val scheme: String,
+    val licenseUrl: String,
+    val licenseRequestHeaders: Map<String, String> = emptyMap(),
+    val forceDefaultLicenseUri: Boolean = true,
+)
 
 data class ResolvedStream(
     val streamUrl: String,
@@ -415,6 +481,51 @@ data class ResolvedStream(
     val format: String? = null,
     val isSpatialAudio: Boolean = false,
     val isDolbyAtmos: Boolean = false,
+    val isEclipsaAudio: Boolean = false,
+    val isSony360RealityAudio: Boolean = false,
     val isSurround: Boolean = false,
-    val providerId: String? = null
+    /** Registered [MusicSourceProvider] that can resolve this track again. */
+    val providerId: String? = null,
+    /** Upstream catalog/CDN that fulfilled a gateway request, when known. */
+    val fulfillmentProviderId: String? = null,
+    val requestHeaders: Map<String, String> = emptyMap(),
+    val bitDepth: Int? = null,
+    val sampleRateHz: Int? = null,
+    val channelCount: Int? = null,
+    val codec: String? = null,
+    val container: String? = null,
+    val isLossless: Boolean = false,
+    val sourceLabel: String? = null,
+    val drm: StreamDrmConfiguration? = null,
 )
+
+fun ResolvedStream.fidelityScore(): Int {
+    val hay = listOf(mimeType, format, codec, container, qualityLabel).joinToString(" ").lowercase()
+    val atmos = isDolbyAtmos ||
+        com.audiophile.musicplayer.data.display.AudioQualityInfo.hasAtmosCodecEvidence(
+            mimeType,
+            format,
+            codec,
+            qualityLabel
+        )
+    val lossless = isLossless ||
+        "flac" in hay ||
+        "alac" in hay ||
+        "wav" in hay ||
+        "aiff" in hay ||
+        "lossless" in hay
+    val hiRes = (bitDepth != null && bitDepth > 16) ||
+        (sampleRateHz != null && sampleRateHz > 44_100) ||
+        "24-bit" in hay ||
+        "hi-res" in hay ||
+        "hires" in hay
+    return when {
+        atmos -> 80_000 + bitrateKbps.coerceAtLeast(0)
+        lossless && hiRes -> 60_000 + bitrateKbps.coerceAtLeast(0)
+        lossless -> 40_000 + bitrateKbps.coerceAtLeast(0)
+        else -> bitrateKbps.coerceAtLeast(0)
+    }
+}
+
+fun Iterable<ResolvedStream>.highestFidelityOrNull(): ResolvedStream? =
+    maxWithOrNull(compareByDescending(ResolvedStream::fidelityScore))

@@ -204,19 +204,9 @@ class QueueAwarePlayer(
         }.build()
     }
 
-    override fun getPlaybackState(): Int {
-        val state = super.getPlaybackState()
-        if (state == Player.STATE_IDLE) {
-            if (exoPlayer.mediaItemCount > 0) return Player.STATE_BUFFERING
-            val snapshot = queueSnapshotProvider()
-            val hasQueueItems = snapshot.originalQueue.isNotEmpty() ||
-                snapshot.priorityQueue.isNotEmpty() ||
-                snapshot.upNextQueue.isNotEmpty() ||
-                exoPlayer.currentMediaItem != null
-            if (hasQueueItems) return Player.STATE_BUFFERING
-        }
-        return state
-    }
+    // An idle/failed player is not buffering. Mirroring the real state also
+    // lets controllers prepare a stopped stream before seeking.
+    override fun getPlaybackState(): Int = super.getPlaybackState()
 
     override fun seekToNextMediaItem() {
         val exoCount = exoPlayer.mediaItemCount

@@ -180,6 +180,71 @@ object SourceIdentityGate {
         )
     }
 
+    fun isImmersivePlaybackProvider(providerId: String?): Boolean {
+        val id = providerId?.lowercase().orEmpty()
+        return "tidal" in id || "amazon" in id || "cloudflare_gateway" in id || id == "gateway"
+    }
+
+    fun isSupplementalPlaybackProvider(providerId: String?): Boolean {
+        val id = providerId?.lowercase().orEmpty()
+        return "youtube" in id
+    }
+
+    fun isCatalogPlaybackProvider(providerId: String?): Boolean {
+        if (providerId.isNullOrBlank() || isSupplementalPlaybackProvider(providerId)) return false
+        val id = providerId.lowercase()
+        return "qobuz" in id ||
+            "tidal" in id ||
+            "deezer" in id ||
+            "amazon" in id ||
+            "pandora" in id ||
+            "gateway" in id ||
+            id == "cloudflare_gateway"
+    }
+
+    /**
+     * Pick the stream that will actually sound like the SpotiFLAC file:
+     * measured/hi-res bitrate and Atmos first, catalog next, YouTube last.
+     */
+    fun streamPlaybackScore(providerId: String?, stream: ResolvedStream): Int {
+        val supplementalPenalty = if (isSupplementalPlaybackProvider(providerId)) 100_000 else 0
+        val catalogBonus = if (isCatalogPlaybackProvider(providerId)) 10_000 else 0
+        return stream.fidelityScore() + catalogBonus - supplementalPenalty
+    }
+
+    /** Higher wins when choosing a playback/search row. YouTube stays last. */
+    fun playbackProviderRank(
+        providerId: String?,
+        prefersSpatial: Boolean = com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.prefersSpatialMix()
+    ): Int {
+        val id = providerId?.lowercase().orEmpty()
+        return if (prefersSpatial) {
+            when {
+                "tidal" in id -> 130
+                "amazon" in id -> 110
+                id == "cloudflare_gateway" -> 95
+                "qobuz" in id -> 80
+                "deezer" in id -> 70
+                "pandora" in id -> 50
+                "youtube" in id -> 5
+                else -> 20
+            }
+        } else {
+            when {
+                "qobuz" in id -> 100
+                "tidal" in id -> 90
+                id == "cloudflare_gateway" -> 80
+                "deezer" in id -> 70
+                "amazon" in id -> 60
+                "pandora" in id -> 50
+                "youtube" in id -> 5
+                else -> 20
+            }
+        }
+    }
+
+    fun sourceDisplayPriority(providerId: String?): Int = playbackProviderRank(providerId)
+
     private fun providerQualityBonus(providerId: String?): Int {
         if (providerId == null) return 0
         return when {

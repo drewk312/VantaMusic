@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,13 +16,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Icon
@@ -29,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,18 +69,38 @@ import android.content.Intent
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerConfig
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerPreset
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerPreferences
+import com.audiophile.musicplayer.playback.dsp.AutoEqProfileValidator
 import com.audiophile.musicplayer.playback.PlaybackService
+import com.audiophile.musicplayer.playback.PlaybackCommandAuth
+import com.audiophile.musicplayer.playback.PlaybackOutputPreferences
+import com.audiophile.musicplayer.playback.OutputSwitchController
+import com.audiophile.musicplayer.playback.SystemAudioProcessingHint
+import com.audiophile.musicplayer.playback.SpatialHeadTracking
 import com.audiophile.musicplayer.playback.AutoMixConfig
 import com.audiophile.musicplayer.playback.AutoMixMode
 import com.audiophile.musicplayer.playback.AutoMixPreferences
-import com.audiophile.musicplayer.debug.VantaDiagnosticLog
 import com.audiophile.musicplayer.auto.AndroidAutoHelper
 import com.audiophile.musicplayer.audio.visualizer.AuraMode
 import androidx.core.content.edit
+
+enum class SettingsSubpage {
+    MAIN,
+    AUDIO,
+    PLAYBACK,
+    APPEARANCE,
+    SYNC_TV,
+    LIBRARIES,
+    AI_DJ,
+    DONATION,
+    ABOUT
+}
+
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAdvanced: () -> Unit,
+    onOpenImports: () -> Unit = {},
+    onLibraryChanged: () -> Unit = {},
     onOpenEqualizer: () -> Unit = {},
     miniPlayerVisible: Boolean = false,
     accountManager: com.audiophile.musicplayer.account.AccountManager? = null,
@@ -86,16 +115,18 @@ fun SettingsScreen(
     auraReduceMotionCar: Boolean = true,
     onAuraReduceMotionCarChange: (Boolean) -> Unit = {}
 ) {
-    var showAbout by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberKeyboardDismissal()
+    var showLibraries by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
-    val diagnosticLineCount = VantaDiagnosticLog.lineCount()
     val context = LocalContext.current
     val equalizerPreferences = remember(context) { VantaEqualizerPreferences(context) }
     var equalizerConfig by remember { mutableStateOf(equalizerPreferences.load()) }
+    var showAutoEqDialog by remember { mutableStateOf(false) }
     val autoMixPreferences = remember(context) { AutoMixPreferences(context) }
     var autoMixConfig by remember { mutableStateOf(autoMixPreferences.load()) }
     
     val sharedPrefs = remember(context) { context.getSharedPreferences("vanta_settings", Context.MODE_PRIVATE) }
+    var labsUnlocked by remember { mutableStateOf(sharedPrefs.getBoolean("vanta_labs_unlocked", false)) }
     var djFrequency by remember { mutableStateOf(sharedPrefs.getString("dj_frequency", "Occasional") ?: "Occasional") }
 
     fun setDjFrequency(freq: String) {
@@ -108,243 +139,914 @@ fun SettingsScreen(
     fun saveEqualizer(config: VantaEqualizerConfig) {
         equalizerConfig = config
         equalizerPreferences.save(config)
-        context.startService(Intent(context, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_IMMERSIVE_AUDIO))
+        context.startService(com.audiophile.musicplayer.playback.PlaybackCommandAuth.createIntent(context, PlaybackService.ACTION_REFRESH_IMMERSIVE_AUDIO))
     }
     fun saveAutoMix(config: AutoMixConfig) {
         autoMixConfig = config
         autoMixPreferences.save(config)
-        context.startService(Intent(context, PlaybackService::class.java).setAction(PlaybackService.ACTION_REFRESH_AUTO_MIX))
+        context.startService(com.audiophile.musicplayer.playback.PlaybackCommandAuth.createIntent(context, PlaybackService.ACTION_REFRESH_AUTO_MIX))
+    }
+
+    var currentSubpage by remember { mutableStateOf(SettingsSubpage.MAIN) }
+    BackHandler(enabled = currentSubpage != SettingsSubpage.MAIN) {
+        currentSubpage = SettingsSubpage.MAIN
+    }
+
+    val app = remember(context) { context.applicationContext as AudiophileApp }
+    val deviceSync = remember(app) { app.appContainer.deviceLibrarySyncManager }
+    val pairCode by deviceSync.pairCode.collectAsState()
+    val syncStatus by deviceSync.status.collectAsState()
+    val syncScope = rememberCoroutineScope()
+    var enteredTvCode by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(Unit) { if (pairCode.isBlank()) deviceSync.ensurePairCode() }
+
+    val tokenStore = remember(app) { app.appContainer.connectedLibraryTokenStore }
+    val connectedLibraryManager = remember(app) { app.appContainer.connectedLibraryManager }
+
+    var streamQuality by remember {
+        mutableStateOf(sharedPrefs.getString("stream_quality", "auto") ?: "auto")
+    }
+    var showQualityOptions by remember { mutableStateOf(false) }
+    var headTrackingEnabled by remember { mutableStateOf(SpatialHeadTracking.isEnabled(context)) }
+    val headTrackingAvailable = remember(context) { SpatialHeadTracking.isHeadTrackerAvailable(context) }
+    var showOutputSheet by remember { mutableStateOf(false) }
+
+    fun selectStreamQuality(next: String) {
+        streamQuality = next
+        sharedPrefs.edit { putString("stream_quality", next) }
+        com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY = next
+    }
+
+    val scrollState = rememberScrollState()
+    LaunchedEffect(currentSubpage) {
+        scrollState.scrollTo(0)
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible, bottomNavVisible = true))
             .background(Brush.verticalGradient(listOf(AppBackgroundTop, AppBackgroundBottom)))
-            .verticalScroll(rememberScrollState())
+            .dismissKeyboardOnScroll()
+            .imePadding()
+            .verticalScroll(scrollState)
             .padding(top = appTopContentPadding(extra = 8.dp))
-            .padding(horizontal = 16.dp)
-            .padding(
-                bottom = appOverlayBottomPadding(
-                    miniPlayerVisible = miniPlayerVisible,
-                    bottomNavVisible = true
-                )
-            ),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Navigation Header Bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Settings",
-                color = AppText,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp)
-            )
-            TextButton(onClick = onBack) { Text("Done", color = AppAccent) }
-        }
-
-        // 1. Account
-        PremiumSettingsGroup(title = "Account") {
-            PremiumSettingsClickItem(
-                title = "VANTA Account",
-                subtitle = "Library sync and listening history",
-                onClick = { onOpenAccount?.invoke() },
-                showDivider = false
-            )
-        }
-
-        // 2. Connected Libraries
-        val app = remember(context) { context.applicationContext as AudiophileApp }
-        val tokenStore = remember(app) { app.appContainer.connectedLibraryTokenStore }
-        val connectedLibraryManager = remember(app) { app.appContainer.connectedLibraryManager }
-        ConnectedLibrariesSettingsGroup(
-            context = context,
-            tokenStore = tokenStore,
-            connectedLibraryManager = connectedLibraryManager
-        )
-
-        // 3. Playback
-        var streamQuality by remember {
-            mutableStateOf(sharedPrefs.getString("stream_quality", "24") ?: "24")
-        }
-        PremiumSettingsGroup(title = "Playback") {
-            PremiumSettingsClickItem(
-                title = "Crossfade",
-                subtitle = autoMixConfig.mode.label,
-                onClick = { saveAutoMix(autoMixConfig.copy(mode = autoMixConfig.mode.next())) },
-                showDivider = autoMixConfig.mode != AutoMixMode.OFF
-            )
-            if (autoMixConfig.mode != AutoMixMode.OFF) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            if (currentSubpage == SettingsSubpage.MAIN) {
+                Text(
+                    text = "Settings",
+                    style = VantaType.pageTitle,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                )
+                TextButton(onClick = { dismissKeyboard(); onBack() }) {
+                    Text("Done", color = AppAccent, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { dismissKeyboard(); currentSubpage = SettingsSubpage.MAIN }
+                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = AppAccent,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        "Transition ${autoMixConfig.transitionSeconds}s",
-                        color = AppTextSecondary,
-                        fontSize = 12.sp
+                        text = "Settings",
+                        color = AppAccent,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
                     )
-                    androidx.compose.material3.Slider(
-                        value = autoMixConfig.transitionSeconds.toFloat(),
-                        onValueChange = {
-                            saveAutoMix(autoMixConfig.copy(transitionSeconds = it.toInt().coerceIn(2, 12)))
-                        },
-                        valueRange = 2f..12f,
-                        steps = 9,
-                        colors = androidx.compose.material3.SliderDefaults.colors(
-                            thumbColor = AppAccent,
-                            activeTrackColor = AppAccent,
-                            inactiveTrackColor = AppAccent.copy(alpha = 0.2f)
-                        )
-                    )
+                }
+                TextButton(onClick = { dismissKeyboard(); onBack() }) {
+                    Text("Done", color = AppTextSecondary, fontSize = 14.sp)
                 }
             }
         }
 
-        // 4. Audio
-        PremiumSettingsGroup(title = "Audio") {
-            PremiumSettingsClickItem(
-                title = "Stream Quality",
-                subtitle = if (streamQuality == "24") "Hi-Res 24-bit FLAC" else "CD Quality 16-bit FLAC",
-                onClick = {
-                    val next = if (streamQuality == "24") "16" else "24"
-                    streamQuality = next
-                    sharedPrefs.edit { putString("stream_quality", next) }
-                    com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY = next
+        when (currentSubpage) {
+            SettingsSubpage.MAIN -> {
+                // Main Banner
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                        .background(Brush.verticalGradient(listOf(Color(0xFF302A22), AppSurface)))
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("VANTA AUDIOPHILE", color = AppAccent, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                    Text("Settings & System", color = AppText, style = VantaType.sectionTitle)
+                    Text("Bit-perfect playback, studio streaming resolution, and sound tuning.", color = AppTextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
                 }
-            )
-            PremiumSettingsClickItem(
-                title = "Equalizer",
-                subtitle = "31-band parametric EQ · 3D spatial · studio filters",
-                onClick = onOpenEqualizer
-            )
-            PremiumSettingsClickItem(
-                title = "Immersive Sound",
-                subtitle = if (equalizerConfig.spatialEnabled) "${equalizerConfig.preset.label}" else "Off",
-                onClick = { saveEqualizer(equalizerConfig.copy(spatialEnabled = !equalizerConfig.spatialEnabled)) },
-                showDivider = false
-            )
-        }
 
-        // 5. Appearance
-        PremiumSettingsGroup(title = "Appearance") {
-            PremiumSettingsClickItem(
-                title = "Aura Mode",
-                subtitle = auraMode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
-                onClick = { 
-                    val next = when (auraMode) {
-                        AuraMode.AMBIENT -> AuraMode.SILK_WAVE
-                        AuraMode.SILK_WAVE -> AuraMode.VELVET_BARS
-                        AuraMode.VELVET_BARS -> AuraMode.LYRIC_GLOW
-                        AuraMode.LYRIC_GLOW -> AuraMode.VINYL_ROOM
-                        AuraMode.VINYL_ROOM -> AuraMode.AMBIENT
-                        else -> AuraMode.AMBIENT
-                    }
-                    onAuraModeChange(next)
+                if (onOpenAccount != null) {
+                    SettingsCategoryCard(
+                        title = "VANTA Account",
+                        subtitle = "Library sync and listening history",
+                        icon = Icons.Filled.Person,
+                        onClick = { onOpenAccount.invoke() }
+                    )
                 }
-            )
-            PremiumSettingsClickItem(
-                title = "Audio-Reactive Aura",
-                subtitle = if (auraAudioReactive) "Visuals move with the music" else "Off",
-                onClick = { onAuraAudioReactiveChange(!auraAudioReactive) }
-            )
-            PremiumSettingsClickItem(
-                title = "Reduce Motion in Car",
-                subtitle = if (auraReduceMotionCar) "Calmer visuals while driving" else "Off",
-                onClick = { onAuraReduceMotionCarChange(!auraReduceMotionCar) }
-            )
-            PremiumSettingsClickItem(
-                title = "Animated Artwork",
-                subtitle = if (animatedArtworkEnabled) "On" else "Off",
-                onClick = { onAnimatedArtworkEnabledChange(!animatedArtworkEnabled) },
-                showDivider = false
-            )
-        }
 
-        // 6. Lyrics (No specific options requested, omitted if none)
+                // 1. Audio & Sound Quality
+                val qualityBadge = when (streamQuality) {
+                    "24" -> "24-bit Hi-Res"
+                    "16" -> "16-bit Lossless"
+                    else -> "Spatial / Auto"
+                }
+                SettingsCategoryCard(
+                    title = "Audio & Sound Quality",
+                    subtitle = "24-bit Hi-Res Studio Master, Lossless CD, Equalizer, DSP, DAC Output",
+                    icon = Icons.Filled.Tune,
+                    badge = qualityBadge,
+                    onClick = { currentSubpage = SettingsSubpage.AUDIO }
+                )
 
-        // 7. AI DJ
-        PremiumSettingsGroup(title = "AI DJ") {
-            PremiumSettingsClickItem(
-                title = "DJ Narration",
-                subtitle = djFrequency,
-                onClick = {
-                    val next = when (djFrequency) {
-                        "Off" -> "Occasional"
-                        "Occasional" -> "Frequent"
-                        else -> "Off"
+                // 2. Playback & Crossfade
+                SettingsCategoryCard(
+                    title = "Playback & Crossfade",
+                    subtitle = "Automix crossfade, silence transitions, Android Auto",
+                    icon = Icons.Filled.PlayArrow,
+                    badge = if (autoMixConfig.mode != AutoMixMode.OFF) "${autoMixConfig.transitionSeconds}s" else "Off",
+                    onClick = { currentSubpage = SettingsSubpage.PLAYBACK }
+                )
+
+                // 3. Appearance & Visuals
+                SettingsCategoryCard(
+                    title = "Appearance & Visuals",
+                    subtitle = "Aura visualizer, audio-reactive motion, animated artwork",
+                    icon = Icons.Filled.AutoAwesome,
+                    badge = auraMode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    onClick = { currentSubpage = SettingsSubpage.APPEARANCE }
+                )
+
+                // 4. Connected Libraries
+                SettingsCategoryCard(
+                    title = "Connected Libraries",
+                    subtitle = "Apple Music, Spotify, imported playlists",
+                    icon = Icons.Filled.LibraryMusic,
+                    onClick = { currentSubpage = SettingsSubpage.LIBRARIES }
+                )
+
+                // 5. Link Phone & TV
+                SettingsCategoryCard(
+                    title = "Link Phone & TV",
+                    subtitle = if (pairCode.isNotBlank()) "Code: $pairCode · Push library & shared listening" else "Pair with TV screen",
+                    icon = Icons.Filled.Tv,
+                    badge = if (pairCode.isNotBlank()) "Linked" else null,
+                    onClick = { currentSubpage = SettingsSubpage.SYNC_TV }
+                )
+
+                // 6. AI DJ Narration
+                SettingsCategoryCard(
+                    title = "AI DJ Narration",
+                    subtitle = "Host speech frequency ($djFrequency) & commentary",
+                    icon = Icons.Filled.Radio,
+                    badge = djFrequency,
+                    onClick = { currentSubpage = SettingsSubpage.AI_DJ }
+                )
+
+                // 7. Sources & Playback Engines (Calls onOpenAdvanced)
+                SettingsCategoryCard(
+                    title = "Sources & Playback Engines",
+                    subtitle = "TorBox, Real-Debrid, metadata engines & community relays",
+                    icon = Icons.Filled.Settings,
+                    onClick = onOpenAdvanced
+                )
+
+                // 8. Support & Donations
+                SettingsCategoryCard(
+                    title = "Support & Donations",
+                    subtitle = "Support on Ko-fi — help keep VANTA independent & growing",
+                    icon = Icons.Filled.Favorite,
+                    badge = "Donate",
+                    onClick = { currentSubpage = SettingsSubpage.DONATION }
+                )
+
+                // 9. About & Diagnostics
+                SettingsCategoryCard(
+                    title = "About & Diagnostics",
+                    subtitle = "Version ${com.audiophile.musicplayer.BuildConfig.VERSION_NAME}, audio pipeline metrics, problem logs",
+                    icon = Icons.Filled.Info,
+                    badge = if (labsUnlocked) "Labs" else null,
+                    onClick = { currentSubpage = SettingsSubpage.ABOUT }
+                )
+            }
+
+            SettingsSubpage.AUDIO -> {
+                Text(
+                    text = "Audio & Sound Quality",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                // Prominent Streaming Quality Hero Card
+                AudioQualityHeroCard(
+                    currentQuality = streamQuality,
+                    onClick = {
+                        dismissKeyboard()
+                        showQualityOptions = true
                     }
-                    setDjFrequency(next)
-                },
-                showDivider = false
-            )
-        }
+                )
 
-        // 8. Android Auto / Head Unit
-        AndroidAutoSettingsCard(context = context)
+                // Quick 1-tap quality options right here on the screen!
+                Text(
+                    "STREAMING RESOLUTION PREFERENCE",
+                    color = AppAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+                )
 
-        // 9. Library
-        PremiumSettingsGroup(title = "Library & Sources") {
-            PremiumSettingsClickItem(
-                title = "Sources & Playback Engines",
-                subtitle = "Cloud accounts, providers, connection status",
-                onClick = onOpenAdvanced,
-                showDivider = false
-            )
-        }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(AppSurfaceRaised)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val qualityChoices = listOf(
+                        Triple("atmos", "Dolby Atmos & Sony 360 Reality Audio", "#1 Priority: Dolby Atmos & Sony 360 bitstream · Falls back to 24-bit FLAC if unavailable"),
+                        Triple("24", "24-bit Hi-Res Studio Master FLAC", "Max stereo fidelity · 24-bit / 96–192 kHz lossless · Bit-perfect studio sound"),
+                        Triple("auto", "Smart Spatial + Lossless", "Balanced: Dolby Atmos bitstream & Sony 360 first, then 24-bit FLAC"),
+                        Triple("16", "16-bit Lossless CD Quality", "Standard 16-bit / 44.1 kHz FLAC · Lower mobile data bandwidth")
+                    )
+                    qualityChoices.forEach { (value, optTitle, optDesc) ->
+                        val isSelected = when (value) {
+                            "atmos" -> streamQuality == "atmos"
+                            "auto" -> streamQuality == "auto"
+                            else -> streamQuality == value
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) AppAccent.copy(alpha = 0.14f) else Color.Transparent)
+                                .clickable { selectStreamQuality(value) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = null,
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = AppAccent,
+                                    unselectedColor = AppTextMuted
+                                )
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = optTitle,
+                                    color = if (isSelected) AppAccent else AppText,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = optDesc,
+                                    color = AppTextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
 
-        // 10. Developer
-        PremiumSettingsGroup(title = "Developer") {
-            PremiumSettingsClickItem(
-                title = "Problem log",
-                subtitle = if (diagnosticLineCount > 0) {
-                    "$diagnosticLineCount events — crashes, errors, and startup issues"
-                } else {
-                    "Crashes and errors appear here so we can fix them"
-                },
-                onClick = { showDiagnostics = true },
-                showDivider = false
-            )
-        }
+                // Audiophile info note
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(AppSurfaceRaised.copy(alpha = 0.5f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Audiophile Pipeline", color = AppText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("VANTA bypasses Android's native resampler when connected to USB DACs for bit-perfect output. Changes to resolution apply immediately to the next stream request.", color = AppTextMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                }
 
-        // 11. About VANTA
-        PremiumSettingsGroup(title = "About VANTA") {
-            PremiumSettingsInfoItem(title = "Version", value = "1.0 (1)")
-            PremiumSettingsInfoItem(title = "Build", value = "Premium Audiophile")
-            PremiumSettingsClickItem(
-                title = "App Info & Credits",
-                subtitle = "One library. Many sources. Better discovery.",
-                onClick = { showAbout = !showAbout },
-                showDivider = false
-            )
-        }
+                // DSP & Tuning
+                PremiumSettingsGroup(title = "DSP & Tuning") {
+                    PremiumSettingsClickItem(
+                        title = "Equalizer",
+                        subtitle = "10-band Parametric EQ, Tube Preamp, Bass Cannon, Convolver",
+                        onClick = onOpenEqualizer
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Sound Check (Volume Normalization)",
+                        checked = equalizerConfig.loudnessNormalizationEnabled,
+                        subtitle = if (equalizerConfig.loudnessNormalizationEnabled) {
+                            "Active · ${"%.1f".format(equalizerConfig.replayGainDb)} dB stereo leveling; Dolby Atmos matched"
+                        } else {
+                            "Off · Stereo plays at master volume; Dolby Atmos retains wide dynamic range"
+                        },
+                        onClick = {
+                            saveEqualizer(equalizerConfig.copy(
+                                loudnessNormalizationEnabled = !equalizerConfig.loudnessNormalizationEnabled,
+                                replayGainDb = if (equalizerConfig.replayGainDb == 0f) -7.5f else equalizerConfig.replayGainDb
+                            ))
+                        }
+                    )
+                    if (equalizerConfig.loudnessNormalizationEnabled) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                "Stereo Leveling Target: ${"%.1f".format(equalizerConfig.replayGainDb)} dB (Bridges the gap to Dolby Atmos)",
+                                color = AppTextSecondary,
+                                fontSize = 12.sp
+                            )
+                            androidx.compose.material3.Slider(
+                                value = equalizerConfig.replayGainDb,
+                                onValueChange = {
+                                    saveEqualizer(equalizerConfig.copy(replayGainDb = it))
+                                },
+                                valueRange = -18f..0f,
+                                steps = 17,
+                                colors = androidx.compose.material3.SliderDefaults.colors(
+                                    thumbColor = AppAccent,
+                                    activeTrackColor = AppAccent,
+                                    inactiveTrackColor = AppAccent.copy(alpha = 0.2f)
+                                )
+                            )
+                        }
+                    }
+                    PremiumSettingsClickItem(
+                        title = "Headphone AutoEQ",
+                        checked = equalizerConfig.autoEqEnabled,
+                        subtitle = if (equalizerConfig.autoEqEnabled) {
+                            "Correction active · ${if (equalizerConfig.autoEqProfileName.isNullOrBlank()) "no profile loaded" else "profile loaded"}"
+                        } else {
+                            "Off · correct your headphone frequency response"
+                        },
+                        onClick = {
+                            val next = !equalizerConfig.autoEqEnabled
+                            saveEqualizer(equalizerConfig.copy(
+                                autoEqEnabled = next,
+                                autoEqProfileName = equalizerConfig.autoEqProfileName
+                            ))
+                            if (next && equalizerConfig.autoEqProfileName == null) showAutoEqDialog = true
+                        }
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Auto Headroom",
+                        checked = equalizerConfig.autoHeadroomEnabled,
+                        subtitle = if (equalizerConfig.autoHeadroomEnabled) {
+                            "Prevents EQ gain from clipping"
+                        } else {
+                            "Off · your EQ boost may clip"
+                        },
+                        onClick = {
+                            saveEqualizer(equalizerConfig.copy(
+                                autoHeadroomEnabled = !equalizerConfig.autoHeadroomEnabled
+                            ))
+                        },
+                        showDivider = false
+                    )
+                }
 
-        if (showAbout) {
-            VantaCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("About VANTA", color = AppText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("VANTA v1.0.0", color = AppTextSecondary, fontSize = 14.sp)
-                    Text("One library. Many sources. Best playable version. Better discovery.", color = AppTextSecondary, fontSize = 14.sp)
-                    Text("VANTA is a premium unified music player that connects to multiple streaming sources, enriches tracks with high-quality metadata and artwork, and provides an Apple Music-style experience with Spotify-style discovery.", color = AppTextSecondary, fontSize = 14.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Sources", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("\u2022 TorBox and Real-Debrid for your private cloud library", color = AppTextSecondary, fontSize = 13.sp)
-                    Text("\u2022 Lossless Catalog, Qobuz, and Tidal playback providers", color = AppTextSecondary, fontSize = 13.sp)
-                    Text("\u2022 Local device library and offline downloads in Music/VANTA Music", color = AppTextSecondary, fontSize = 13.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Sound", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                // Spatial Audio
+                PremiumSettingsGroup(title = "Spatial Audio") {
+                    PremiumSettingsClickItem(
+                        title = "Immersive Sound",
+                        checked = equalizerConfig.spatialEnabled,
+                        subtitle = if (equalizerConfig.spatialEnabled) {
+                            "${equalizerConfig.preset.label} · best on headphones"
+                        } else {
+                            "Off · auto-safe on phone speaker"
+                        },
+                        onClick = { saveEqualizer(equalizerConfig.copy(
+                            spatialEnabled = !equalizerConfig.spatialEnabled,
+                            stereoWidenLevel = equalizerConfig.stereoWidenLevel.takeIf { it > 0f } ?: 0.35f,
+                            eqBypassEnabled = false
+                        )) },
+                        showDivider = headTrackingAvailable
+                    )
+                    if (headTrackingAvailable) {
+                        PremiumSettingsClickItem(
+                            title = "Head Tracking",
+                            checked = headTrackingEnabled,
+                            subtitle = if (headTrackingEnabled) "Rotate spatial audio with your head" else "Off",
+                            onClick = {
+                                val next = !headTrackingEnabled
+                                headTrackingEnabled = next
+                                SpatialHeadTracking.setEnabled(context, next)
+                                context.startService(PlaybackCommandAuth.createIntent(context, PlaybackService.ACTION_REFRESH_HEAD_TRACKING))
+                            },
+                            showDivider = false
+                        )
+                    }
+                }
+
+                // Hardware Output & DAC
+                var floatOutputEnabled by remember {
+                    mutableStateOf(PlaybackOutputPreferences(context).floatOutputEnabled())
+                }
+                PremiumSettingsGroup(title = "Hardware Output") {
+                    PremiumSettingsClickItem(
+                        title = "Float Output",
+                        checked = floatOutputEnabled,
+                        subtitle = if (floatOutputEnabled) {
+                            "Hi-res stays 32-bit float up to the DAC write"
+                        } else {
+                            "Off · PCM output (matches Qobuz default)"
+                        },
+                        onClick = {
+                            val next = !floatOutputEnabled
+                            floatOutputEnabled = next
+                            PlaybackOutputPreferences(context).setFloatOutputEnabled(next)
+                            context.startService(PlaybackCommandAuth.createIntent(context, PlaybackService.ACTION_REFRESH_IMMERSIVE_AUDIO))
+                        },
+                        showDivider = true
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Output device",
+                        subtitle = when {
+                            OutputSwitchController.isUsbDacRoute(context) ->
+                                "${OutputSwitchController.selectedDevice(context)?.label ?: "USB"} · DSP bypassed"
+                            OutputSwitchController.isBuiltInSpeakerRoute(context) ->
+                                "Phone speaker · Immersive auto-safe"
+                            else -> OutputSwitchController.selectedDevice(context)?.label ?: "System default"
+                        },
+                        onClick = { dismissKeyboard(); showOutputSheet = true },
+                        showDivider = false
+                    )
+                }
+
+                // Samsung tip
+                var showSamsungAtmosTip by remember {
+                    mutableStateOf(SystemAudioProcessingHint.shouldShowSamsungAtmosTip(context))
+                }
+                if (showSamsungAtmosTip) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AppSurfaceRaised.copy(alpha = 0.55f))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Phone speaker sounding rough?", color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Samsung’s system Dolby Atmos can process audio again on top of VANTA. Turn it off under Sounds and vibration → Sound quality and effects.", color = AppTextMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { SystemAudioProcessingHint.openSystemSoundSettings(context) }) { Text("Open sound settings", color = AppAccent, fontSize = 13.sp) }
+                            TextButton(onClick = { SystemAudioProcessingHint.dismissSamsungAtmosTip(context); showSamsungAtmosTip = false }) { Text("Got it", color = AppTextMuted, fontSize = 13.sp) }
+                        }
+                    }
+                }
+            }
+
+            SettingsSubpage.PLAYBACK -> {
+                Text(
+                    text = "Playback & Crossfade",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                PremiumSettingsGroup(title = "Crossfade & Transitions") {
+                    PremiumSettingsClickItem(
+                        title = "Crossfade",
+                        subtitle = autoMixConfig.mode.label,
+                        onClick = { saveAutoMix(autoMixConfig.copy(mode = autoMixConfig.mode.next())) },
+                        showDivider = autoMixConfig.mode != AutoMixMode.OFF
+                    )
+                    if (autoMixConfig.mode != AutoMixMode.OFF) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                "Transition ${autoMixConfig.transitionSeconds}s",
+                                color = AppTextSecondary,
+                                fontSize = 12.sp
+                            )
+                            androidx.compose.material3.Slider(
+                                value = autoMixConfig.transitionSeconds.toFloat(),
+                                onValueChange = {
+                                    saveAutoMix(autoMixConfig.copy(transitionSeconds = it.toInt().coerceIn(2, 12)))
+                                },
+                                valueRange = 2f..12f,
+                                steps = 9,
+                                colors = androidx.compose.material3.SliderDefaults.colors(
+                                    thumbColor = AppAccent,
+                                    activeTrackColor = AppAccent,
+                                    inactiveTrackColor = AppAccent.copy(alpha = 0.2f)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // Android Auto
+                AndroidAutoSettingsCard(context = context)
+            }
+
+            SettingsSubpage.APPEARANCE -> {
+                Text(
+                    text = "Appearance & Visuals",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                PremiumSettingsGroup(title = "Aura Visualizer") {
+                    PremiumSettingsClickItem(
+                        title = "Aura Mode",
+                        subtitle = auraMode.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+                        onClick = { 
+                            val next = when (auraMode) {
+                                AuraMode.AMBIENT -> AuraMode.SILK_WAVE
+                                AuraMode.SILK_WAVE -> AuraMode.VELVET_BARS
+                                AuraMode.VELVET_BARS -> AuraMode.LYRIC_GLOW
+                                AuraMode.LYRIC_GLOW -> AuraMode.VINYL_ROOM
+                                AuraMode.VINYL_ROOM -> AuraMode.AMBIENT
+                                else -> AuraMode.AMBIENT
+                            }
+                            onAuraModeChange(next)
+                        }
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Audio-Reactive Aura",
+                        checked = auraAudioReactive,
+                        subtitle = if (auraAudioReactive) "Visuals move with the music" else "Off",
+                        onClick = { onAuraAudioReactiveChange(!auraAudioReactive) }
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Reduce Motion in Car",
+                        checked = auraReduceMotionCar,
+                        subtitle = if (auraReduceMotionCar) "Calmer visuals while driving" else "Off",
+                        onClick = { onAuraReduceMotionCarChange(!auraReduceMotionCar) }
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Animated Artwork",
+                        checked = animatedArtworkEnabled,
+                        subtitle = if (animatedArtworkEnabled) "On" else "Off",
+                        onClick = { onAnimatedArtworkEnabledChange(!animatedArtworkEnabled) },
+                        showDivider = false
+                    )
+                }
+            }
+
+            SettingsSubpage.SYNC_TV -> {
+                Text(
+                    text = "Link Phone & TV",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                PremiumSettingsGroup(title = "Enter Code from TV") {
                     Text(
-                        "Immersive Sound is built into VANTA — width, depth, and balance tuned for headphones.",
+                        "On your TV, open VANTA → Settings → Link Phone & TV to see your TV's 6-character code. Enter it here to sync your library and liked tracks.",
                         color = AppTextSecondary,
                         fontSize = 13.sp,
-                        lineHeight = 18.sp
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Metadata", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("\u2022 iTunes Search API — Public artwork and metadata", color = AppTextSecondary, fontSize = 13.sp)
-                    Text("\u2022 Apple Music API — Enhanced metadata (optional token)", color = AppTextSecondary, fontSize = 13.sp)
-                    Text("\u2022 LRCLib — Real synced/unsynced lyrics", color = AppTextSecondary, fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = enteredTvCode,
+                        onValueChange = { enteredTvCode = it.uppercase().take(8) },
+                        label = { Text("TV Link Code", color = AppTextSecondary) },
+                        placeholder = { Text("e.g. AB12CD", color = AppTextMuted) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AppAccent,
+                            unfocusedBorderColor = AppOutline,
+                            focusedTextColor = AppText,
+                            unfocusedTextColor = AppText,
+                            cursorColor = AppAccent
+                        )
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (enteredTvCode.isNotBlank()) {
+                                    deviceSync.setPairCode(enteredTvCode)
+                                }
+                                syncScope.launch { deviceSync.pushFromThisDevice() }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackground)
+                        ) {
+                            Text("Push to TV", fontWeight = FontWeight.SemiBold)
+                        }
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = {
+                                if (enteredTvCode.isNotBlank()) {
+                                    deviceSync.setPairCode(enteredTvCode)
+                                }
+                                syncScope.launch { deviceSync.pullToThisDevice() }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Pull from TV", color = AppAccent)
+                        }
+                    }
+                    if (syncStatus != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = syncStatus.orEmpty(),
+                            color = AppAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
                 }
+
+                Spacer(Modifier.height(16.dp))
+
+                PremiumSettingsGroup(title = "This Phone's Code") {
+                    Text(
+                        "Alternatively, enter this phone's code on your TV screen:",
+                        color = AppTextSecondary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                    )
+                    Text(
+                        if (pairCode.isBlank()) "————" else pairCode,
+                        color = AppAccent,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 4.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    PremiumSettingsClickItem(
+                        title = "Generate new code",
+                        subtitle = "Resets this phone's code and disconnects previous links",
+                        onClick = {
+                            deviceSync.setPairCode("")
+                            deviceSync.ensurePairCode()
+                        },
+                        showDivider = false
+                    )
+                }
+            }
+
+            SettingsSubpage.LIBRARIES -> {
+                Text(
+                    text = "Connected Libraries",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                ConnectedLibrariesSettingsGroup(
+                    context = context,
+                    tokenStore = tokenStore,
+                    connectedLibraryManager = connectedLibraryManager,
+                    onOpenImports = onOpenImports,
+                    onLibraryChanged = onLibraryChanged
+                )
+            }
+
+            SettingsSubpage.AI_DJ -> {
+                Text(
+                    text = "AI DJ Narration",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                PremiumSettingsGroup(title = "Host Narration") {
+                    PremiumSettingsClickItem(
+                        title = "DJ Narration Frequency",
+                        subtitle = djFrequency,
+                        onClick = {
+                            val next = when (djFrequency) {
+                                "Off" -> "Occasional"
+                                "Occasional" -> "Frequent"
+                                else -> "Off"
+                            }
+                            setDjFrequency(next)
+                        },
+                        showDivider = false
+                    )
+                }
+                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text(
+                        "The AI DJ generates context-aware speech between songs highlighting release stories, artist trivia, and music genres.",
+                        color = AppTextMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+
+            SettingsSubpage.DONATION -> {
+                Text(
+                    text = "Support & Donations",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                VantaCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(AppAccent.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Favorite,
+                                    contentDescription = null,
+                                    tint = AppAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Support VANTA Development", color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Independent · Ad-Free · Audiophile First", color = AppAccent, fontSize = 12.sp)
+                            }
+                        }
+                        Text(
+                            "VANTA is crafted for pure, uncompromised listening — bit-perfect DAC playback, studio masters, and immersive spatial audio. Your support directly helps fund gateway servers, spatial streaming relays, and continuous app updates.",
+                            color = AppTextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                PremiumSettingsGroup(title = "Contribute Online") {
+                    PremiumSettingsClickItem(
+                        title = "Support on Ko-fi",
+                        subtitle = "ko-fi.com/drewk312 (Safe & Private)",
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/drewk312"))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: android.content.ActivityNotFoundException) {
+                                android.widget.Toast.makeText(context, "No web browser found", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        showDivider = false
+                    )
+                }
+            }
+
+            SettingsSubpage.ABOUT -> {
+                Text(
+                    text = "About & Diagnostics",
+                    style = VantaType.sectionTitle,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                )
+
+                AboutVantaSection(
+                    labsUnlocked = labsUnlocked,
+                    onLabsUnlocked = {
+                        labsUnlocked = true
+                        sharedPrefs.edit { putBoolean("vanta_labs_unlocked", true) }
+                    }
+                )
+
+                if (labsUnlocked) {
+                    PremiumSettingsGroup(title = "Help & Diagnostics") {
+                        PremiumSettingsClickItem(
+                            title = "Problem log",
+                            subtitle = "Crashes and errors for troubleshooting",
+                            onClick = { showDiagnostics = true },
+                            showDivider = false
+                        )
+                    }
+
+                    // BYOA Advanced connections
+                    val byoaStore = remember(context) { (context.applicationContext as com.audiophile.musicplayer.AudiophileApp).appContainer.byoaCredentialStore }
+                    var qobuzToken by remember { mutableStateOf(byoaStore.getQobuzUserToken().orEmpty()) }
+                    var deezerArl by remember { mutableStateOf(byoaStore.getDeezerArl().orEmpty()) }
+                    var tidalJson by remember { mutableStateOf(byoaStore.getTidalOauthJson().orEmpty()) }
+                    var communitySessionJson by remember { mutableStateOf(byoaStore.getCommunityRelaySessionJson()) }
+                    var customGateway by remember { mutableStateOf(byoaStore.getCustomGatewayUrl().orEmpty()) }
+                    var expanded by remember { mutableStateOf(false) }
+                    var status by remember { mutableStateOf(byoaStore.getDisplaySummary()) }
+                    fun refreshStatus() { status = byoaStore.getDisplaySummary() }
+
+                    PremiumSettingsGroup(title = "Advanced connections") {
+                        PremiumSettingsClickItem(
+                            title = "Manage connection details",
+                            subtitle = status,
+                            onClick = { expanded = !expanded },
+                            showDivider = expanded
+                        )
+                        if (expanded) {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Manage accounts saved on this device. Saved credentials are shared with your selected streaming server when needed.", color = AppTextMuted, fontSize = 11.sp, lineHeight = 15.sp)
+                                Text("Import a connection exported by your music service. Some services occasionally require reconnection.", color = AppTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                VantaTextField(value = communitySessionJson, onValueChange = { communitySessionJson = it }, label = "Community session JSON", isPassword = true)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        val saved = byoaStore.saveCommunityRelaySessionJson(communitySessionJson)
+                                        status = if (saved) byoaStore.getDisplaySummary() else "This connection could not be imported. Check the exported details and try again."
+                                    }.background(AppAccent.copy(alpha=0.2f)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Save Session", color=AppAccent, fontWeight=FontWeight.Bold, fontSize=12.sp) }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.clearCommunityRelaySession(); communitySessionJson=""; refreshStatus()
+                                    }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(10.dp)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Clear", color=AppTextSecondary, fontSize=12.sp) }
+                                }
+                                Text("Qobuz user_auth_token (paste token from your Qobuz Studio login, not password)", color = AppTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                VantaTextField(value = qobuzToken, onValueChange = { qobuzToken = it }, label = "Qobuz user_auth_token", isPassword = true)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.saveQobuzUserToken(qobuzToken); refreshStatus()
+                                    }.background(AppAccent.copy(alpha=0.2f)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Save Qobuz", color=AppAccent, fontWeight=FontWeight.Bold, fontSize=12.sp) }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.clearQobuz(); qobuzToken=""; refreshStatus()
+                                    }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(10.dp)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Clear", color=AppTextSecondary, fontSize=12.sp) }
+                                }
+                                Text("Deezer ARL cookie (from deezer.com → DevTools → Application → Cookies → arl)", color = AppTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                VantaTextField(value = deezerArl, onValueChange = { deezerArl = it }, label = "Deezer ARL", isPassword = true)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.saveDeezerArl(deezerArl); refreshStatus()
+                                    }.background(AppAccent.copy(alpha=0.2f)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Save ARL", color=AppAccent, fontWeight=FontWeight.Bold, fontSize=12.sp) }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.clearDeezer(); deezerArl=""; refreshStatus()
+                                    }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(10.dp)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Clear", color=AppTextSecondary, fontSize=12.sp) }
+                                }
+                                Text("Tidal OAuth JSON (access_token + refresh_token). VANTA refreshes the access token automatically — no CAPTCHA.", color = AppTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                VantaTextField(value = tidalJson, onValueChange = { tidalJson = it }, label = "Tidal OAuth JSON", isPassword = true)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.saveTidalOauthJson(tidalJson); refreshStatus()
+                                    }.background(AppAccent.copy(alpha=0.2f)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Save Tidal", color=AppAccent, fontWeight=FontWeight.Bold, fontSize=12.sp) }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.clearTidal(); tidalJson=""; refreshStatus()
+                                    }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(10.dp)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Clear", color=AppTextSecondary, fontSize=12.sp) }
+                                }
+                                Text("Custom streaming server", color = AppTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                VantaTextField(value = customGateway, onValueChange = { customGateway = it }, label = "https://your-gateway.workers.dev")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.saveCustomGatewayUrl(customGateway); refreshStatus()
+                                    }.background(AppAccent.copy(alpha=0.2f)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Save Gateway", color=AppAccent, fontWeight=FontWeight.Bold, fontSize=12.sp) }
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable {
+                                        byoaStore.clearCustomGateway(); customGateway=""; refreshStatus()
+                                    }.background(AppSurfaceRaised).border(0.5.dp, AppOutline, RoundedCornerShape(10.dp)).padding(vertical=8.dp), contentAlignment=Alignment.Center) { Text("Use Default", color=AppTextSecondary, fontSize=12.sp) }
+                                }
+                                Text("Use a custom server only if you manage your own streaming connection.", color = AppTextMuted, fontSize = 11.sp, lineHeight=14.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showQualityOptions) AudioQualityPreferenceDialog(
+            selected = streamQuality,
+            onSelect = { next ->
+                selectStreamQuality(next)
+                showQualityOptions = false
+            },
+            onDismiss = { showQualityOptions = false }
+        )
+
+        if (showAutoEqDialog) {
+            AutoEqProfileDialog(
+                initial = equalizerConfig.autoEqProfileName.orEmpty(),
+                onDismiss = { showAutoEqDialog = false },
+                onApply = { content ->
+                    if (AutoEqProfileValidator.isValidDdcProfile(content)) {
+                        saveEqualizer(equalizerConfig.copy(
+                            autoEqEnabled = true,
+                            autoEqProfileName = content
+                        ))
+                    }
+                    showAutoEqDialog = false
+                }
+            )
+        }
+
+        if (showOutputSheet) {
+            @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+            androidx.compose.material3.ModalBottomSheet(
+                onDismissRequest = { showOutputSheet = false },
+                containerColor = AppSurface
+            ) {
+                OutputDeviceSheet(
+                    castingManager = com.audiophile.musicplayer.playback.UpnpCastingHolder.manager,
+                    streamUrl = null,
+                    onDismiss = { showOutputSheet = false }
+                )
             }
         }
     }
@@ -355,17 +1057,191 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsCategoryCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    badge: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(AppSurfaceRaised)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(AppAccent.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = AppAccent,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = AppText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                color = AppTextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (!badge.isNullOrBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(AppSurface)
+                    .border(0.5.dp, AppOutline, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = badge,
+                    color = AppAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = AppTextMuted,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun AudioQualityHeroCard(
+    currentQuality: String,
+    onClick: () -> Unit
+) {
+    val title = when (currentQuality) {
+        "24" -> "24-bit Studio Master FLAC"
+        "16" -> "16-bit Lossless CD Quality"
+        "auto" -> "Smart Immersive + Lossless"
+        "atmos" -> "Dolby Atmos Spatial Audio"
+        "360" -> "Sony 360 Reality Audio"
+        else -> "Hi-Res Lossless (24-bit)"
+    }
+    val subtitle = when (currentQuality) {
+        "24" -> "Max Quality · 24-bit up to 192.0 kHz · Bit-Perfect Studio Sound"
+        "16" -> "Standard Lossless CD Quality · 44.1 kHz · Data-Saving"
+        "auto" -> "Atmos & 360 if available on track, otherwise 24-bit FLAC"
+        "atmos" -> "E-AC-3 JOC / TrueHD Immersive Spatial Bitstream"
+        "360" -> "MPEG-H 3D Binaural Spatial Audio"
+        else -> "Hi-Res Lossless FLAC"
+    }
+    val badgeLabel = when (currentQuality) {
+        "24" -> "24-BIT MAX"
+        "16" -> "16-BIT CD"
+        else -> "SPATIAL"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFF2E2417), AppSurfaceRaised)))
+            .border(1.dp, AppAccent.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "STREAMING RESOLUTION",
+                color = AppAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(AppAccent.copy(alpha = 0.2f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = badgeLabel,
+                    color = AppAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
+        Text(
+            text = title,
+            color = AppText,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = subtitle,
+            color = AppTextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Tap to switch resolution options",
+                color = AppAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = AppAccent,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun ConnectedLibrariesSettingsGroup(
     context: Context,
     tokenStore: ConnectedLibraryTokenStore?,
-    connectedLibraryManager: ConnectedLibraryManager?
+    connectedLibraryManager: ConnectedLibraryManager?,
+    onOpenImports: () -> Unit,
+    onLibraryChanged: () -> Unit
 ) {
     val prefs = remember(context) { context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
     // Keys must match ConnectedLibraryManager.isSyncLikesEnabled().
     var appleSyncLikes by remember { mutableStateOf(prefs.getBoolean("apple_music_sync_likes", false)) }
     var spotifySyncLikes by remember { mutableStateOf(prefs.getBoolean("spotify_sync_likes", false)) }
-    var appleLastImport by remember { mutableStateOf(prefs.getString("apple_last_import", "Never") ?: "Never") }
+    var appleLastImport by remember { mutableStateOf(prefs.getString("apple_music_last_import", "Never") ?: "Never") }
     var spotifyLastImport by remember { mutableStateOf(prefs.getString("spotify_last_import", "Never") ?: "Never") }
     var appleAutoRefresh by remember { mutableStateOf(prefs.getString("apple_music_auto_refresh", "off") ?: "off") }
     var spotifyAutoRefresh by remember { mutableStateOf(prefs.getString("spotify_auto_refresh", "off") ?: "off") }
@@ -411,7 +1287,6 @@ private fun ConnectedLibrariesSettingsGroup(
     var spotifyStatus by remember { mutableStateOf(statusText(spotifyConnected, "Spotify")) }
     var showAppleDialog by remember { mutableStateOf(false) }
     var showSpotifyDialog by remember { mutableStateOf(false) }
-    var showDiagnostics by remember { mutableStateOf(false) }
 
     if (showAppleDialog) {
         AppleMusicTokenDialog(
@@ -449,10 +1324,6 @@ private fun ConnectedLibrariesSettingsGroup(
         )
     }
 
-    if (showDiagnostics) {
-        VantaDiagnosticsSheet(onDismiss = { showDiagnostics = false })
-    }
-
     fun onConnectToggle(provider: ConnectedLibraryProvider) {
         if (tokenStore == null) {
             val message = "Secure token storage is unavailable on this device."
@@ -465,7 +1336,8 @@ private fun ConnectedLibrariesSettingsGroup(
         when (provider) {
             ConnectedLibraryProvider.APPLE_MUSIC -> {
                 if (appleConnected) {
-                    tokenStore.clear(ConnectedLibraryProvider.APPLE_MUSIC)
+                    connectedLibraryManager?.disconnect(ConnectedLibraryProvider.APPLE_MUSIC)
+                        ?: tokenStore.clear(ConnectedLibraryProvider.APPLE_MUSIC)
                     appleConnected = false
                     appleStatus = statusText(false, "Apple Music")
                 } else {
@@ -474,7 +1346,8 @@ private fun ConnectedLibrariesSettingsGroup(
             }
             ConnectedLibraryProvider.SPOTIFY -> {
                 if (spotifyConnected) {
-                    tokenStore.clear(ConnectedLibraryProvider.SPOTIFY)
+                    connectedLibraryManager?.disconnect(ConnectedLibraryProvider.SPOTIFY)
+                        ?: tokenStore.clear(ConnectedLibraryProvider.SPOTIFY)
                     spotifyConnected = false
                     spotifyStatus = statusText(false, "Spotify")
                 } else {
@@ -520,12 +1393,17 @@ private fun ConnectedLibrariesSettingsGroup(
             val result = runCatching { connectedLibraryManager.importLibrary(provider) }
             result.onSuccess { importResult: ConnectedLibraryImportResult ->
                 val summary = importResult.summary
-                val finalStatus = "Imported ${summary.tracksImported} tracks, ${summary.playlistsImported} playlists"
+                val succeeded = summary.errors.isEmpty()
+                val finalStatus = if (succeeded) "Imported ${summary.tracksImported} tracks, ${summary.playlistsImported} playlists"
+                    else "Sync did not finish. Reconnect your account or try again."
                 when (provider) {
                     ConnectedLibraryProvider.APPLE_MUSIC -> appleStatus = finalStatus
                     ConnectedLibraryProvider.SPOTIFY -> spotifyStatus = finalStatus
                 }
-                recordImport(provider)
+                if (succeeded) {
+                    recordImport(provider)
+                    onLibraryChanged()
+                }
                 Log.i(
                     "VANTA_CONNECTOR_IMPORT",
                     "provider=$provider tracks=${summary.tracksImported} playlists=${summary.playlistsImported} matched=${summary.matchedToVanta} errors=${summary.errors}"
@@ -566,7 +1444,7 @@ private fun ConnectedLibrariesSettingsGroup(
                 onAutoRefreshChange = { saveAutoRefresh(ConnectedLibraryProvider.APPLE_MUSIC, it) },
                 onDeleteImportedData = {
                     appleLastImport = "Never"
-                    prefs.edit { remove("apple_last_import") }
+                    prefs.edit { remove("apple_music_last_import") }
                 }
             )
             Box(
@@ -596,11 +1474,16 @@ private fun ConnectedLibrariesSettingsGroup(
                 }
             )
         }
+        PremiumSettingsClickItem(
+            title = "Import without connecting an account",
+            subtitle = "Spotify export, Apple library, or a CSV/text playlist",
+            onClick = onOpenImports
+        )
+        Text("Pandora: automatic account sync needs Pandora partner access. You can import an exported song list here.",
+            color = AppTextSecondary, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
         Text(
-            text = "VANTA imports music metadata and matches it to VANTA sources. Playback stays on the VANTA lossless engine.",
-            color = AppTextMuted,
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
+            text = "Connect only the accounts you choose. VANTA saves library and playlist copies, then finds playable matches. Service subscriptions and protected audio remain with each service.",
+            color = AppTextMuted, fontSize = 11.sp, lineHeight = 15.sp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
     }
@@ -613,6 +1496,63 @@ private fun ConnectedLibraryProvider.displayName(): String = when (this) {
 
 private fun statusText(connected: Boolean, providerName: String): String =
     if (connected) "Active (token stored)" else "$providerName auth setup required"
+
+@Composable
+private fun AutoEqProfileDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit
+) {
+    var content by remember { mutableStateOf(initial) }
+    val valid = AutoEqProfileValidator.isValidDdcProfile(content)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A1A),
+        title = { Text("Headphone AutoEQ Profile", color = AppText, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Paste a JamesDSP DDC headphone-correction profile (SR_44100 / SR_48000 biquad sections). " +
+                        "It is applied by the native DSP and stored only on this device.",
+                    color = AppTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                VantaTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = "DDC profile string",
+                )
+                Text(
+                    if (content.isBlank()) {
+                        "Paste your profile to validate it"
+                    } else if (valid) {
+                        "Valid: matches the native DDC biquad format"
+                    } else {
+                        "Invalid: needs both SR_44100 and SR_48000 sections with 5-coefficient biquad groups"
+                    },
+                    color = if (valid) AppAccent else AppTextMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onApply(content) },
+                enabled = valid
+            ) {
+                Text("Apply", color = if (valid) AppAccent else AppTextMuted)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = AppTextMuted)
+            }
+        }
+    )
+}
 
 @Composable
 private fun AppleMusicTokenDialog(
@@ -735,7 +1675,7 @@ private fun ConnectedLibraryCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = AppText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (connected) "Connected for metadata import" else status,
+                    status,
                     color = if (connected) AppSuccess else AppTextMuted,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -780,7 +1720,7 @@ private fun ConnectedLibraryCard(
                         )
                     }
                     Text(
-                        "Refresh keeps imported Spotify or Apple Music playlists aligned with provider changes.",
+                        "Checks for changes when VANTA opens. Your saved copies stay available after disconnecting.",
                         color = AppTextMuted,
                         fontSize = 11.sp,
                         lineHeight = 15.sp
@@ -803,9 +1743,7 @@ private fun ConnectedLibraryCard(
                     TextButton(onClick = onImport) {
                         Text("Refresh Import", color = AppAccent)
                     }
-                    TextButton(onClick = onDeleteImportedData) {
-                        Text("Delete Imported Data", color = AppError)
-                    }
+
                 }
             }
         }
@@ -840,7 +1778,7 @@ private fun ConnectedLibraryRefreshChip(
 }
 
 @Composable
-private fun PremiumSettingsGroup(
+internal fun PremiumSettingsGroup(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -848,35 +1786,53 @@ private fun PremiumSettingsGroup(
         Text(
             text = title.uppercase(),
             color = AppTextMuted,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp)
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            letterSpacing = 1.8.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
         )
-        VantaCard(content = content)
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+            .background(AppSurface).border(0.5.dp, AppOutline.copy(alpha = 0.4f), RoundedCornerShape(22.dp)),
+            content = content)
     }
 }
 
 @Composable
-private fun PremiumSettingsClickItem(
+internal fun PremiumSettingsClickItem(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
-    showDivider: Boolean = true
+    showDivider: Boolean = true,
+    checked: Boolean? = null
 ) {
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .then(if (checked == null) Modifier.clickable(onClick = onClick) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(if (checked != null) Modifier.clickable(onClick = onClick) else Modifier)
+            ) {
                 Text(text = title, color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text(text = subtitle, color = AppTextMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                Text(text = subtitle, color = AppTextMuted, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = AppTextSecondary)
+            if (checked != null) Switch(
+                checked = checked,
+                onCheckedChange = { onClick() },
+                colors = androidx.compose.material3.SwitchDefaults.colors(
+                    checkedTrackColor = AppAccent,
+                    checkedThumbColor = AppBackground
+                )
+            )
+            else Icon(Icons.Default.ChevronRight, contentDescription = null, tint = AppTextMuted,
+                modifier = Modifier.size(18.dp))
         }
         if (showDivider) {
             Box(
@@ -976,54 +1932,6 @@ private fun SectionHeader(title: String) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(start = 4.dp, top = 4.dp)
     )
-}
-
-@Composable
-private fun SettingsRow(
-    title: String,
-    subtitle: String? = null,
-    enabled: Boolean = true,
-    accent: Boolean = false,
-    isLast: Boolean = false,
-    onClick: (() -> Unit)? = null
-) {
-    val textColor = when {
-        !enabled -> AppText.copy(alpha = 0.45f)
-        accent -> AppAccent
-        else -> AppText
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (enabled && onClick != null) Modifier.clickable(onClick = onClick)
-                else Modifier
-            )
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = textColor, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            if (subtitle != null) {
-                Text(subtitle, color = AppTextMuted, fontSize = 12.sp)
-            }
-        }
-        if (!enabled) {
-            Text(
-                "Coming Soon",
-                color = AppTextMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(AppSurfaceRaised)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            )
-        } else if (onClick != null) {
-            Text(">", color = if (accent) AppAccent else AppTextSecondary, fontSize = 18.sp)
-        }
-    }
 }
 
 @Composable
@@ -1811,11 +2719,13 @@ private fun SourceRow(
         statusLabel == "Not checked" -> AppTextSecondary
         else -> AppError
     }
-    val kindLabel = when (source.providerKind) {
-        "qobuz" -> "Qobuz gateway"
-        "tidal" -> "Tidal gateway"
-        "pandora" -> "Pandora radio"
-        "amazon" -> "Amazon Music"
+    val kindLabel = when {
+        source.id == "qobuz_tidal" -> "Hi-res FLAC · Atmos when a source returns verified Atmos media"
+        source.providerKind == "qobuz" -> "Up to 24-bit / 192 kHz · Hi-Res"
+        source.providerKind == "tidal" -> "Atmos when a source returns E-AC-3 JOC"
+        source.providerKind == "pandora" -> "Pandora radio"
+        source.providerKind == "amazon" -> "Atmos when a source returns verified Atmos media"
+        source.providerKind == "deezer" -> "Up to 16-bit / 44.1 kHz"
         else -> "Addon gateway"
     }
 

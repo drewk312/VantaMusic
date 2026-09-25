@@ -7,11 +7,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import java.io.File
 
 import android.util.Log
+import kotlin.math.pow
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -21,6 +24,7 @@ import androidx.media3.common.Metadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -31,6 +35,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.FilteringMediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -44,6 +50,8 @@ import com.audiophile.musicplayer.auto.AndroidAutoController
 import com.audiophile.musicplayer.auto.AutoLruCache
 import com.audiophile.musicplayer.auto.AutoMainStageLyrics
 import com.audiophile.musicplayer.auto.AutoMainStageLyricsController
+import com.audiophile.musicplayer.playback.dsp.forBuiltInSpeaker
+import com.audiophile.musicplayer.playback.dsp.forUsbPassthrough
 import com.audiophile.musicplayer.auto.AutoMediaIdCodec
 import com.audiophile.musicplayer.data.source.isPlaylistCompilationArtifact
 import com.audiophile.musicplayer.R
@@ -100,6 +108,32 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var queueController: QueueController
     private lateinit var playbackStateManager: PlaybackStateManager
     private lateinit var streamResolver: StreamResolver
+    private lateinit var mediaSourceFactory: DefaultMediaSourceFactory
+    private val musicVideoCompanionResolver by lazy {
+        com.audiophile.musicplayer.data.source.MusicVideoCompanionResolver(sourceRegistry)
+    }
+
+    private val listeningHistoryRecorder by lazy {
+        val repository = appContainer.listeningHistoryRepository
+        ListeningHistoryRecorder(
+            sink = ListeningHistorySink { record, startedAt, msPlayed, skipped, reasonEnd ->
+                repository.recordPlay(
+                    startedAt = startedAt,
+                    title = record.title,
+                    artist = record.artist,
+                    album = record.album,
+                    platform = record.platform,
+                    providerId = record.providerId,
+                    sourceTrackId = record.sourceTrackId,
+                    msPlayed = msPlayed,
+                    durationMs = record.durationMs,
+                    skipped = skipped,
+                    reasonEnd = reasonEnd
+                )
+            },
+            scope = serviceScope
+        )
+    }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -124,6 +158,10 @@ class PlaybackService : MediaLibraryService() {
     private var liveRadioStreamUrl: String? = null
     private var liveRadioStationName: String? = null
     private var adDuckRestoreJob: Job? = null
+    private var djVoicePlayer: MediaPlayer? = null
+    private var djVoiceDuckJob: Job? = null
+    private val streamHeadersByUrl = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
+    @Volatile private var activeStreamHeaders: Map<String, String> = emptyMap()
 
     private val androidAutoCallback = object : MediaLibrarySession.Callback {
         override fun onConnect(
@@ -278,6 +316,8 @@ class PlaybackService : MediaLibraryService() {
             VantaAudioAnalyzerHolder.analyzer?.updateFromDspSpectrum(mags)
         }
         autoMixPreferences = AutoMixPreferences(this)
+        SpatialHeadTracking.load(this)
+        OutputSwitchController.startWatching(this) { applyVantaEqualizer() }
 
 
         // Restore failed sources from previous session for the same track
@@ -298,43 +338,69 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor(GatewayApiKeyInterceptor)
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .header("Referer", "https://vanta-music-gateway.16drewk.workers.dev/")
-                    .build()
-                chain.proceed(request)
+                val orig = chain.request()
+                val urlString = orig.url.toString()
+                val host = orig.url.host.lowercase()
+                val builder = orig.newBuilder()
+
+                val customHeaders = streamHeadersByUrl[urlString] ?: activeStreamHeaders
+                customHeaders.forEach { (key, value) ->
+                    builder.header(key, value)
+                }
+
+                val cdnHeaders = CdnPlaybackHeaders.forUrl(urlString)
+                cdnHeaders.forEach { (key, value) ->
+                    builder.header(key, value)
+                }
+
+                if (host.contains("googlevideo.com")) {
+                    builder.header("User-Agent", customHeaders["User-Agent"] ?: "com.google.ios.youtube/21.02.3 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)")
+                    builder.removeHeader("Referer")
+                } else if (orig.header("User-Agent") == null &&
+                    !customHeaders.containsKey("User-Agent") &&
+                    !cdnHeaders.containsKey("User-Agent")
+                ) {
+                    builder.header("User-Agent", CdnPlaybackHeaders.CHROME_UA)
+                }
+
+                val finalReq = builder.build()
+                Log.w("VANTA_EXO_HTTP", "REQ url=${finalReq.url} range=${finalReq.header("Range")} ua=${finalReq.header("User-Agent")} referer=${finalReq.header("Referer")}")
+                val resp = chain.proceed(finalReq)
+                Log.w("VANTA_EXO_HTTP", "RESP code=${resp.code} msg=${resp.message} range=${resp.header("Content-Range")} len=${resp.header("Content-Length")}")
+                resp
             }
             .build()
 
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+        val baseDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+        val httpDataSourceFactory = DataSource.Factory {
+            GoogleVideoChunkingDataSource(
+                upstream = baseDataSourceFactory.createDataSource(),
+                okHttpClient = okHttpClient,
+                headersProvider = { url -> streamHeadersByUrl[url] ?: activeStreamHeaders }
+            )
+        }
+        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
+        mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(15_000, 60_000, 2_500, 5_000)
             .setBackBuffer(30_000, true)
             .build()
 
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): AudioSink? {
-                return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(true)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf(vantaEqualizer))
-                    .build()
-            }
-        }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+        val renderersFactory = VantaSpatialRenderersFactory(this, vantaEqualizer)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         Log.i(
             "VANTA_FFMPEG",
-            "media3ExtensionRendererMode=PREFER ffmpegAudioRendererAvailable=${isMedia3FfmpegAudioRendererAvailable()}"
+            "media3ExtensionRendererMode=ON ffmpegAudioRendererAvailable=${isMedia3FfmpegAudioRendererAvailable()}"
         )
 
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setAudioAttributes(audioAttributes, true)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .build()
         audioSessionId = exoPlayer.audioSessionId
@@ -362,10 +428,123 @@ class PlaybackService : MediaLibraryService() {
         )
 
         queueController = QueueController(queueManager, trackRepository, serviceScope)
-        playbackStateManager = PlaybackStateManager(playbackState, nowPlayingStateStore, serviceScope)
+        playbackStateManager = PlaybackStateManager(playbackState, nowPlayingStateStore, serviceScope) { error ->
+            recoverAudioDelivery(error.message ?: "Audio delivery failed.")
+        }
+        // Qobuz-style sink truth: what the pipeline actually hands to AudioTrack,
+        // captured from AudioSink.configure(). Feed the real rate/depth/channels
+        // into applyMeasuredQuality so "Adapted for playback" appears whenever the
+        // DAC/route truncates or resamples (e.g. 24-bit → 16-bit).
+        PlaybackOutputTruth.listener = { truth ->
+            val truthBitDepth = truth.bitDepth
+            val truthRate = truth.sampleRateHz
+            val truthChannels = truth.channels
+            val truthPcm = truth.pcmEncodingName
+            Log.i(
+                "VANTA_TRACK_TRUTH",
+                "sink_output rate=${truthRate ?: "?"} depth=${truthBitDepth ?: "?"} " +
+                    "channels=${truthChannels ?: "?"} pcm=${truthPcm ?: "?"}"
+            )
+            playbackStateManager.applyMeasuredQuality(
+                bitrateKbps = null,
+                mime = null,
+                sampleRateHz = truthRate,
+                bitDepth = truthBitDepth,
+                channels = truthChannels,
+                pcmEncoding = truthPcm
+            )
+        }
         streamResolver = StreamResolver(sourceRegistry, trackRepository)
 
         exoPlayer.addListener(playbackStateManager)
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                val format = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+                    ?.let { group -> (0 until group.length).firstOrNull { group.isTrackSelected(it) }
+                        ?.let { group.getTrackFormat(it) } } ?: return
+                val measured = Media3AudioFormatReader.read(format)
+                val explicitSpatial = measured.dolbyAtmos || measured.eclipsaAudio || measured.codec == "mpeg-h"
+                val multichannel = (measured.channels ?: 0) > 2
+                val hardwareAtmos = measured.dolbyAtmos && SpatialDecoderCapabilities.supportsAtmosOutput()
+                val softwareHeadphones = measured.eclipsaAudio || measured.codec == "mpeg-h" ||
+                    (measured.dolbyAtmos && !hardwareAtmos)
+                // Track spatial state for format-aware loudness normalization / Sound Check
+                vantaEqualizer.isCurrentTrackSpatial = explicitSpatial
+                // Only bypass the stereo DSP chain when audio is sent as direct multichannel PCM (5.1/7.1)
+                // or passthrough bitstream to an external AVR/soundbar where stereo DSP would corrupt channel routing.
+                // When spatial audio is decoded to 2-channel stereo for headphones, allow the DSP chain
+                // (EQ, Bass Cannon, Treble Boost, Loudness Normalization) to enhance the stereo PCM!
+                vantaEqualizer.spatialTrackBypass = multichannel && !softwareHeadphones
+                exoPlayer.setAudioAttributes(
+                    AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).setSpatializationBehavior(
+                        when {
+                            hardwareAtmos -> C.SPATIALIZATION_BEHAVIOR_AUTO
+                            // User opted out of head-tracking / platform spatial processing.
+                            !SpatialHeadTracking.spatializationEnabled() -> C.SPATIALIZATION_BEHAVIOR_NEVER
+                            softwareHeadphones -> C.SPATIALIZATION_BEHAVIOR_NEVER
+                            else -> C.SPATIALIZATION_BEHAVIOR_AUTO
+                        }
+                    ).build(), true
+                )
+                playbackStateManager.applyMeasuredQuality(
+                    measured.bitrateKbps, measured.mimeType, measured.sampleRateHz,
+                    decoderClaimsAtmos = measured.dolbyAtmos, bitDepth = measured.bitDepth,
+                    channels = measured.channels, codec = measured.codec, container = measured.container
+                )
+                Log.i("VANTA_SPATIAL", "input=${measured.mimeType} channels=${measured.channels ?: "?"} eqBypass=${vantaEqualizer.spatialTrackBypass} output=" + when {
+                    measured.eclipsaAudio -> "iamf_binaural"
+                    hardwareAtmos -> "atmos_compatible_hw"
+                    measured.codec == "mpeg-h" -> "mpeg_h_headphones"
+                    measured.dolbyAtmos && softwareHeadphones -> "joc_headphones"
+                    else -> "standard"
+                })
+            }
+        })
+
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    val duration = if (exoPlayer.duration > 0L) exoPlayer.duration else 0L
+                    listeningHistoryRecorder.onTrackEndedNaturally(duration)
+                    resumeIfEndedAndQueueHasNext("natural_end")
+                }
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) {
+                    try {
+                        val openSession = Intent("android.media.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION").apply {
+                            putExtra("android.media.extra.AUDIO_SESSION_ID", audioSessionId)
+                            putExtra("android.media.extra.PACKAGE_NAME", packageName)
+                            putExtra("android.media.extra.CONTENT_TYPE", 0) // CONTENT_TYPE_MUSIC
+                        }
+                        sendBroadcast(openSession)
+                    } catch (e: Exception) {
+                        Log.w("VANTA_AUDIO_EFFECT", "Failed broadcasting audio session open: ${e.message}")
+                    }
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                try {
+                    val current = activeTrack?.track
+                    val pIntent = Intent("com.maxmpz.audioplayer.TRACK_CHANGED").apply {
+                        putExtra("track", Bundle().apply {
+                            putString("title", current?.title ?: mediaItem?.mediaMetadata?.title?.toString())
+                            putString("artist", current?.artist ?: mediaItem?.mediaMetadata?.artist?.toString())
+                            putString("album", current?.albumName ?: mediaItem?.mediaMetadata?.albumTitle?.toString())
+                        })
+                    }
+                    sendBroadcast(pIntent)
+                } catch (_: Exception) {}
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                Log.d("VANTA_SHUFFLE", "exoplayer_shuffle_mode_changed enabled=$shuffleModeEnabled")
+                playbackState.update { copy(shuffleEnabled = shuffleModeEnabled) }
+                serviceScope.launch { queueManager.updateShuffleEnabled(shuffleModeEnabled) }
+            }
+        })
 
         // Create mediaSession early so onGetSession() doesn't return null
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
@@ -671,7 +850,7 @@ class PlaybackService : MediaLibraryService() {
         } else {
             allTracks.filter {
                 it.track.artist.equals(seedArtist, ignoreCase = true) ||
-                    it.track.title.contains(seedTitle?.take(4) ?: "", ignoreCase = true)
+                    it.track.title.contains(seedTitle.take(4), ignoreCase = true)
             }.shuffled().let { filtered ->
                 if (filtered.size < 20) {
                     (filtered + allTracks.shuffled().take(20)).distinctBy { it.track.trackId }
@@ -821,14 +1000,32 @@ class PlaybackService : MediaLibraryService() {
         Log.d("VANTA_SERVICE_ACTION_RECEIVED", "action=${intent?.action} flags=$flags startId=$startId")
         when (intent?.action) {
             ACTION_REFRESH_IMMERSIVE_AUDIO -> applyVantaEqualizer()
+            ACTION_REFRESH_HEAD_TRACKING -> {
+                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_REFRESH_HEAD_TRACKING")
+                SpatialHeadTracking.load(this)
+            }
+            ACTION_FORCE_SPEAKER_OUTPUT -> {
+                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_FORCE_SPEAKER_OUTPUT")
+                forceSpeakerOutput()
+            }
             ACTION_REFRESH_AUTO_MIX -> {
                 cancelAutoMixJobs(resetVolume = true)
                 if (player.isPlaying) startAutoMixMonitor()
             }
             ACTION_PLAY_TRACK -> {
                 val trackId = intent.getLongExtra(EXTRA_TRACK_ID, -1L)
-                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_PLAY_TRACK: trackId=$trackId")
-                if (trackId > 0L) playTrack(trackId)
+                val preResolvedUrl = intent.getStringExtra(EXTRA_RESOLVED_STREAM_URL)
+                val preResolvedHeaders = intent.getBundleExtra(EXTRA_RESOLVED_STREAM_HEADERS)
+                if (!preResolvedUrl.isNullOrBlank() && preResolvedHeaders != null) {
+                    val map = preResolvedHeaders.keySet().mapNotNull { k -> preResolvedHeaders.getString(k)?.let { k to it } }.toMap()
+                    if (map.isNotEmpty()) {
+                        streamHeadersByUrl[preResolvedUrl] = map
+                        activeStreamHeaders = map
+                    }
+                }
+                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_PLAY_TRACK: trackId=$trackId preResolvedUrl=${preResolvedUrl != null}")
+                val readyStream = if (PlaybackCommandAuth.isTrusted(intent)) resolvedStreamFromIntent(intent) else null
+                if (trackId > 0L) playTrack(trackId, preResolvedStream = readyStream)
                 else Log.w("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_PLAY_TRACK with invalid trackId=$trackId")
             }
             ACTION_PLAY_NEXT_FROM_QUEUE -> { Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_PLAY_NEXT_FROM_QUEUE"); playNextFromQueue() }
@@ -837,6 +1034,19 @@ class PlaybackService : MediaLibraryService() {
             ACTION_PAUSE -> { Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_PAUSE"); pause() }
             ACTION_RESUME -> { Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_RESUME"); resume() }
             ACTION_TOGGLE_PLAY_PAUSE -> { Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_TOGGLE_PLAY_PAUSE"); togglePlayPause() }
+            ACTION_TOGGLE_FAVORITE -> {
+                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_TOGGLE_FAVORITE")
+                val track = activeTrack
+                if (track != null) {
+                    cachedIsFavorite = !cachedIsFavorite
+                    val localId = track.track.localLibraryId
+                    if (localId != null) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            localLibraryRepository.toggleFavorite(localId)
+                        }
+                    }
+                }
+            }
             ACTION_SEEK_TO -> {
                 val positionMs = intent.getLongExtra(EXTRA_POSITION_MS, 0L)
                 Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_SEEK_TO: positionMs=$positionMs")
@@ -846,6 +1056,17 @@ class PlaybackService : MediaLibraryService() {
             ACTION_SKIP_LIVE_AD -> {
                 Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_SKIP_LIVE_AD")
                 duckLiveRadioForAd()
+            }
+            ACTION_SPEAK_DJ_VOICE -> {
+                val path = intent.getStringExtra(EXTRA_DJ_VOICE_AUDIO_PATH).orEmpty()
+                if (path.isNotBlank() && PlaybackCommandAuth.isTrusted(intent)) {
+                    Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_SPEAK_DJ_VOICE path=${path.take(60)}")
+                    speakDjVoice(path)
+                }
+            }
+            ACTION_ATTACH_MUSIC_VIDEO -> {
+                Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_ATTACH_MUSIC_VIDEO")
+                attachMusicVideoCompanion()
             }
             ACTION_PLAY_DIRECT_URL -> {
                 val directUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
@@ -861,6 +1082,9 @@ class PlaybackService : MediaLibraryService() {
             ACTION_REFRESH_QUEUE_TIMELINE -> {
                 Log.d("VANTA_SERVICE_ACTION_RECEIVED", "ACTION_REFRESH_QUEUE_TIMELINE")
                 // Virtual queue timeline removed; ExoPlayer drives MediaSession timeline now.
+                // The single media item finished while the station refill was still
+                // appending tracks. Resume into the newly queued track.
+                resumeIfEndedAndQueueHasNext("refresh_queue_timeline")
             }
         }
         return START_NOT_STICKY
@@ -868,6 +1092,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         cancelAutoMixJobs(resetVolume = false)
+        OutputSwitchController.stopWatching(this)
         autoMainStageLyricsController.cancel()
         aiDjPlaybackManager.releasePlayer()
         // Stop playback BEFORE releasing DSP to prevent use-after-free in audio thread.
@@ -921,7 +1146,85 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    fun playTrack(trackId: Long, policy: SourceSelectionPolicy = SourceSelectionPolicy()) {
+    private var playbackDeliveryWatch: kotlinx.coroutines.Job? = null
+    private var currentDeliveryStream: SourceResolvedStream? = null
+    private var deliveryRecoveryAttempted = false
+
+    private fun watchAudioDelivery(generation: Long) {
+        playbackDeliveryWatch?.cancel()
+        playbackDeliveryWatch = serviceScope.launch {
+            var stalledSince = android.os.SystemClock.elapsedRealtime()
+            var lastPosition = exoPlayer.currentPosition
+            while (generation == activePlaybackGeneration && !userPauseRequested) {
+                delay(1_000)
+                val position = exoPlayer.currentPosition
+                if (!shouldRecoverStalledPlayback(exoPlayer.playWhenReady,
+                        exoPlayer.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+                        exoPlayer.playbackState == Player.STATE_ENDED, lastPosition, position)) {
+                    stalledSince = android.os.SystemClock.elapsedRealtime()
+                }
+                lastPosition = position
+                if (android.os.SystemClock.elapsedRealtime() - stalledSince >= 20_000) {
+                    recoverAudioDelivery("The audio source stopped responding.")
+                    break
+                }
+            }
+        }
+    }
+
+    private fun recoverAudioDelivery(message: String) {
+        if (userPauseRequested) return
+        val track = activeTrack ?: return
+        val failed = currentDeliveryStream ?: return
+        com.audiophile.musicplayer.common.VantaLogger.w(
+            com.audiophile.musicplayer.common.VantaLogger.Tag.PLAYBACK,
+            "delivery_recovery_start failedHost=${com.audiophile.musicplayer.common.VantaLogger.urlHost(failed.streamUrl)} " +
+                "url=${failed.streamUrl.take(140)} msg='$message' title='${track.track.title}'"
+        )
+        val generation = activePlaybackGeneration
+        val resumePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+        playbackDeliveryWatch?.cancel()
+        if (deliveryRecoveryAttempted) {
+            exoPlayer.stop()
+            playbackState.update { copy(isPlaying = false, isBuffering = false, errorMessage = message) }
+            return
+        }
+        deliveryRecoveryAttempted = true
+        exoPlayer.pause()
+        playbackState.update { copy(isPlaying = false, isBuffering = true, errorMessage = "Trying another source for this recording…") }
+        serviceScope.launch {
+            val replacement = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { streamResolver.resolveWithOutcome(track, timeoutMs = 35_000,
+                    excludedStreamUrls = setOf(failed.streamUrl),
+                    requestedQuality = com.audiophile.musicplayer.data.source.playback.RequestedAudioQuality.LOSSLESS_16)
+                }.getOrNull().let { (it as? com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Ready)?.stream }
+            }
+            if (generation != activePlaybackGeneration || userPauseRequested) return@launch
+            if (replacement != null) {
+                com.audiophile.musicplayer.common.VantaLogger.i(
+                    com.audiophile.musicplayer.common.VantaLogger.Tag.TRACK_TRUTH,
+                    "delivery_retry_resolved host=${com.audiophile.musicplayer.common.VantaLogger.urlHost(replacement.streamUrl)} " +
+                        "provider=${replacement.providerId} url=${replacement.streamUrl.take(120)}"
+                )
+                playTrack(track.track.trackId, preResolvedStream = replacement, isDeliveryRetry = true, startPositionMs = resumePositionMs)
+            } else {
+                exoPlayer.stop()
+                playbackState.update { copy(isPlaying = false, isBuffering = false,
+                    errorMessage = "This recording is unavailable from the current sources. Try another song.") }
+            }
+        }
+    }
+
+    fun playTrack(
+        trackId: Long,
+        policy: SourceSelectionPolicy = SourceSelectionPolicy(),
+        preResolvedStream: SourceResolvedStream? = null,
+        isDeliveryRetry: Boolean = false,
+        startPositionMs: Long = 0L
+    ) {
+        playbackDeliveryWatch?.cancel()
+        deliveryRecoveryAttempted = isDeliveryRetry
+        currentDeliveryStream = null
         val generation = playbackRequestGeneration.incrementAndGet()
         activePlaybackGeneration = generation
         userPauseRequested = false
@@ -942,38 +1245,61 @@ class PlaybackService : MediaLibraryService() {
                 cachedIsFavorite = track.track.localLibraryId
                     ?.let { localLibraryRepository.songById(it)?.isFavorite }
                     ?: false
-                val stream = streamResolver.resolve(track)
+                val cachedStream = preResolvedStream?.takeIf {
+                    it.streamUrl.isNotBlank() &&
+                        !PlaybackPolicies.isStreamExpired(it.expiresAt, it.streamUrl) &&
+                        SpatialDecoderCapabilities.supportsAtmosStream(it)
+                }
+                val outcome = if (cachedStream == null) streamResolver.resolveWithOutcome(track) else null
+                val stream = cachedStream ?: (outcome as? com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Ready)?.stream
                 if (generation != activePlaybackGeneration) return@launch
                 
                 if (stream == null || stream.streamUrl.isBlank()) {
                     val errorState = NowPlayingState(
                         trackId = trackId.toString(),
-                        errorMessage = "No playable stream found"
+                        errorMessage = (outcome as? com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome.Failed)
+                            ?.failure?.let {
+                                if (it.code == com.audiophile.musicplayer.data.source.playback.PlaybackSourceErrorCode.AUTH_REQUIRED)
+                                    "Music source needs reconnection. Complete provider verification to resume streaming."
+                                else it.userMessage()
+                            } ?: "No playable stream found"
                     )
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        player.stop()
+                        player.clearMediaItems()
+                    }
                     nowPlayingStateStore.save(errorState)
                     playbackState.replace(errorState)
-                    runCatching { queueController.advance()?.let { playTrack(it.track.trackId) } }
                     return@launch
                 }
                 
-                val metadataBuilder = androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(track.track.title)
-                    .setArtist(track.track.artist)
-                    .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
+                currentDeliveryStream = stream
+                com.audiophile.musicplayer.common.VantaLogger.d(
+                    com.audiophile.musicplayer.common.VantaLogger.Tag.TRACK_TRUTH,
+                    "play_url host=${com.audiophile.musicplayer.common.VantaLogger.urlHost(stream.streamUrl)} " +
+                        "provider=${stream.providerId} mime=${stream.mimeType} expires=${stream.expiresAt} " +
+                        "fromPreResolved=${cachedStream != null} url=${stream.streamUrl.take(120)}"
+                )
+                if (stream.isDolbyAtmos) {
+                    // Let ExoPlayer select multi-channel E-AC-3 JOC renditions instead of
+                    // forcing the stereo default, so 5.1+/Atmos reaches the device's
+                    // native Dolby engine.
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setMaxAudioChannelCount(6)
+                        .build()
+                    Log.d("VANTA_DSP", "atmos_track_selection maxAudioChannelCount=6 ${com.audiophile.musicplayer.common.VantaLogger.urlHost(stream.streamUrl)}")
+                }
+                val playbackHeaders = stream.requestHeaders + CdnPlaybackHeaders.forUrl(stream.streamUrl)
+                activeStreamHeaders = playbackHeaders
+                if (playbackHeaders.isNotEmpty()) {
+                    streamHeadersByUrl[stream.streamUrl] = playbackHeaders
+                }
                 
-                artworkUri(track.track.coverArtUrl)?.let { metadataBuilder.setArtworkUri(it) }
-                
-                val mime = stream.mimeType ?: mediaItemMimeFor(stream.streamUrl)
+                val mime = PlaybackMediaType.forStream(stream.mimeType, stream.streamUrl)
                 
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    player.setMediaItem(
-                        androidx.media3.common.MediaItem.Builder()
-                            .setUri(stream.streamUrl)
-                            .setMediaId("${track.track.trackId}:0")
-                            .apply { mime?.let { setMimeType(it) } }
-                            .setMediaMetadata(metadataBuilder.build())
-                            .build()
-                    )
+                    playAudioMediaItem(track, stream, mime, startPositionMs)
                     
                     val snapshot = queueManager.snapshot()
                     
@@ -990,6 +1316,8 @@ class PlaybackService : MediaLibraryService() {
                             format = stream.format,
                             isSpatialAudio = stream.isSpatialAudio,
                             isDolbyAtmos = stream.isDolbyAtmos,
+                            isEclipsaAudio = stream.isEclipsaAudio,
+                            isSony360RealityAudio = stream.isSony360RealityAudio,
                             isSurround = stream.isSurround
                         ),
                         queuePosition = snapshot.queueIndex,
@@ -997,8 +1325,8 @@ class PlaybackService : MediaLibraryService() {
                     )
 
                     refreshAutoCustomLayout()
-                    player.prepare()
-                    player.play()
+                    beginListeningHistoryEntry(track, stream, startPositionMs)
+                    watchAudioDelivery(generation)
                 }
                 
             } catch (e: Exception) {
@@ -1011,6 +1339,45 @@ class PlaybackService : MediaLibraryService() {
                 runCatching { queueController.advance()?.let { playTrack(it.track.trackId) } }
             }
         }
+    }
+
+    private fun resolvedStreamFromIntent(intent: Intent): SourceResolvedStream? {
+        val url = intent.getStringExtra(EXTRA_RESOLVED_STREAM_URL)?.takeIf { it.isNotBlank() } ?: return null
+        fun headers(key: String): Map<String, String> = intent.getBundleExtra(key)?.let { bundle ->
+            bundle.keySet().mapNotNull { name -> bundle.getString(name)?.let { name to it } }.toMap()
+        }.orEmpty()
+        val licenseUrl = intent.getStringExtra(EXTRA_RESOLVED_STREAM_DRM_LICENSE_URL)
+        val drm = licenseUrl?.let {
+            com.audiophile.musicplayer.data.source.StreamDrmConfiguration(
+                scheme = intent.getStringExtra(EXTRA_RESOLVED_STREAM_DRM_SCHEME).orEmpty(),
+                licenseUrl = it,
+                licenseRequestHeaders = headers(EXTRA_RESOLVED_STREAM_DRM_HEADERS),
+                forceDefaultLicenseUri = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_DRM_FORCE_DEFAULT, true)
+            )
+        }
+        return SourceResolvedStream(
+            streamUrl = url,
+            bitrateKbps = intent.getIntExtra(EXTRA_RESOLVED_STREAM_BITRATE, 0),
+            mimeType = intent.getStringExtra(EXTRA_RESOLVED_STREAM_MIME),
+            expiresAt = intent.getLongExtra(EXTRA_RESOLVED_STREAM_EXPIRES_AT, -1L).takeIf { it > 0 },
+            qualityLabel = intent.getStringExtra(EXTRA_RESOLVED_STREAM_QUALITY),
+            format = intent.getStringExtra(EXTRA_RESOLVED_STREAM_FORMAT),
+            bitDepth = intent.getIntExtra(EXTRA_RESOLVED_STREAM_BIT_DEPTH, -1).takeIf { it > 0 },
+            sampleRateHz = intent.getIntExtra(EXTRA_RESOLVED_STREAM_SAMPLE_RATE, -1).takeIf { it > 0 },
+            channelCount = intent.getIntExtra(EXTRA_RESOLVED_STREAM_CHANNELS, -1).takeIf { it > 0 },
+            codec = intent.getStringExtra(EXTRA_RESOLVED_STREAM_CODEC),
+            container = intent.getStringExtra(EXTRA_RESOLVED_STREAM_CONTAINER),
+            isLossless = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_LOSSLESS, false),
+            sourceLabel = intent.getStringExtra(EXTRA_RESOLVED_STREAM_SOURCE_LABEL),
+            isEclipsaAudio = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_ECLIPSA, false),
+            providerId = intent.getStringExtra(EXTRA_RESOLVED_STREAM_PROVIDER),
+            fulfillmentProviderId = intent.getStringExtra(EXTRA_RESOLVED_STREAM_FULFILLED_BY),
+            isDolbyAtmos = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_ATMOS, false),
+            isSpatialAudio = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_SPATIAL, false),
+            isSurround = intent.getBooleanExtra(EXTRA_RESOLVED_STREAM_SURROUND, false),
+            requestHeaders = headers(EXTRA_RESOLVED_STREAM_HEADERS),
+            drm = drm
+        )
     }
 
     fun play() {
@@ -1050,11 +1417,20 @@ class PlaybackService : MediaLibraryService() {
     }
 
     fun seekTo(positionMs: Long) {
-        player.seekTo(positionMs.coerceAtLeast(0L))
-        queueManager.markPlaybackPosition(player.currentPosition.coerceAtLeast(0L))
+        val target = positionMs.coerceAtLeast(0L).let {
+            if (exoPlayer.duration > 0L) it.coerceAtMost(exoPlayer.duration) else it
+        }
+        exoPlayer.seekTo(target)
+        if (exoPlayer.playbackState == Player.STATE_IDLE && exoPlayer.mediaItemCount > 0) {
+            exoPlayer.prepare()
+        }
+        queueManager.markPlaybackPosition(target)
+        playbackState.update { copy(positionMs = target) }
+        watchAudioDelivery(activePlaybackGeneration)
     }
 
     fun playNextFromQueue(policy: SourceSelectionPolicy = SourceSelectionPolicy()) {
+        listeningHistoryRecorder.onTrackSkipped(if (::player.isInitialized) player.currentPosition else 0L)
         serviceScope.launch {
             val nextTrack = queueController.advance() ?: run {
                 Log.d("VANTA_QUEUE_TRUTH", "action=next_from_queue no_next_track")
@@ -1065,7 +1441,47 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /**
+     * THE missing natural-end auto-advance. ExoPlayer only ever holds ONE
+     * media item (playAudioMediaItem/setMediaItem), so when the single item
+     * finishes ExoPlayer enters STATE_ENDED and sits there forever: nothing
+     * materializes the app-side queue into ExoPlayer's timeline and no code
+     * was advancing to the next queue track. The station monitor can refill
+     * endlessly but playback stays frozen at the end of the first track.
+     *
+     * This helper resumes exactly when the player is stopped at ENDED and the
+     * app-side queue now has an upcoming track to play. It is called from:
+     *  1. The STATE_ENDED listener (natural completion when tracks are queued)
+     *  2. ACTION_REFRESH_QUEUE_TIMELINE (a refill landed while stopped)
+     *
+     * Guarded so it only advances while really at ENDED (not paused mid-track,
+     * not actively playing, not recovering), avoiding any double-next.
+     */
+    private fun resumeIfEndedAndQueueHasNext(source: String) {
+        if (!::exoPlayer.isInitialized) return
+        val snapshot = queueManager.snapshot()
+        if (!snapshot.canPlayNext) {
+            Log.d("VANTA_QUEUE_TRUTH", "action=resume_ended source=$source skipped=no_next")
+            return
+        }
+        if (exoPlayer.playbackState != Player.STATE_ENDED) {
+            Log.d("VANTA_QUEUE_TRUTH", "action=resume_ended source=$source skipped=not_ended state=${exoPlayer.playbackState}")
+            return
+        }
+        if (autoMixTransitionInFlight) {
+            Log.d("VANTA_QUEUE_TRUTH", "action=resume_ended source=$source skipped=automix_in_flight")
+            return
+        }
+        if (userPauseRequested) {
+            Log.d("VANTA_QUEUE_TRUTH", "action=resume_ended source=$source skipped=user_paused")
+            return
+        }
+        Log.d("VANTA_QUEUE_TRUTH", "action=resume_ended source=$source advancing_to_next title='${snapshot.upNextQueue.firstOrNull()?.track?.title ?: snapshot.originalQueue.getOrNull(snapshot.currentOriginalIndex + 1)?.track?.title}'")
+        playNextFromQueue()
+    }
+
     fun playPreviousFromQueue(policy: SourceSelectionPolicy = SourceSelectionPolicy()) {
+        listeningHistoryRecorder.onTrackSkipped(if (::player.isInitialized) player.currentPosition else 0L, reasonEnd = "backbtn")
         serviceScope.launch {
             val previousTrack = queueController.back() ?: run {
                 Log.d("VANTA_QUEUE_TRUTH", "action=previous_from_queue no_previous_track")
@@ -1082,6 +1498,7 @@ class PlaybackService : MediaLibraryService() {
         liveRadioStreamUrl = null
         liveRadioStationName = null
         adDuckRestoreJob?.cancel()
+        listeningHistoryRecorder.onPlaybackStopped(if (::player.isInitialized) player.currentPosition else 0L)
         player.stop()
         queueManager.markPlaybackPosition(0L)
     }
@@ -1203,6 +1620,87 @@ class PlaybackService : MediaLibraryService() {
     }
 
 
+    /**
+     * Plays a synthesized DJ voice line over the current track with a smooth
+     * exponential duck (fast initial drop toward a 18% floor so perceived
+     * loudness ramps evenly), then restores volume along the mirrored curve.
+     * Voice audio runs on a parallel MediaPlayer that does not request audio
+     * focus, so it mixes with the active ExoPlayer instead of pausing it, and
+     * is deliberately NOT routed through the DSP chain (clear speech).
+     */
+    fun speakDjVoice(audioPath: String) {
+        if (audioPath.isBlank()) return
+        if (!File(audioPath).exists()) {
+            Log.w("VANTA_DJ_VOICE", "speakDjVoice missing file=$audioPath")
+            return
+        }
+        if (userPauseRequested || !::exoPlayer.isInitialized) return
+        val normalVolume = exoPlayer.volume.coerceIn(0.02f, 1f)
+        val floor = 0.18f
+        val steps = 20
+        val duckStepMs = 400L / steps
+        val restoreStepMs = 550L / steps
+
+        releaseDjVoicePlayer()
+        djVoiceDuckJob?.cancel()
+
+        djVoiceDuckJob = serviceScope.launch {
+            val prepared = kotlinx.coroutines.CompletableDeferred<Boolean>()
+            val finished = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val mp = android.media.MediaPlayer()
+            mp.setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            mp.setOnPreparedListener { it.start(); prepared.complete(true) }
+            mp.setOnErrorListener { _, what, extra ->
+                Log.w("VANTA_DJ_VOICE", "media error what=$what extra=$extra")
+                prepared.complete(false)
+                true
+            }
+            mp.setOnCompletionListener { gone ->
+                djVoicePlayer = null
+                gone.release()
+                finished.complete(Unit)
+            }
+            try {
+                for (step in 0..steps) {
+                    if (userPauseRequested) return@launch
+                    val p = step.toFloat() / steps
+                    exoPlayer.volume = (normalVolume * (floor / normalVolume).pow(p)).coerceIn(0f, 1f)
+                    delay(duckStepMs)
+                }
+                mp.setDataSource(audioPath)
+                mp.prepareAsync()
+                if (!prepared.await()) {
+                    exoPlayer.volume = normalVolume
+                    return@launch
+                }
+                djVoicePlayer = mp
+                finished.await()
+                for (step in 1..steps) {
+                    if (djVoicePlayer != mp) return@launch
+                    val p = step.toFloat() / steps
+                    exoPlayer.volume = (normalVolume * (floor / normalVolume).pow(1f - p)).coerceIn(0f, 1f)
+                    delay(restoreStepMs)
+                }
+            } catch (e: Exception) {
+                Log.w("VANTA_DJ_VOICE", "speakDjVoice failed", e)
+                runCatching { mp.release() }
+            } finally {
+                exoPlayer.volume = normalVolume
+                if (djVoicePlayer == mp) djVoicePlayer = null
+            }
+        }
+    }
+
+    private fun releaseDjVoicePlayer() {
+        runCatching { djVoicePlayer?.release() }
+        djVoicePlayer = null
+    }
+
     private fun startAutoMixMonitor() {
         autoMixMonitorJob?.cancel()
         val config = autoMixPreferences.load()
@@ -1273,6 +1771,9 @@ class PlaybackService : MediaLibraryService() {
         autoMixTransitionJob?.cancel()
         autoMixTransitionJob = null
         autoMixTransitionInFlight = false
+        djVoiceDuckJob?.cancel()
+        djVoiceDuckJob = null
+        releaseDjVoicePlayer()
         if (resetVolume && ::exoPlayer.isInitialized) exoPlayer.volume = 1f
     }
 
@@ -1333,6 +1834,35 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch(kotlinx.coroutines.Dispatchers.IO) { localLibraryRepository.incrementPlayCount(localLibraryId) }
     }
 
+    private fun beginListeningHistoryEntry(
+        track: UnifiedTrackWithSources,
+        stream: SourceResolvedStream,
+        startPositionMs: Long
+    ) {
+        val unified = track.track
+        val platform = when {
+            unified.localLibraryId != null -> "LOCAL"
+            stream.providerId != null -> stream.providerId
+            else -> null
+        }
+        val sourceTrackId = track.sources
+            .firstOrNull { it.externalProviderId != null && it.externalProviderId == stream.providerId }
+            ?.externalTrackId ?: unified.trackId.toString()
+        listeningHistoryRecorder.onPlaybackStarted(
+            ListeningPlayRecord(
+                trackId = unified.trackId,
+                title = unified.title,
+                artist = unified.artist,
+                album = unified.albumName,
+                platform = platform,
+                providerId = stream.providerId,
+                sourceTrackId = sourceTrackId,
+                durationMs = unified.durationMs
+            ),
+            positionMs = startPositionMs.coerceAtLeast(0L)
+        )
+    }
+
     private fun skipUnplayableDjTrackIfNeeded(reason: String) {
         if (queueManager.queueMode != QueueMode.AI_DJ_QUEUE) return
         if (!queueManager.snapshot().canPlayNext) {
@@ -1354,18 +1884,42 @@ class PlaybackService : MediaLibraryService() {
 
     private fun applyVantaEqualizer() {
         try {
-            val config = com.audiophile.musicplayer.playback.dsp.VantaEqualizerPreferences(this).load()
+            val stored = com.audiophile.musicplayer.playback.dsp.VantaEqualizerPreferences(this).load()
+            val speakerRoute = OutputSwitchController.isBuiltInSpeakerRoute(this)
+            val usbRoute = OutputSwitchController.isUsbDacRoute(this)
+            val config = when {
+                speakerRoute -> stored.forBuiltInSpeaker()
+                usbRoute -> stored.forUsbPassthrough()
+                else -> stored
+            }
             if (::vantaEqualizer.isInitialized) {
                 vantaEqualizer.config = config
-                // Force the new config into the native engine immediately. When playback is
-                // paused the audio pipeline may not call queueInput for a while, so relying on
-                // configDirty alone means the change is silent until the next buffer arrives.
+                // Publish changes for the next audio buffer. Native filter work must
+                // stay serialized with processing, including when playback resumes.
                 vantaEqualizer.flushAndApplyConfig()
             }
             val holder = com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder.processor
-            Log.d("VANTA_DSP", "equalizer_pushed eq=${config.eqEnabled} spatial=${config.spatialEnabled} immersive=${config.immersiveMode.label} rendered=${config.immersiveMode.isRendered} holder=${holder != null} nativeAvailable=${com.audiophile.musicplayer.playback.dsp.VantaEqualizerNative.isAvailable}")
+            Log.d(
+                "VANTA_DSP",
+                "equalizer_pushed speakerSafe=$speakerRoute usbPassthrough=$usbRoute eq=${config.eqEnabled} " +
+                    "spatial=${config.spatialEnabled} immersive=${config.immersiveMode.label} " +
+                    "bassCannon=${config.bassCannonEnabled} tube=${config.tubeEnabled} " +
+                    "bypass=${config.eqBypassEnabled} holder=${holder != null} " +
+                    "nativeAvailable=${com.audiophile.musicplayer.playback.dsp.VantaEqualizerNative.isAvailable}"
+            )
         } catch (e: Exception) {
-            Log.e("VANTA_DSP", "Equalizer apply failed", e)
+            Log.e("VANTA_DSP", "equalizer apply failed", e)
+        }
+    }
+
+    private fun forceSpeakerOutput() {
+        val speaker = OutputSwitchController.listOutputs(this)
+            .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        if (speaker != null) {
+            OutputSwitchController.select(this, speaker)
+            applyVantaEqualizer()
+        } else {
+            Log.w("VANTA_SERVICE_ACTION_RECEIVED", "FORCE_SPEAKER_OUTPUT: no built-in speaker device found")
         }
     }
 
@@ -1528,8 +2082,157 @@ class PlaybackService : MediaLibraryService() {
             Class.forName("androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer")
         }.isSuccess
 
+    /**
+     * Keep the current FLAC / Atmos audio URL and merge a picture-only music video
+     * (Tidal MV preferred, YouTube video-only fallback). Video audio is filtered out.
+     */
+    private fun attachMusicVideoCompanion() {
+        val track = activeTrack
+        val audio = currentDeliveryStream
+        if (track == null || audio == null || audio.streamUrl.isBlank()) {
+            playbackState.update {
+                copy(errorMessage = "Play a song first, then attach the music video")
+            }
+            return
+        }
+        val generation = activePlaybackGeneration
+        serviceScope.launch(Dispatchers.IO) {
+            playbackState.update { copy(isBuffering = true, errorMessage = null) }
+            val video = musicVideoCompanionResolver.resolve(track)
+            if (generation != activePlaybackGeneration) return@launch
+            if (video == null || video.streamUrl.isBlank()) {
+                playbackState.update {
+                    copy(
+                        isBuffering = false,
+                        errorMessage = "No music video found (Tidal MV / YouTube). Audio stays FLAC/Atmos."
+                    )
+                }
+                return@launch
+            }
+            val videoHeaders = video.requestHeaders + CdnPlaybackHeaders.forUrl(video.streamUrl)
+            if (videoHeaders.isNotEmpty()) {
+                streamHeadersByUrl[video.streamUrl] = videoHeaders
+            }
+            withContext(Dispatchers.Main) {
+                if (generation != activePlaybackGeneration) return@withContext
+                val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val wasPlaying = exoPlayer.isPlaying || exoPlayer.playWhenReady
+                playMergedAudioAndVideo(track, audio, video, positionMs, wasPlaying)
+                Log.i(
+                    "VANTA_TV_VIDEO",
+                    "attached video=${video.providerId} audio=${audio.providerId} " +
+                        "atmos=${audio.isDolbyAtmos} lossless=${audio.isLossless} pos=$positionMs"
+                )
+            }
+        }
+    }
 
+    private fun playAudioMediaItem(
+        track: UnifiedTrackWithSources,
+        stream: SourceResolvedStream,
+        mime: String?,
+        startPositionMs: Long
+    ) {
+        val metadataBuilder = MediaMetadata.Builder()
+            .setTitle(track.track.title)
+            .setArtist(track.track.artist)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        artworkUri(track.track.coverArtUrl)?.let { metadataBuilder.setArtworkUri(it) }
 
+        player.setMediaItem(
+            MediaItem.Builder()
+                .setUri(stream.streamUrl)
+                .setMediaId("${track.track.trackId}:0")
+                .apply { mime?.let { setMimeType(it) } }
+                .apply {
+                    PlaybackDrmPolicy.validated(stream.drm)?.let { drm ->
+                        setDrmConfiguration(
+                            MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                                .setLicenseUri(drm.licenseUrl)
+                                .setLicenseRequestHeaders(drm.licenseRequestHeaders)
+                                .setForceDefaultLicenseUri(drm.forceDefaultLicenseUri)
+                                .build()
+                        )
+                    }
+                }
+                .setMediaMetadata(metadataBuilder.build())
+                .build()
+        )
+        if (startPositionMs > 0L) exoPlayer.seekTo(startPositionMs)
+        player.prepare()
+        player.play()
+        playbackState.update { copy(hasVideo = false) }
+    }
+
+    private fun playMergedAudioAndVideo(
+        track: UnifiedTrackWithSources,
+        audio: SourceResolvedStream,
+        video: SourceResolvedStream,
+        startPositionMs: Long,
+        playWhenReady: Boolean
+    ) {
+        val metadataBuilder = MediaMetadata.Builder()
+            .setTitle(track.track.title)
+            .setArtist(track.track.artist)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        artworkUri(track.track.coverArtUrl)?.let { metadataBuilder.setArtworkUri(it) }
+        val metadata = metadataBuilder.build()
+
+        val audioMime = PlaybackMediaType.forStream(audio.mimeType, audio.streamUrl)
+        val videoMime = PlaybackMediaType.forStream(video.mimeType, video.streamUrl)
+            ?: video.mimeType
+
+        val audioItem = MediaItem.Builder()
+            .setUri(audio.streamUrl)
+            .setMediaId("${track.track.trackId}:audio")
+            .apply { audioMime?.let { setMimeType(it) } }
+            .apply {
+                PlaybackDrmPolicy.validated(audio.drm)?.let { drm ->
+                    setDrmConfiguration(
+                        MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                            .setLicenseUri(drm.licenseUrl)
+                            .setLicenseRequestHeaders(drm.licenseRequestHeaders)
+                            .setForceDefaultLicenseUri(drm.forceDefaultLicenseUri)
+                            .build()
+                    )
+                }
+            }
+            .setMediaMetadata(metadata)
+            .build()
+
+        val videoItem = MediaItem.Builder()
+            .setUri(video.streamUrl)
+            .setMediaId("${track.track.trackId}:video")
+            .apply { videoMime?.let { setMimeType(it) } }
+            .setMediaMetadata(metadata)
+            .build()
+
+        val videoSource = FilteringMediaSource(
+            mediaSourceFactory.createMediaSource(videoItem),
+            C.TRACK_TYPE_AUDIO
+        )
+        val audioSource = mediaSourceFactory.createMediaSource(audioItem)
+        val merged = MergingMediaSource(videoSource, audioSource)
+
+        if (audio.isDolbyAtmos) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setMaxAudioChannelCount(8)
+                .build()
+        }
+
+        exoPlayer.setMediaSource(merged, startPositionMs)
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = playWhenReady
+        playbackState.update {
+            copy(
+                isBuffering = false,
+                hasVideo = true,
+                errorMessage = null,
+                isPlaying = playWhenReady
+            )
+        }
+    }
 
     companion object {
         var audioSessionId: Int = -1
@@ -1537,6 +2240,8 @@ class PlaybackService : MediaLibraryService() {
 
         const val ACTION_PLAY_TRACK = "com.audiophile.musicplayer.action.PLAY_TRACK"
         const val ACTION_REFRESH_IMMERSIVE_AUDIO = "com.audiophile.musicplayer.action.REFRESH_EQUALIZER"
+        const val ACTION_REFRESH_HEAD_TRACKING = "com.audiophile.musicplayer.action.REFRESH_HEAD_TRACKING"
+        const val ACTION_FORCE_SPEAKER_OUTPUT = "com.audiophile.musicplayer.action.FORCE_SPEAKER_OUTPUT"
         const val ACTION_REFRESH_AUTO_MIX = "com.audiophile.musicplayer.action.REFRESH_AUTO_MIX"
         const val ACTION_PLAY_NEXT_FROM_QUEUE = "com.audiophile.musicplayer.action.PLAY_NEXT_FROM_QUEUE"
         const val ACTION_PLAY_PREVIOUS_FROM_QUEUE = "com.audiophile.musicplayer.action.PLAY_PREVIOUS_FROM_QUEUE"
@@ -1549,6 +2254,9 @@ class PlaybackService : MediaLibraryService() {
         const val ACTION_PLAY_DIRECT_URL = "com.audiophile.musicplayer.action.PLAY_DIRECT_URL"
         const val ACTION_SKIP_LIVE_AD = "com.audiophile.musicplayer.action.SKIP_LIVE_AD"
         const val ACTION_REFRESH_QUEUE_TIMELINE = "com.audiophile.musicplayer.action.REFRESH_QUEUE_TIMELINE"
+        const val ACTION_SPEAK_DJ_VOICE = "com.audiophile.musicplayer.action.SPEAK_DJ_VOICE"
+        const val EXTRA_DJ_VOICE_AUDIO_PATH = "extra_dj_voice_audio_path"
+        const val ACTION_ATTACH_MUSIC_VIDEO = "com.audiophile.musicplayer.action.ATTACH_MUSIC_VIDEO"
 
         const val ACTION_TOGGLE_FAVORITE = "vanta_toggle_favorite"
         const val ACTION_TOGGLE_SHUFFLE = "vanta_toggle_shuffle"
@@ -1559,6 +2267,30 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_STREAM_URL = "extra_stream_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_ARTIST = "extra_artist"
+        const val EXTRA_RESOLVED_STREAM_URL = "extra_resolved_stream_url"
+        const val EXTRA_RESOLVED_STREAM_BITRATE = "extra_resolved_stream_bitrate"
+        const val EXTRA_RESOLVED_STREAM_MIME = "extra_resolved_stream_mime"
+        const val EXTRA_RESOLVED_STREAM_EXPIRES_AT = "extra_resolved_stream_expires_at"
+        const val EXTRA_RESOLVED_STREAM_QUALITY = "extra_resolved_stream_quality"
+        const val EXTRA_RESOLVED_STREAM_FORMAT = "extra_resolved_stream_format"
+        const val EXTRA_RESOLVED_STREAM_BIT_DEPTH = "extra_resolved_stream_bit_depth"
+        const val EXTRA_RESOLVED_STREAM_SAMPLE_RATE = "extra_resolved_stream_sample_rate"
+        const val EXTRA_RESOLVED_STREAM_CHANNELS = "extra_resolved_stream_channels"
+        const val EXTRA_RESOLVED_STREAM_CODEC = "extra_resolved_stream_codec"
+        const val EXTRA_RESOLVED_STREAM_CONTAINER = "extra_resolved_stream_container"
+        const val EXTRA_RESOLVED_STREAM_LOSSLESS = "extra_resolved_stream_lossless"
+        const val EXTRA_RESOLVED_STREAM_SOURCE_LABEL = "extra_resolved_stream_source_label"
+        const val EXTRA_RESOLVED_STREAM_ECLIPSA = "extra_resolved_stream_eclipsa"
+        const val EXTRA_RESOLVED_STREAM_PROVIDER = "extra_resolved_stream_provider"
+        const val EXTRA_RESOLVED_STREAM_FULFILLED_BY = "extra_resolved_stream_fulfilled_by"
+        const val EXTRA_RESOLVED_STREAM_SPATIAL = "extra_resolved_stream_spatial"
+        const val EXTRA_RESOLVED_STREAM_ATMOS = "extra_resolved_stream_atmos"
+        const val EXTRA_RESOLVED_STREAM_SURROUND = "extra_resolved_stream_surround"
+        const val EXTRA_RESOLVED_STREAM_HEADERS = "extra_resolved_stream_headers"
+        const val EXTRA_RESOLVED_STREAM_DRM_SCHEME = "extra_resolved_stream_drm_scheme"
+        const val EXTRA_RESOLVED_STREAM_DRM_LICENSE_URL = "extra_resolved_stream_drm_license_url"
+        const val EXTRA_RESOLVED_STREAM_DRM_FORCE_DEFAULT = "extra_resolved_stream_drm_force_default"
+        const val EXTRA_RESOLVED_STREAM_DRM_HEADERS = "extra_resolved_stream_drm_headers"
 
         private const val CHANNEL_ID = "playback_channel"
         private const val NOTIFICATION_ID = 1001

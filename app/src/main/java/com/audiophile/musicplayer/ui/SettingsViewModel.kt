@@ -216,7 +216,7 @@ class SettingsViewModel @Inject constructor(
             llmApiKey = store.getLlmApiKey(defaultProvider).orEmpty(),
             pulseVoiceRelayUrl = store.getPulseVoiceRelayUrl().orEmpty(),
             pulseVoiceRelayToken = store.getPulseVoiceRelayToken().orEmpty(),
-            pulseVoiceEngine = store.getPulseVoiceEngine() ?: PulseVoiceProfile.GEMINI_ENGINE,
+            pulseVoiceEngine = store.getPulseVoiceEngine(),
             appleMusicDeveloperToken = store.getAppleMusicDeveloperToken().orEmpty(),
             appleMusicStorefront = store.getAppleMusicStorefront(),
             lastFmApiKey = store.getLastFmApiKey().orEmpty(),

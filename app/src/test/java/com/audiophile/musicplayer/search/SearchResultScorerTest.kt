@@ -9,13 +9,17 @@ class SearchResultScorerTest {
 
     @Test
     fun blindingLights_weekndBeatsCovers() {
-        val weeknd = track("Blinding Lights", "The Weeknd")
+        val weeknd = track(
+            "Blinding Lights",
+            "The Weeknd",
+            album = "After Hours",
+            isrc = "USUG11904206",
+            externalTrackId = "catalog:original"
+        )
         val yori = track("Blinding Lights", "Yori")
         val piano = track("Blinding Lights Piano Version", "Flying Fingers")
 
-        val intent = UnifiedSearchEngine.parse("blinding lights")
-        val ranked = listOf(yori, piano, weeknd)
-            .sortedByDescending { UnifiedSearchEngine.score(intent, it).finalScore }
+        val ranked = UnifiedSearchEngine.process("blinding lights", listOf(yori, piano, weeknd)).songs
 
         assertEquals("The Weeknd", ranked.first().artist)
     }
@@ -67,9 +71,34 @@ class SearchResultScorerTest {
         assertTrue(UnifiedSearchEngine.score(intent, good).finalScore > UnifiedSearchEngine.score(intent, bad).finalScore)
     }
 
-    private fun track(title: String, artist: String) = CanonicalTrack(
+    @Test
+    fun loseYourselfEminem_soundtrackTitleNotRejectedAndRanksTop() {
+        val soundtrackVersion = track(
+            title = "Lose Yourself - Music from and Inspired by the Motion Picture",
+            artist = "Eminem",
+            album = "8 Mile",
+            isrc = "USIR20201099"
+        )
+        val cover = track("Lose Yourself", "Various Artists")
+
+        val response = UnifiedSearchEngine.process("lose yourself eminem", listOf(cover, soundtrackVersion))
+        assertTrue("Expected songs to not be empty", response.songs.isNotEmpty())
+        assertEquals("Eminem", response.songs.first().artist)
+        assertEquals("Eminem", response.topResult?.artist)
+    }
+
+    private fun track(
+        title: String,
+        artist: String,
+        album: String? = null,
+        isrc: String? = null,
+        externalTrackId: String? = null
+    ) = CanonicalTrack(
         title = title,
         artist = artist,
+        album = album,
+        isrc = isrc,
+        externalTrackId = externalTrackId,
         sourcePriority = 5
     )
 }

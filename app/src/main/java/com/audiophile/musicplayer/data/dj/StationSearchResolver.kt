@@ -8,6 +8,7 @@ object StationSearchResolver {
     )
 
     private val eraWordAliases = mapOf(
+        "50s" to listOf("fifties", "1950s", "1950", "50's"),
         "60s" to listOf("sixties", "1960s", "1960", "60's"),
         "70s" to listOf("seventies", "1970s", "1970", "70's"),
         "80s" to listOf("eighties", "1980s", "1980", "80's"),
@@ -20,19 +21,43 @@ object StationSearchResolver {
         val normalized = normalize(query)
         if (normalized.length < 2) return emptyList()
 
-        val scored = buildSearchableStations()
-            .mapNotNull { candidate ->
-                val score = scoreCandidate(normalized, candidate)
-                if (score <= 0) null else candidate.station to score
-            }
-            .sortedWith(
-                compareByDescending<Pair<JukeboxStation, Int>> { it.second }
-                    .thenBy { it.first.name.length }
+        if (normalized.contains("oldies") || normalized == "50s" || normalized == "60s" || normalized == "golden oldies") {
+            val oldies = listOfNotNull(
+                JukeboxCatalog.stations.find { it.id == "golden_oldies" },
+                JukeboxCatalog.stations.find { it.id == "fifties_rock_roll" },
+                JukeboxCatalog.stations.find { it.id == "sixties_invasion" },
+                JukeboxCatalog.stations.find { it.id == "motown_soul" },
+                JukeboxCatalog.stations.find { it.id == "doo_wop_classics" },
+                JukeboxCatalog.stations.find { it.id == "rockabilly_stomp" }
             )
+            if (oldies.isNotEmpty()) return oldies
+        }
+        if (normalized.contains("yacht")) {
+            val yacht = listOfNotNull(JukeboxCatalog.stations.find { it.id == "yacht_rock" })
+            if (yacht.isNotEmpty()) return yacht
+        }
+        if (normalized.contains("wonder") || normalized.contains("one hit") || normalized.contains("one-hit")) {
+            val wonders = listOfNotNull(JukeboxCatalog.stations.find { it.id == "one_hit_wonders" })
+            if (wonders.isNotEmpty()) return wonders
+        }
 
-        return scored
+        return rankedCandidates(normalized)
             .distinctBy { it.first.id }
-            .take(3)
+            .take(8)
+            .map { it.first }
+    }
+
+    /**
+     * Strict station matching for the global music search box.
+     */
+    fun resolveForSearch(query: String): List<JukeboxStation> {
+        val normalized = normalize(query)
+        if (normalized.length < 2) return emptyList()
+
+        return rankedCandidates(normalized)
+            .filter { (_, score) -> score >= STRICT_SEARCH_SCORE }
+            .distinctBy { it.first.id }
+            .take(8)
             .map { it.first }
     }
 
@@ -106,6 +131,17 @@ object StationSearchResolver {
         return if (best > 0) best + candidate.baseScore else 0
     }
 
+    private fun rankedCandidates(normalizedQuery: String): List<Pair<JukeboxStation, Int>> =
+        buildSearchableStations()
+            .mapNotNull { candidate ->
+                val score = scoreCandidate(normalizedQuery, candidate)
+                if (score <= 0) null else candidate.station to score
+            }
+            .sortedWith(
+                compareByDescending<Pair<JukeboxStation, Int>> { it.second }
+                    .thenBy { it.first.name.length }
+            )
+
     private fun scoreAlias(query: String, alias: String): Int = when {
         query == alias -> 1000
         alias == query.removeSuffix(" radio") -> 950
@@ -124,4 +160,6 @@ object StationSearchResolver {
             .replace(Regex("""[^\p{L}\p{N}\s]+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
+
+    private const val STRICT_SEARCH_SCORE = 900
 }

@@ -125,7 +125,7 @@ fun TrackDetailSheet(
             })
             if (showDiagnostics) {
                 VantaSheetDivider()
-                VantaSheetAction(icon = Icons.Filled.Info, label = "Source Details", onClick = onSourceDetails)
+                VantaSheetAction(icon = Icons.Filled.Info, label = "About this song", onClick = onSourceDetails)
             }
         }
 

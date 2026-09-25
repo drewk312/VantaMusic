@@ -22,8 +22,8 @@ import androidx.compose.ui.graphics.Color
 fun BasementStageScene(
     accentColor: Color,
     energy: Float,
-    intensity: Float = 0.5f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    intensity: Float = 0.5f
 ) {
     val transition = rememberInfiniteTransition(label = "basementStage")
     val lightFlicker by transition.animateFloat(

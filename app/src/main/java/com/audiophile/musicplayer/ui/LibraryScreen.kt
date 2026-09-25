@@ -23,21 +23,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +52,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +62,7 @@ import com.audiophile.musicplayer.ui.preview.ArtworkPlaceholder
 import com.audiophile.musicplayer.common.VantaLogger
 
 private enum class LibraryView(val label: String) {
-    Overview("Overview"), Songs("Songs"), Albums("Albums"), Artists("Artists"), Playlists("Playlists")
+    Overview("Overview"), Songs("Songs"), Liked("Liked Songs"), Albums("Albums"), Artists("Artists"), Playlists("Playlists")
 }
 
 @Composable
@@ -72,25 +71,20 @@ fun LibraryScreen(
     miniPlayerVisible: Boolean = false,
     onOpenSettings: () -> Unit,
     onOpenImports: () -> Unit,
+    onOpenWrapped: () -> Unit,
     onToggleFavoriteSong: (LocalSongEntity) -> Unit,
     onPlay: (UnifiedTrackWithSources) -> Unit,
-    onPlayNext: (UnifiedTrackWithSources) -> Unit,
-    onAddToQueue: (UnifiedTrackWithSources) -> Unit,
-    onDownload: (UnifiedTrackWithSources) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit,
     onNavigateToAlbum: (String, String, String?) -> Unit,
     onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)? = null,
     onOpenPlaylist: (Long) -> Unit,
     onPlayPlaylist: (Long) -> Unit,
-    onOpenImportFromLink: () -> Unit
+    onCreatePlaylist: (String) -> Unit = {}
 ) {
     val counts = uiState.localLibraryCounts
     val localSongs = uiState.localSongs
     val playlists = uiState.localPlaylists
     var selectedView by rememberSaveable { mutableStateOf(LibraryView.Overview) }
-    // Downloads not tracked separately yet; treat Downloaded tile as placeholder until persistence added.
-    val downloads = remember(localSongs) { emptyList<LocalSongEntity>() }
-
     // Data truth: counts derived the same way the UI shows them.
     val distinctArtists = remember(localSongs) {
         localSongs.map { it.artist.trim() }.filter { it.isNotBlank() }.distinct().size
@@ -103,8 +97,6 @@ fun LibraryScreen(
         "Artists" to distinctArtists,
         "Albums" to distinctAlbums,
         "Songs" to counts.songsCount,
-        "Made For You" to 0,
-        "Downloaded" to downloads.size,
         "Imports" to counts.importsCount
     )
 
@@ -119,13 +111,16 @@ fun LibraryScreen(
             .sortedByDescending { it.createdAt }
             .take(16)
     }
-    val likedSongs = remember(localSongs) { localSongs.filter { it.isFavorite }.take(12) }
+    val allLikedSongs = remember(localSongs) { localSongs.filter { it.isFavorite } }
+    val likedSongs = remember(allLikedSongs) { allLikedSongs.take(12) }
+    var showCreatePlaylist by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
 
     // Log real counts for verification.
     LaunchedEffect(countMap) {
         VantaLogger.d(
             VantaLogger.Tag.LIBRARY,
-            "VANTA_LIBRARY_TRUTH songs=${countMap["Songs"]} artists=${countMap["Artists"]} albums=${countMap["Albums"]} playlists=${countMap["Playlists"]} imports=${countMap["Imports"]} downloaded=${countMap["Downloaded"]}"
+            "VANTA_LIBRARY_TRUTH songs=${countMap["Songs"]} artists=${countMap["Artists"]} albums=${countMap["Albums"]} playlists=${countMap["Playlists"]} imports=${countMap["Imports"]}"
         )
     }
 
@@ -142,15 +137,21 @@ fun LibraryScreen(
 
         // Header
         LibraryHeader(
-            onOpenImportFromLink = onOpenImportFromLink,
-            onOpenSettings = onOpenSettings
+            onOpenImports = onOpenImports,
+            onOpenSettings = onOpenSettings,
+            onOpenWrapped = onOpenWrapped
         )
 
         // Compact, useful quick access — no duplicate heading or settings-grid feel.
         LibraryViewSelector(selected = selectedView, onSelect = { selectedView = it })
 
         if (selectedView == LibraryView.Songs) {
-            LibrarySongList(songs = addedSongs, uiState = uiState, onPlay = onPlay)
+            LibrarySongList(
+                songs = addedSongs,
+                uiState = uiState,
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet
+            )
         }
 
         if (selectedView == LibraryView.Albums) {
@@ -173,25 +174,47 @@ fun LibraryScreen(
             RecentlyAddedCarousel(
                 songs = addedSongs,
                 uiState = uiState,
-                onPlay = onPlay
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet
             )
         } else if (selectedView == LibraryView.Overview && localSongs.isEmpty()) {
             VantaEmptyState(
                 title = "Your new music will appear here",
-                description = "Import a playlist or save a song to begin your library.",
+                description = "Scan this device, choose an audio file, or import a playlist.",
                 icon = Icons.Filled.MusicNote,
                 actionLabel = "Import music",
-                onAction = onOpenImportFromLink
+                onAction = onOpenImports
             )
         }
 
         // Liked Songs
-        if (selectedView == LibraryView.Overview && likedSongs.isNotEmpty()) {
-            VantaSectionHeader("Liked Songs")
+        if (selectedView == LibraryView.Overview && allLikedSongs.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                VantaSectionHeader("Liked Songs", modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = { selectedView = LibraryView.Liked }) {
+                    Text("See all", color = AppAccent)
+                }
+            }
             LikedSongsCarousel(
                 songs = likedSongs,
                 uiState = uiState,
                 onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet,
+                onToggleFavorite = onToggleFavoriteSong
+            )
+        }
+
+        if (selectedView == LibraryView.Liked) {
+            LikedSongsView(
+                songs = allLikedSongs,
+                albums = uiState.libraryAlbums,
+                library = uiState.library,
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet,
                 onToggleFavorite = onToggleFavoriteSong
             )
         }
@@ -202,20 +225,80 @@ fun LibraryScreen(
             RecentlyPlayedCarousel(
                 songs = recentSongs,
                 uiState = uiState,
-                onPlay = onPlay
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet
             )
         }
 
         // Playlists
-        if ((selectedView == LibraryView.Overview || selectedView == LibraryView.Playlists) && playlists.isNotEmpty()) {
-            VantaSectionHeader("Playlists")
-            playlists.take(6).forEach { playlist ->
-                PlaylistRow(
-                    playlist = playlist,
-                    onClick = { onOpenPlaylist(playlist.id) },
-                    onPlay = { onPlayPlaylist(playlist.id) }
+        if (selectedView == LibraryView.Playlists || (selectedView == LibraryView.Overview && playlists.isNotEmpty())) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                VantaSectionHeader(
+                    if (selectedView == LibraryView.Playlists) "All playlists" else "Playlists",
+                    modifier = Modifier.weight(1f)
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (selectedView == LibraryView.Overview && playlists.size > 6) {
+                        androidx.compose.material3.TextButton(onClick = { selectedView = LibraryView.Playlists }) {
+                            Text("See all", color = AppAccent)
+                        }
+                    }
+                    androidx.compose.material3.TextButton(onClick = { showCreatePlaylist = true }) {
+                        Text("New", color = AppAccent)
+                    }
+                }
             }
+            val visiblePlaylists = if (selectedView == LibraryView.Playlists) playlists else playlists.take(6)
+            if (visiblePlaylists.isEmpty()) {
+                VantaEmptyState(
+                    title = "No playlists yet",
+                    description = "Create one for mixes, imports, or anything you want to replay.",
+                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                    actionLabel = "Create playlist",
+                    onAction = { showCreatePlaylist = true }
+                )
+            } else {
+                visiblePlaylists.forEach { playlist ->
+                    PlaylistRow(
+                        playlist = playlist,
+                        onClick = { onOpenPlaylist(playlist.id) },
+                        onPlay = { onPlayPlaylist(playlist.id) }
+                    )
+                }
+            }
+        }
+
+        if (showCreatePlaylist) {
+            AlertDialog(
+                onDismissRequest = { showCreatePlaylist = false; newPlaylistName = "" },
+                title = { Text("New playlist") },
+                text = {
+                    OutlinedTextField(
+                        value = newPlaylistName,
+                        onValueChange = { newPlaylistName = it },
+                        singleLine = true,
+                        placeholder = { Text("Playlist name") }
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = newPlaylistName.isNotBlank(),
+                        onClick = {
+                            onCreatePlaylist(newPlaylistName.trim())
+                            showCreatePlaylist = false
+                            newPlaylistName = ""
+                            selectedView = LibraryView.Playlists
+                        }
+                    ) { Text("Create") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreatePlaylist = false; newPlaylistName = "" }) { Text("Cancel") }
+                }
+            )
         }
 
         // Imports empty nudge
@@ -247,10 +330,19 @@ fun LibraryScreen(
 
 @Composable
 private fun LibraryHeader(
-    onOpenImportFromLink: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenImports: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenWrapped: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "YOUR COLLECTION",
+            color = AppAccentSecondary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.8.sp
+        )
+        Spacer(Modifier.height(2.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -258,25 +350,31 @@ private fun LibraryHeader(
         ) {
             Text("Library", style = VantaType.pageTitle)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IconButton(onClick = onOpenImportFromLink) {
+                IconButton(onClick = onOpenWrapped) {
                     Box(
                         modifier = Modifier
                             .size(38.dp)
-                            .clip(CircleShape)
-                            .background(AppSurface)
-                            .border(0.5.dp, AppOutline, CircleShape),
+                            .glassSurfaceElevated(shape = RoundedCornerShape(19.dp), surfaceAlpha = 0.66f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Import", tint = AppAccent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Your year in music", tint = AppAccent, modifier = Modifier.size(20.dp))
+                    }
+                }
+                IconButton(onClick = onOpenImports) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .glassSurfaceElevated(shape = RoundedCornerShape(19.dp), surfaceAlpha = 0.66f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Add music", tint = AppAccent, modifier = Modifier.size(20.dp))
                     }
                 }
                 IconButton(onClick = onOpenSettings) {
                     Box(
                         modifier = Modifier
                             .size(38.dp)
-                            .clip(CircleShape)
-                            .background(AppSurface)
-                            .border(0.5.dp, AppOutline, CircleShape),
+                            .glassSurfaceElevated(shape = RoundedCornerShape(19.dp), surfaceAlpha = 0.66f),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = AppTextSecondary, modifier = Modifier.size(20.dp))
@@ -300,22 +398,37 @@ private fun LibraryViewSelector(selected: LibraryView, onSelect: (LibraryView) -
             val active = view == selected
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (active) AppAccent else AppSurface)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        brush = if (active) {
+                            Brush.horizontalGradient(
+                                listOf(AppAuroraViolet.copy(alpha = 0.74f), AppAccent.copy(alpha = 0.70f), AppAuroraCyan.copy(alpha = 0.48f))
+                            )
+                        } else {
+                            Brush.horizontalGradient(listOf(AppSurfaceRaised.copy(alpha = 0.76f), AppSurface.copy(alpha = 0.70f)))
+                        },
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    .border(0.5.dp, if (active) Color.White.copy(alpha = 0.22f) else AppOutline, RoundedCornerShape(14.dp))
                     .clickable { onSelect(view) }
                     .padding(horizontal = 14.dp, vertical = 9.dp)
             ) {
-                Text(view.label, color = if (active) Color.Black else AppTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(view.label, color = if (active) Color.White else AppTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 }
 
 @Composable
-private fun LibrarySongList(songs: List<LocalSongEntity>, uiState: MainUiState, onPlay: (UnifiedTrackWithSources) -> Unit) {
+private fun LibrarySongList(
+    songs: List<LocalSongEntity>,
+    uiState: MainUiState,
+    onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         songs.forEach { song ->
-            val unified = uiState.library.firstOrNull { it.track.trackId == song.id }
+            val unified = libraryTrackForSong(song, uiState.library)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -329,7 +442,20 @@ private fun LibrarySongList(songs: List<LocalSongEntity>, uiState: MainUiState, 
                     Text(song.title, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(song.artist, color = AppTextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${song.title}", tint = AppAccent)
+                if (unified != null && onOpenTrackSheet != null) {
+                    IconButton(onClick = { onOpenTrackSheet(unified) }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "More options for ${song.title}",
+                            tint = AppTextMuted
+                        )
+                    }
+                }
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Play ${song.title}",
+                    tint = if (unified != null) AppAccent else AppTextMuted
+                )
             }
         }
     }
@@ -377,14 +503,16 @@ private fun LibraryIdentityRow(title: String, subtitle: String, artworkUrl: Stri
 private fun RecentlyAddedCarousel(
     songs: List<LocalSongEntity>,
     uiState: MainUiState,
-    onPlay: (UnifiedTrackWithSources) -> Unit
+    onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(songs, key = { it.id }) { song ->
             TrackCard(
                 song = song,
                 uiState = uiState,
-                onPlay = onPlay
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet
             )
         }
     }
@@ -395,6 +523,7 @@ private fun LikedSongsCarousel(
     songs: List<LocalSongEntity>,
     uiState: MainUiState,
     onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?,
     onToggleFavorite: (LocalSongEntity) -> Unit
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -403,6 +532,7 @@ private fun LikedSongsCarousel(
                 song = song,
                 uiState = uiState,
                 onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet,
                 showFavorite = true,
                 isFavorite = true,
                 onToggleFavorite = onToggleFavorite
@@ -411,18 +541,193 @@ private fun LikedSongsCarousel(
     }
 }
 
+private sealed interface LikedFilter {
+    data object All : LikedFilter
+    data class Genre(val name: String) : LikedFilter
+    data class Decade(val decade: Int) : LikedFilter
+}
+
+@Composable
+private fun LikedSongsView(
+    songs: List<LocalSongEntity>,
+    albums: List<com.audiophile.musicplayer.data.local.entities.Album>,
+    library: List<UnifiedTrackWithSources>,
+    onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?,
+    onToggleFavorite: (LocalSongEntity) -> Unit
+) {
+    // Resolve a release year per liked song via the album table (album_name + artist_name).
+    val yearByAlbumKey = remember(albums) {
+        albums.associate {
+            "${it.album_name.trim().lowercase()}|${it.artist_name.trim().lowercase()}" to it.release_year
+        }
+    }
+    fun decadeOf(song: LocalSongEntity): Int? {
+        val album = song.album?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val year = yearByAlbumKey["$album|${song.artist.trim()}"] ?: return null
+        if (year < 1950 || year > 2030) return null
+        return (year / 10) * 10
+    }
+
+    val genreCounts = remember(songs) {
+        songs.flatMap { it.genres.map { g -> g.trim() }.filter { it.isNotBlank() } }
+            .groupBy { it.lowercase() }
+            .map { (key, list) -> list.first() to list.size }
+            .sortedByDescending { it.second }
+            .take(8)
+    }
+    val decadeCounts = remember(songs, yearByAlbumKey) {
+        songs.mapNotNull { decadeOf(it) }
+            .groupingBy { it }
+            .eachCount()
+            .toList()
+            .sortedByDescending { it.second }
+            .take(6)
+    }
+
+    val filters = remember(songs, genreCounts, decadeCounts) {
+        buildList {
+            add(LikedFilter.All)
+            genreCounts.forEach { (name, _) -> add(LikedFilter.Genre(name)) }
+            decadeCounts.forEach { (decade, _) -> add(LikedFilter.Decade(decade)) }
+        }
+    }
+    var selectedFilter by rememberSaveable { mutableStateOf("all") }
+
+    fun filterKey(filter: LikedFilter): String = when (filter) {
+        is LikedFilter.All -> "all"
+        is LikedFilter.Genre -> "genre:${filter.name.lowercase()}"
+        is LikedFilter.Decade -> "decade:${filter.decade}"
+    }
+
+    val currentFilter = remember(filters, selectedFilter) {
+        filters.firstOrNull { filterKey(it) == selectedFilter } ?: LikedFilter.All
+    }
+
+    val filteredSongs = remember(songs, currentFilter) {
+        songs.filter { song ->
+            when (currentFilter) {
+                is LikedFilter.All -> true
+                is LikedFilter.Genre -> song.genres.any { it.equals(currentFilter.name, ignoreCase = true) }
+                is LikedFilter.Decade -> decadeOf(song) == currentFilter.decade
+            }
+        }
+    }
+
+    if (songs.isEmpty()) {
+        VantaEmptyState(
+            title = "No liked songs yet",
+            description = "Tap the heart on any song, or import a loved-songs CSV from Imports.",
+            icon = Icons.Filled.Favorite
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            VantaSectionHeader("${songs.size} liked song${if (songs.size == 1) "" else "s"}", modifier = Modifier.weight(1f))
+            if (filteredSongs.size != songs.size) {
+                androidx.compose.material3.TextButton(onClick = { selectedFilter = "all" }) {
+                    Text("Clear", color = AppAccent)
+                }
+            }
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(filters) { filter ->
+                val active = filterKey(filter) == selectedFilter
+                val label = when (filter) {
+                    is LikedFilter.All -> "All"
+                    is LikedFilter.Genre -> filter.name
+                    is LikedFilter.Decade -> "${filter.decade}s"
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            brush = if (active) {
+                                Brush.horizontalGradient(
+                                    listOf(AppAuroraViolet.copy(alpha = 0.74f), AppAccent.copy(alpha = 0.70f), AppAuroraCyan.copy(alpha = 0.48f))
+                                )
+                            } else {
+                                Brush.horizontalGradient(listOf(AppSurfaceRaised.copy(alpha = 0.76f), AppSurface.copy(alpha = 0.70f)))
+                            },
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .border(0.5.dp, if (active) Color.White.copy(alpha = 0.22f) else AppOutline, RoundedCornerShape(14.dp))
+                        .clickable { selectedFilter = filterKey(filter) }
+                        .padding(horizontal = 14.dp, vertical = 9.dp)
+                ) {
+                    Text(label, color = if (active) Color.White else AppTextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        LikedSongRowList(
+            songs = filteredSongs,
+            library = library,
+            onPlay = onPlay,
+            onOpenTrackSheet = onOpenTrackSheet,
+            onToggleFavorite = onToggleFavorite
+        )
+    }
+}
+
+@Composable
+private fun LikedSongRowList(
+    songs: List<LocalSongEntity>,
+    library: List<UnifiedTrackWithSources>,
+    onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?,
+    onToggleFavorite: (LocalSongEntity) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        songs.forEach { song ->
+            val unified = remember(song.id, song.title, song.artist, library) {
+                libraryTrackForSong(song, library)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                NetworkArtwork(song.artworkUrl, song.title, Modifier.size(50.dp).clip(RoundedCornerShape(6.dp)))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(song.title, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song.artist, color = AppTextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = { onToggleFavorite(song) }) {
+                    Icon(Icons.Filled.Favorite, contentDescription = "Remove ${song.title} from favorites", tint = AppAccent)
+                }
+                if (unified != null && onOpenTrackSheet != null) {
+                    IconButton(onClick = { onPlay(unified) }) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${song.title}", tint = AppAccent)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun RecentlyPlayedCarousel(
     songs: List<LocalSongEntity>,
     uiState: MainUiState,
-    onPlay: (UnifiedTrackWithSources) -> Unit
+    onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(songs, key = { it.id }) { song ->
             TrackCard(
                 song = song,
                 uiState = uiState,
-                onPlay = onPlay
+                onPlay = onPlay,
+                onOpenTrackSheet = onOpenTrackSheet
             )
         }
     }
@@ -433,12 +738,13 @@ private fun TrackCard(
     song: LocalSongEntity,
     uiState: MainUiState,
     onPlay: (UnifiedTrackWithSources) -> Unit,
+    onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)? = null,
     showFavorite: Boolean = false,
     isFavorite: Boolean = false,
     onToggleFavorite: ((LocalSongEntity) -> Unit)? = null
 ) {
-    val unified = remember(song.id) {
-        uiState.library.firstOrNull { it.track.trackId == song.id }
+    val unified = remember(song.id, song.title, song.artist, uiState.library) {
+        libraryTrackForSong(song, uiState.library)
     }
     Column(
         modifier = Modifier.width(130.dp)
@@ -465,24 +771,23 @@ private fun TrackCard(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            if (showFavorite) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                        .clickable {
-                            onToggleFavorite?.invoke(song)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Favorite,
-                        contentDescription = null,
-                        tint = AppAccent,
-                        modifier = Modifier.size(16.dp)
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (showFavorite) {
+                    LibraryCardAction(
+                        icon = Icons.Filled.Favorite,
+                        contentDescription = "Remove ${song.title} from favorites",
+                        onClick = { onToggleFavorite?.invoke(song) }
+                    )
+                }
+                if (unified != null && onOpenTrackSheet != null) {
+                    LibraryCardAction(
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = "More options for ${song.title}",
+                        onClick = { onOpenTrackSheet(unified) },
+                        tint = AppText
                     )
                 }
             }
@@ -505,6 +810,41 @@ private fun TrackCard(
         )
     }
 }
+
+@Composable
+private fun LibraryCardAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = AppAccent
+) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.58f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(17.dp)
+        )
+    }
+}
+
+/** Maps the local-library row to its independently-keyed unified playback row. */
+internal fun libraryTrackForSong(
+    song: LocalSongEntity,
+    library: List<UnifiedTrackWithSources>
+): UnifiedTrackWithSources? =
+    library.firstOrNull { it.track.localLibraryId == song.id }
+        ?: library.firstOrNull { candidate ->
+            candidate.track.title.trim().equals(song.title.trim(), ignoreCase = true) &&
+                candidate.track.artist.trim().equals(song.artist.trim(), ignoreCase = true)
+        }
 
 @Composable
 private fun PlaylistRow(

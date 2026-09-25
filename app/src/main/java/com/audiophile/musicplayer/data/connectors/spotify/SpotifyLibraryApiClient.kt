@@ -23,7 +23,8 @@ import java.util.UUID
  * No stream URLs are ever returned.
  */
 class SpotifyLibraryApiClient(
-    private val accessToken: String
+    private val accessToken: String,
+    baseUrl: String = "https://api.spotify.com/"
 ) : SpotifyLibraryApi {
 
     private val service: SpotifyWebApi
@@ -40,7 +41,7 @@ class SpotifyLibraryApiClient(
             .build()
 
         service = Retrofit.Builder()
-            .baseUrl("https://api.spotify.com/")
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -57,17 +58,20 @@ class SpotifyLibraryApiClient(
 
         val tracks = mutableListOf<ImportedLibraryTrack>()
         val playlists = mutableListOf<ImportedPlaylist>()
+        var hasNext = false
 
         if (request.importSavedTracks) {
-            val saved = service.getSavedTracks(limit, offset)
-            saved.body()?.items?.mapNotNull { item ->
+            val saved = service.getSavedTracks(limit, offset).requiredBody()
+            hasNext = hasNext || !saved.next.isNullOrBlank()
+            saved.items?.mapNotNull { item ->
                 item.track?.toImportedLibraryTrack(item.added_at)
             }?.mapTo(tracks) { it }
         }
 
         if (request.importPlaylists) {
-            val userPlaylists = service.getCurrentUserPlaylists(limit, offset)
-            userPlaylists.body()?.items?.mapTo(playlists) { playlist ->
+            val userPlaylists = service.getCurrentUserPlaylists(limit, offset).requiredBody()
+            hasNext = hasNext || !userPlaylists.next.isNullOrBlank()
+            userPlaylists.items?.mapTo(playlists) { playlist ->
                 ImportedPlaylist(
                     id = UUID.randomUUID().toString(),
                     provider = account.provider,
@@ -84,25 +88,24 @@ class SpotifyLibraryApiClient(
 
         if (request.importPlaylistTracks && request.importPlaylists) {
             playlists.forEach { playlist ->
-                runCatching {
+                run {
                     var playlistOffset = 0
                     while (true) {
-                        val page = service.getPlaylistTracks(playlist.providerPlaylistId, 100, playlistOffset).body()
-                        val pageItems = page?.items.orEmpty()
+                        val page = service.getPlaylistTracks(playlist.providerPlaylistId, 50, playlistOffset).requiredBody()
+                        val pageItems = page.items.orEmpty()
                         pageItems
                             .mapNotNull { it.track }
                             .mapTo(tracks) { track ->
                                 track.toImportedLibraryTrack(addedAt = null, playlistIds = listOf(playlist.providerPlaylistId))
                             }
-                        if (page?.next.isNullOrBlank() || pageItems.isEmpty()) break
+                        if (page.next.isNullOrBlank() || pageItems.isEmpty()) break
                         playlistOffset += pageItems.size
                     }
                 }
             }
         }
 
-        val returnedCount = maxOf(tracks.size, playlists.size)
-        val nextCursor = if (returnedCount >= limit) (offset + limit).toString() else null
+        val nextCursor = if (hasNext) (offset + limit).toString() else null
 
         return ConnectedLibraryImportPage(
             tracks = tracks,
@@ -132,9 +135,13 @@ class SpotifyLibraryApiClient(
     }
 
     override suspend fun saveTrack(account: ConnectedLibraryAccount, providerTrackId: String) {
-        runCatching {
-            service.saveTracks(SpotifyIdsBody(ids = listOf(providerTrackId)))
-        }
+        val response = service.saveTracks(SpotifyIdsBody(ids = listOf(providerTrackId)))
+        if (!response.isSuccessful) throw retrofit2.HttpException(response)
+    }
+
+    private fun <T> Response<T>.requiredBody(): T {
+        if (!isSuccessful) throw retrofit2.HttpException(this)
+        return body() ?: throw java.io.IOException("Spotify returned an empty response")
     }
 
     private fun SpotifyTrack.toImportedLibraryTrack(
@@ -177,7 +184,7 @@ private interface SpotifyWebApi {
         @Query("offset") offset: Int
     ): Response<SpotifyPlaylistsResponse>
 
-    @GET("v1/playlists/{playlist_id}/tracks")
+    @GET("v1/playlists/{playlist_id}/items")
     suspend fun getPlaylistTracks(
         @retrofit2.http.Path("playlist_id") playlistId: String,
         @Query("limit") limit: Int,
@@ -239,7 +246,7 @@ private data class SpotifyPlaylistTracksResponse(
 )
 
 private data class SpotifyPlaylistTrackItem(
-    val track: SpotifyTrack? = null
+    @com.google.gson.annotations.SerializedName(value = "item", alternate = ["track"]) val track: SpotifyTrack? = null
 )
 
 private data class SpotifySearchResponse(

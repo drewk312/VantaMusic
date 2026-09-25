@@ -69,6 +69,10 @@ npx wrangler deploy --dry-run
 - **Search/Identity**: `UnifiedSearchEngine` parses intent, scores candidates, and `VantaMusicBrain` resolves catalog identity.
 - **Station Backend**: Express JSON-RPC service for AI-curated radio stations.
 
+## Community
+
+- **Discord**: [Join our Discord community](https://discord.gg/7P5erYcx2x)
+
 ## Status
 
 Phase 1 of the quality rebuild is complete. See `CHANGES.md` for details and `VANTA_FULL_REBUILD_PROMPT.md` for the full plan.

@@ -8,6 +8,7 @@ import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.repository.LocalLibraryRepository
 import com.audiophile.musicplayer.data.repository.TrackRepository
 import com.audiophile.musicplayer.data.source.SourceRegistry
+import com.audiophile.musicplayer.data.source.SourceIdentityGate
 import com.audiophile.musicplayer.data.source.canResolveStream
 import com.audiophile.musicplayer.data.source.isLikelyMusicTrack
 import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
@@ -82,9 +83,10 @@ class DiscoveryCandidatePipeline(
             ).joinToString(" ")
             if (query.isBlank()) continue
 
-            val searchResults = sourceRegistry.searchAll(query)
+            val searchResults = sourceRegistry.searchAll(query, includeSupplemental = false)
             val matched = searchResults
                 .filter { it.status.canResolveStream() }
+                .filter { !SourceIdentityGate.isSupplementalPlaybackProvider(it.providerId) }
                 .filter { it.isLikelyMusicTrack() }
 
             val triedProviders = mutableSetOf<String>()
@@ -127,5 +129,6 @@ class PersonalizedMixDeps(
     val genreResolver: com.audiophile.musicplayer.data.lastfm.LastFmGenreResolver,
     val localLibraryRepository: LocalLibraryRepository,
     val artistResolver: DiscoveryArtistResolver,
-    val candidatePipeline: DiscoveryCandidatePipeline
+    val candidatePipeline: DiscoveryCandidatePipeline,
+    val listeningHistory: com.audiophile.musicplayer.data.local.ListeningHistoryRepository? = null
 )

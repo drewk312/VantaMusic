@@ -5,7 +5,6 @@ import com.audiophile.musicplayer.data.local.entities.SourceType
 import com.audiophile.musicplayer.data.local.entities.TrackSource
 import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.isConfirmedSuccess
-import java.util.Locale
 
 data class VantaQualityInfo(
     val format: String?,
@@ -16,6 +15,8 @@ data class VantaQualityInfo(
     val isHiRes: Boolean?,
     val isSpatialAudio: Boolean = false,
     val isDolbyAtmos: Boolean = false,
+    val isEclipsaAudio: Boolean = false,
+    val isSony360RealityAudio: Boolean = false,
     val isSurround: Boolean = false,
     /** "verified" requires delivered-stream codec/channel metadata; other values are discovery-only. */
     val spatialEvidence: String? = null,
@@ -23,18 +24,58 @@ data class VantaQualityInfo(
     val isValidated: Boolean,
     val sourceProviderId: String?,
     val reason: String,
-    val label: String?
+    val label: String?,
+    val channels: Int? = null,
+    val container: String? = null,
+    val mimeType: String? = null,
+    val pcmEncoding: String? = null,
+    val measured: Boolean = false,
+    val transcodingOccurred: Boolean = false
 ) {
+    fun toAudioQualityInfo(): AudioQualityInfo = AudioQualityInfo(
+        codec = format,
+        container = container,
+        mimeType = mimeType,
+        bitDepth = bitDepth,
+        sampleRateHz = sampleRateHz,
+        bitrateKbps = bitrateKbps,
+        channels = channels,
+        lossless = isLossless == true,
+        hiRes = isHiRes == true,
+        dolbyAtmos = isDolbyAtmos,
+        spatialAudio = isSpatialAudio,
+        eclipsaAudio = isEclipsaAudio,
+        sony360RealityAudio = isSony360RealityAudio,
+        surround = isSurround,
+        pcmEncoding = pcmEncoding,
+        measured = measured,
+        transcodingOccurred = transcodingOccurred
+    )
+
     fun bestLabel(): String? = label?.trim()?.takeIf { it.isNotEmpty() }
 
     fun bestQualityLabel(): String? = bestLabel()
+
+    /** Compact list-row badge label, e.g. `FLAC 24/96`, `AAC 320`, `ATMOS`. */
+    fun compactQualityLabel(): String? {
+        if (isDolbyAtmos) return "ATMOS"
+        if (isSony360RealityAudio) return "360 RA"
+        if (isEclipsaAudio) return "ECLIPSA"
+        if (isPreview) return "Preview"
+        val label = bestLabel() ?: return null
+        val audio = toAudioQualityInfo()
+        return audio.compactLabel().takeIf { it != audio.badgeLabel() } ?: label
+    }
 
     fun accessibilityLabel(): String? =
         bestLabel()?.replace(" \u00B7 ", " ")?.let { "Audio quality: $it" }
 
     companion object {
         private const val TAG = "VANTA_QUALITY_TRUTH"
-        private const val MIN_PLAUSIBLE_LOSSLESS_BITRATE_KBPS = 700
+        // Only used to drop *unmeasured* catalog guesses that cannot be a
+        // real lossless stream. Measured bitrates are always displayed, even
+        // when a compressed 24/48 FLAC lands well below PCM's 2304 kbps.
+        private const val MIN_PLAUSIBLE_UNMEASURED_LOSSLESS_BITRATE_KBPS = 700
 
         fun fromBitrate(
             bitrateKbps: Int,
@@ -65,12 +106,18 @@ data class VantaQualityInfo(
             isHiRes: Boolean? = null,
             isSpatialAudio: Boolean = false,
             isDolbyAtmos: Boolean = false,
+            isEclipsaAudio: Boolean = false,
+            isSony360RealityAudio: Boolean = false,
             isSurround: Boolean = false,
             spatialEvidence: String? = null,
             isValidated: Boolean = false,
             sourceProviderId: String? = null,
             reason: String? = null,
-            bitrateIsMeasured: Boolean = false
+            bitrateIsMeasured: Boolean = false,
+            channels: Int? = null,
+            container: String? = null,
+            pcmEncoding: String? = null,
+            transcodingOccurred: Boolean = false
         ): VantaQualityInfo {
             val preview = status == SearchItemStatus.PREVIEW
             val validated = isValidated ||
@@ -95,9 +142,17 @@ data class VantaQualityInfo(
                 sampleRateHz = normalizedSampleRate,
                 bitrateIsMeasured = bitrateIsMeasured
             )
-            val detectedAtmos = isDolbyAtmos || qualityClaimsAtmos(quality, mime, format)
-            val detectedSpatial = isSpatialAudio || detectedAtmos || qualityClaimsSpatial(quality)
-            val detectedSurround = isSurround || detectedAtmos || qualityClaimsSurround(quality, mime, format)
+            // Codec/format evidence is proof. A gateway "verified" stamp may also
+            // carry Atmos/360 when search/stream already resolved spatialFormat —
+            // bare marketing flags without that stamp are ignored.
+            val verifiedSpatialStamp = spatialEvidence.equals("verified", ignoreCase = true)
+            val detectedAtmos = AudioQualityInfo.hasAtmosCodecEvidence(quality, mime, format) ||
+                (isDolbyAtmos && verifiedSpatialStamp)
+            val detectedEclipsa = AudioQualityInfo.hasEclipsaCodecEvidence(quality, mime, format)
+            val detectedSony360 = AudioQualityInfo.hasSony360RealityAudioEvidence(quality, mime, format) ||
+                (isSony360RealityAudio && verifiedSpatialStamp)
+            val detectedSpatial = isSpatialAudio || detectedAtmos || detectedEclipsa || detectedSony360
+            val detectedSurround = isSurround || detectedAtmos || detectedSony360
             val inferredLossless = isLossless ?: inferLossless(normalizedFormat, quality)
             val inferredHiRes = isHiRes ?: inferHiRes(quality, normalizedSampleRate, normalizedBitDepth)
             if (rawBitrate != null && normalizedBitrate == null) {
@@ -108,20 +163,30 @@ data class VantaQualityInfo(
                         "sampleRateHz=${normalizedSampleRate ?: "null"} reason='implausible_lossless_bitrate'"
                 )
             }
-            val label = buildLabel(
-                format = normalizedFormat,
-                bitrateKbps = normalizedBitrate,
-                sampleRateHz = normalizedSampleRate,
+            val audio = AudioQualityInfo(
+                codec = normalizedFormat,
+                container = container ?: normalizedFormat,
+                mimeType = mime,
                 bitDepth = normalizedBitDepth,
-                isLossless = inferredLossless,
-                isHiRes = inferredHiRes,
-                isSpatialAudio = detectedSpatial,
-                isDolbyAtmos = detectedAtmos,
-                isSurround = detectedSurround,
-                isPreview = preview,
-                isValidated = validated,
-                rawQuality = quality
+                sampleRateHz = normalizedSampleRate,
+                bitrateKbps = normalizedBitrate,
+                channels = channels?.takeIf { it > 0 },
+                lossless = inferredLossless == true,
+                hiRes = inferredHiRes == true,
+dolbyAtmos = detectedAtmos,
+                spatialAudio = detectedSpatial,
+                eclipsaAudio = detectedEclipsa,
+                sony360RealityAudio = detectedSony360,
+                surround = detectedSurround,
+                pcmEncoding = pcmEncoding,
+                measured = bitrateIsMeasured,
+                transcodingOccurred = transcodingOccurred
             )
+            val label = when {
+                preview -> if (normalizedFormat in setOf("aac", "m4a", "mp4")) "AAC Preview" else "Preview"
+                !validated -> null
+                else -> audio.playbackLabel() ?: cleanQualityLabel(quality)
+            }
             val resolvedReason = reason ?: when {
                 preview -> "preview_source"
                 !validated -> "unvalidated_source"
@@ -137,13 +202,25 @@ data class VantaQualityInfo(
                 isHiRes = inferredHiRes,
                 isSpatialAudio = detectedSpatial,
                 isDolbyAtmos = detectedAtmos,
+                isEclipsaAudio = detectedEclipsa,
+                isSony360RealityAudio = detectedSony360,
                 isSurround = detectedSurround,
-                spatialEvidence = spatialEvidence,
+                spatialEvidence = when {
+                    detectedAtmos || detectedSony360 || detectedEclipsa ->
+                        spatialEvidence?.takeIf { it.isNotBlank() } ?: "verified"
+                    else -> spatialEvidence
+                },
                 isPreview = preview,
                 isValidated = validated,
                 sourceProviderId = sourceProviderId,
                 reason = resolvedReason,
-                label = label
+                label = label,
+                channels = channels?.takeIf { it > 0 },
+                container = container ?: normalizedFormat,
+                mimeType = mime,
+                pcmEncoding = pcmEncoding,
+                measured = bitrateIsMeasured,
+                transcodingOccurred = transcodingOccurred
             )
             logInfo(info, step = if (preview) "preview" else if (label == null) "hidden" else "resolved")
             return info
@@ -173,7 +250,8 @@ data class VantaQualityInfo(
                     resolvedStatus == SearchItemStatus.LOCAL_PLAYABLE -> "local_playable"
                     resolvedStatus.isConfirmedSuccess() -> "validated_source"
                     else -> "unvalidated_source"
-                }
+                },
+                bitrateIsMeasured = source.sourceType == SourceType.LOCAL && source.bitrate > 0
             )
         }
 
@@ -202,96 +280,26 @@ data class VantaQualityInfo(
             )
         }
 
-        private fun buildLabel(
-            format: String?,
-            bitrateKbps: Int?,
-            sampleRateHz: Int?,
-            bitDepth: Int?,
-            isLossless: Boolean?,
-            isHiRes: Boolean?,
-            isSpatialAudio: Boolean,
-            isDolbyAtmos: Boolean,
-            isSurround: Boolean,
-            isPreview: Boolean,
-            isValidated: Boolean,
-            rawQuality: String?
-        ): String? {
-            if (isPreview) {
-                return if (format in setOf("aac", "m4a", "mp4")) "AAC Preview" else "Preview"
-            }
-
-            if (!isValidated) return null
-
-            val immersivePrefix = when {
-                isDolbyAtmos -> "Dolby Atmos"
-                isSpatialAudio -> "Spatial Audio"
-                isSurround -> "Surround"
-                else -> null
-            }
-
-            val hiRes = isHiRes == true || (bitDepth != null && bitDepth > 16) || (sampleRateHz != null && sampleRateHz > 44_100)
-            if (hiRes) {
-                val depthRate = formatDepthRate(bitDepth, sampleRateHz)
-                val base = when {
-                    depthRate != null -> "Hi-Res \u00B7 $depthRate"
-                    format != null -> "Hi-Res \u00B7 ${formatDisplay(format)}"
-                    else -> "Hi-Res"
-                }
-                return withImmersivePrefix(immersivePrefix, base)
-            }
-
-            if (format == "flac") {
-                val base = when {
-                    bitrateKbps != null && bitrateKbps >= MIN_PLAUSIBLE_LOSSLESS_BITRATE_KBPS ->
-                        "FLAC \u00B7 ${bitrateKbps} kbps"
-                    else -> "FLAC"
-                }
-                return withImmersivePrefix(immersivePrefix, base)
-            }
-
-            if (isLossless == true && bitrateKbps != null && bitrateKbps >= 1411) {
-                val base = if (format != null) {
-                    "${formatDisplay(format)} \u00B7 ${bitrateKbps} kbps"
-                } else {
-                    "CD Quality"
-                }
-                return withImmersivePrefix(immersivePrefix, base)
-            }
-
-            if (format != null) {
-                val base = if (bitrateKbps != null) {
-                    "${formatDisplay(format)} \u00B7 ${bitrateKbps} kbps"
-                } else {
-                    formatDisplay(format)
-                }
-                return withImmersivePrefix(immersivePrefix, base)
-            }
-
-            if (bitrateKbps != null) return withImmersivePrefix(immersivePrefix, "${bitrateKbps} kbps")
-
-            return withImmersivePrefix(immersivePrefix, cleanQualityLabel(rawQuality))
-        }
-
-        private fun withImmersivePrefix(prefix: String?, base: String?): String? = when {
-            prefix == null -> base
-            base.isNullOrBlank() -> prefix
-            base.contains(prefix, ignoreCase = true) -> base
-            else -> "$prefix \u00B7 $base"
-        }
-
         private fun normalizeFormat(format: String?, quality: String?, mime: String?): String? {
             val haystack = listOfNotNull(format, quality, mime)
                 .joinToString(" ")
                 .lowercase()
             return when {
                 haystack.isBlank() -> null
+                "eac3" in haystack || "e-ac-3" in haystack || "ec-3" in haystack -> "eac3"
+                "ac-4" in haystack || "ac4" in haystack -> "ac4"
                 "flac" in haystack || "audio/x-flac" in haystack -> "flac"
                 "alac" in haystack -> "alac"
                 "wav" in haystack || "aiff" in haystack -> "wav"
                 "mpeg" in haystack || "mp3" in haystack -> "mp3"
-                "aac" in haystack || "m4a" in haystack || "mp4a" in haystack || "audio/mp4" in haystack -> "aac"
                 "opus" in haystack -> "opus"
                 "ogg" in haystack || "vorbis" in haystack -> "ogg"
+                "aac" in haystack || "mp4a" in haystack -> "aac"
+                "m4a" in haystack || "audio/mp4" in haystack -> when {
+                    AudioQualityInfo.hasAtmosCodecEvidence(quality, mime, format) -> "eac3"
+                    qualityClaimsLossless(quality) -> "alac"
+                    else -> "m4a"
+                }
                 else -> null
             }
         }
@@ -304,9 +312,11 @@ data class VantaQualityInfo(
                 cleanPath.endsWith(".wav") -> "wav"
                 cleanPath.endsWith(".aiff") || cleanPath.endsWith(".aif") -> "wav"
                 cleanPath.endsWith(".mp3") -> "mp3"
-                cleanPath.endsWith(".aac") || cleanPath.endsWith(".m4a") -> "aac"
+                cleanPath.endsWith(".aac") -> "aac"
+                cleanPath.endsWith(".m4a") || cleanPath.endsWith(".mp4") -> "m4a"
                 cleanPath.endsWith(".ogg") || cleanPath.endsWith(".oga") -> "ogg"
                 cleanPath.endsWith(".opus") -> "opus"
+                cleanPath.endsWith(".iamf") -> "iamf"
                 else -> null
             }
         }
@@ -363,8 +373,9 @@ data class VantaQualityInfo(
             if (!bitrateIsMeasured && (isLosslessFormat(format) || qualityClaimsLossless(quality)) &&
                 bitrateKbps in setOf(1411, 2304)
             ) return null
-            if ((isLosslessFormat(format) || qualityClaimsLossless(quality)) &&
-                bitrateKbps < MIN_PLAUSIBLE_LOSSLESS_BITRATE_KBPS
+            if (!bitrateIsMeasured &&
+                (isLosslessFormat(format) || qualityClaimsLossless(quality)) &&
+                bitrateKbps < MIN_PLAUSIBLE_UNMEASURED_LOSSLESS_BITRATE_KBPS
             ) {
                 return null
             }
@@ -423,25 +434,6 @@ data class VantaQualityInfo(
                 "24/" in q
         }
 
-        private fun qualityClaimsAtmos(vararg values: String?): Boolean {
-            val q = values.filterNotNull().joinToString(" ").lowercase()
-            return "dolby atmos" in q ||
-                " atmos" in q ||
-                "e-ac-3 joc" in q ||
-                "eac3-joc" in q ||
-                "ec-3 joc" in q
-        }
-
-        private fun qualityClaimsSpatial(quality: String?): Boolean {
-            val q = quality?.lowercase().orEmpty()
-            return "spatial audio" in q || "spatial" in q || qualityClaimsAtmos(quality)
-        }
-
-        private fun qualityClaimsSurround(vararg values: String?): Boolean {
-            val q = values.filterNotNull().joinToString(" ").lowercase()
-            return "surround" in q || "5.1" in q || "7.1" in q || qualityClaimsAtmos(*values)
-        }
-
         private fun cleanQualityLabel(rawQuality: String?): String? {
             val cleanQuality = rawQuality?.trim()?.takeIf { it.isNotBlank() } ?: return null
             return when {
@@ -450,29 +442,6 @@ data class VantaQualityInfo(
                 cleanQuality.equals("unknown", ignoreCase = true) -> null
                 else -> cleanQuality
             }
-        }
-
-        private fun formatDisplay(format: String): String = when (format.lowercase()) {
-            "mp3" -> "MP3"
-            "aac", "m4a", "mp4" -> "AAC"
-            "ogg" -> "OGG"
-            "opus" -> "OPUS"
-            "alac" -> "ALAC"
-            "wav" -> "WAV"
-            "flac" -> "FLAC"
-            else -> format.uppercase()
-        }
-
-        private fun formatDepthRate(bitDepth: Int?, sampleRateHz: Int?): String? {
-            if (bitDepth == null && sampleRateHz == null) return null
-            val depth = bitDepth?.let { "${it}-bit" }
-            val rate = sampleRateHz?.let { "${formatKhz(it)} kHz" }
-            return listOfNotNull(depth, rate).joinToString("/")
-        }
-
-        private fun formatKhz(sampleRateHz: Int): String {
-            if (sampleRateHz % 1000 == 0) return (sampleRateHz / 1000).toString()
-            return String.format(Locale.US, "%.1f", sampleRateHz / 1000.0)
         }
     }
 }

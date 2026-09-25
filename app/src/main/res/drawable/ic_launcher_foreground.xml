@@ -4,14 +4,18 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Premium VANTA V mark, kept inside the adaptive-icon safe zone. -->
+    <!-- A simple, unmistakable VANTA mark that stays legible at dock size. -->
     <path
-        android:fillColor="#E8D5C4"
-        android:pathData="M25,25 L39,25 L55,68 L48,84 Z" />
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,19 A35,35 0,1 1,53.99 19"
+        android:strokeColor="#D8A15D"
+        android:strokeLineCap="round"
+        android:strokeWidth="3" />
     <path
-        android:fillColor="#E8D5C4"
-        android:pathData="M70,25 L84,25 L60,84 L48,84 Z" />
-    <path
-        android:fillColor="#C9935A"
-        android:pathData="M49,20 L59,20 L59,25 L49,25 Z" />
+        android:fillColor="@android:color/transparent"
+        android:pathData="M33,34 L54,76 L75,34"
+        android:strokeColor="#F0C989"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
 </vector>

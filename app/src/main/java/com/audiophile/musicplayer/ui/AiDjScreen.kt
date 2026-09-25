@@ -81,6 +81,7 @@ fun AiDjScreen(
     onOpenStation: (String) -> Unit = {},
     onStartStreamingStation: (String) -> Unit = {},
     onStartJukeboxStation: (String) -> Unit = {},
+    onOpenPlayer: () -> Unit = {},
     miniPlayerVisible: Boolean = false,
     bottomNavVisible: Boolean = true
 ) {
@@ -115,6 +116,7 @@ fun AiDjScreen(
         if (!sessionState.isStarted) {
             PulseHubScreen(
                 tasteSummary = buildTasteSummary(sessionState.tasteProfile),
+                isStarting = sessionState.isLoading,
                 statusMessage = state.statusMessage,
                 displayName = state.listenerDisplayName,
                 savedStationIds = viewModel.savedStationIds(),
@@ -126,7 +128,7 @@ fun AiDjScreen(
                 stationLabel = viewModel::stationLabel,
                 onStartPulseLive = {
                     Log.d("VANTA_RADIO", "action=pulse_live")
-                    onStartStreamingStation("continuous mix across genres")
+                    viewModel.startPulseLive()
                 },
                 onStartReleaseRadar = {
                     Log.d("VANTA_RADIO", "action=release_radar")
@@ -225,6 +227,7 @@ fun AiDjScreen(
                 onSeek = viewModel::seekTo,
                 onToggleDjVoice = viewModel::toggleDjVoice,
                 onSpeakCommentary = viewModel::speakCurrentCommentary,
+                onOpenPlayer = onOpenPlayer,
                 onRefreshPulseStatus = viewModel::refreshPulseAiStatus
             )
         }
@@ -235,6 +238,7 @@ fun AiDjScreen(
 @OptIn(ExperimentalLayoutApi::class)
 private fun PulseHubScreen(
     tasteSummary: String,
+    isStarting: Boolean,
     statusMessage: String?,
     displayName: String?,
     savedStationIds: List<String>,
@@ -263,6 +267,10 @@ private fun PulseHubScreen(
     val madeForLabel = displayName?.takeIf { it.isNotBlank() } ?: "You"
     var showCreateDialog by remember { mutableStateOf(false) }
     var showMoodDialog by remember { mutableStateOf(false) }
+    val dismissKeyboard = rememberKeyboardDismissal()
+    androidx.compose.runtime.LaunchedEffect(showMoodDialog, showCreateDialog) {
+        if (!showMoodDialog && !showCreateDialog) dismissKeyboard()
+    }
     var moodQuery by remember { mutableStateOf("") }
 
     if (showCreateDialog) {
@@ -279,10 +287,10 @@ private fun PulseHubScreen(
     if (showMoodDialog) {
         AlertDialog(
             onDismissRequest = { showMoodDialog = false; moodQuery = "" },
-            title = { Text("Mood Discovery", color = AppText, fontWeight = FontWeight.Bold) },
+            title = { Text("Set the mood", color = AppText, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("Describe the vibe you want:", color = AppTextSecondary, fontSize = 13.sp)
+                    Text("What do you feel like hearing?", color = AppTextSecondary, fontSize = 13.sp)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = moodQuery,
@@ -350,7 +358,7 @@ private fun PulseHubScreen(
                         .padding(4.dp)
                 )
                 Spacer(Modifier.width(16.dp))
-                Text("Pulse", color = AppText, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                Text("Radio", color = AppText, style = VantaType.pageTitle)
             }
         }
 
@@ -383,7 +391,9 @@ private fun PulseHubScreen(
                             .background(Color.White.copy(alpha = 0.08f))
                             .border(0.5.dp, AppOutline.copy(alpha = 0.45f), RoundedCornerShape(50))
                             .clickable { onCompanionPrompt(prompt) }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .heightIn(min = 48.dp)
+            .wrapContentHeight(Alignment.CenterVertically)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
                     )
                 }
             }
@@ -412,14 +422,14 @@ private fun PulseHubScreen(
         }
 
         item {
-            Text("YOUR LISTENING ROOM", color = AppAccentSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text("RADIO, YOUR WAY", color = AppAccentSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(12.dp))
             PulseHeroCard(
-                tag = "PULSE LIVE",
-                title = "Live DJ",
-                subtitle = "A private concert that evolves — chapters, bridges, and pockets you can stay in.",
+                tag = "YOUR AI DJ",
+                title = if (isStarting) "Preparing your mix…" else "Live DJ",
+                subtitle = "Press play. Your favorites, fresh finds, and a DJ that takes your lead.",
                 gradient = listOf(AppSurfaceVariant, AppSurfaceRaised, AppBackground),
-                onClick = onStartPulseLive
+                onClick = { if (!isStarting) onStartPulseLive() }
             )
         }
 
@@ -446,7 +456,7 @@ private fun PulseHubScreen(
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Curated endless mixes from your library — no ads, skip anytime, always know what's playing.",
+                        "Pick a station. Settle into a sound you love.",
                         style = VantaType.editorialSmall
                     )
                     Spacer(Modifier.height(14.dp))
@@ -468,8 +478,8 @@ private fun PulseHubScreen(
             Spacer(Modifier.height(22.dp))
             PulseHeroCard(
                 tag = "MADE FOR ${madeForLabel.uppercase()}",
-                title = "Your daily mix",
-                subtitle = "Short sets shaped by what you save, finish, and skip.",
+                title = "Daily Rotation",
+                subtitle = "The songs you love, with a few new favorites in the mix.",
                 gradient = listOf(AppSurfaceRaised, AppBackground),
                 accent = AppAccentSecondary,
                 onClick = onStartMadeForYou,
@@ -477,9 +487,9 @@ private fun PulseHubScreen(
             )
             Spacer(Modifier.height(14.dp))
             PulseHeroCard(
-                tag = "DISCOVER WEEKLY",
-                title = "New music, built around you",
-                subtitle = "Fresh order each week — avoids repeats from this session.",
+                tag = "FRESH FINDS",
+                title = "Your Next Favorite",
+                subtitle = "Take a chance on something new, picked around your taste.",
                 gradient = listOf(AppSurface, AppBackground),
                 accent = AppAccent,
                 onClick = onStartDiscover,
@@ -488,13 +498,13 @@ private fun PulseHubScreen(
             )
         }
 
-        // — Release Radar + Mood Discovery + Forgotten Favorites —
+        // — Release Radar + Set the mood + Forgotten Favorites —
         item {
             Spacer(Modifier.height(18.dp))
             PulseHeroCard(
-                tag = "RELEASE RADAR",
-                title = "Fresh from your artists",
-                subtitle = "New and recent tracks from your favorite artists and similar sounds.",
+                tag = "NEW MUSIC",
+                title = "Just Dropped",
+                subtitle = "Catch up with your favorite artists and their latest sounds.",
                 gradient = listOf(AppSurfaceRaised, AppBackground),
                 accent = AppAccentSecondary,
                 onClick = onStartReleaseRadar,
@@ -503,9 +513,9 @@ private fun PulseHubScreen(
             )
             Spacer(Modifier.height(12.dp))
             PulseHeroCard(
-                tag = "MOOD DISCOVERY",
-                title = "Describe the vibe",
-                subtitle = "Find songs matching any mood or description — upbeat, dark, dreamy, anything.",
+                tag = "SET THE MOOD",
+                title = "What's the Vibe?",
+                subtitle = "Late-night Bollywood? Dreamy pop? Tell your DJ what you feel like.",
                 gradient = listOf(AppSurfaceRaised, AppBackground),
                 accent = AppAccent,
                 onClick = { showMoodDialog = true },
@@ -514,9 +524,9 @@ private fun PulseHubScreen(
             )
             Spacer(Modifier.height(12.dp))
             PulseHeroCard(
-                tag = "FORGOTTEN FAVORITES",
-                title = "Rediscover old gems",
-                subtitle = "Tracks you loved but haven't heard in a while.",
+                tag = "BACK IN THE MIX",
+                title = "Remember This?",
+                subtitle = "Old favorites that deserve another spin.",
                 gradient = listOf(AppSurface, AppBackground),
                 accent = AppAccent,
                 onClick = onStartForgottenFavorites,
@@ -697,15 +707,15 @@ private fun PulseHeroCard(
 }
 
 private val StationAccents = listOf(
-    Color(0xFFD4A574), Color(0xFF7BC8C8), Color(0xFFC89BC8), Color(0xFFFF8C8C),
-    Color(0xFF8CBD8C), Color(0xFFE8B88A), Color(0xFF9BB8E8), Color(0xFFE8C88A),
-    Color(0xFFA88CC8), Color(0xFFE8A88A), Color(0xFFFFD4A5), Color(0xFF8CC8A8)
+    Color(0xFFC9A58A), Color(0xFF94A49B), Color(0xFFA89B87), Color(0xFFC29B8A),
+    Color(0xFF869A9C), Color(0xFFC2AA7E), Color(0xFF9B92A3), Color(0xFFC2B18F),
+    Color(0xFF98A28F), Color(0xFFBFA18C), Color(0xFF91A5A8), Color(0xFFC7B294)
 )
 
 private val GenreAccents = listOf(
-    Color(0xFFE8A88A), Color(0xFFD4C574), Color(0xFFC89BC8), Color(0xFF7BC8C8),
-    Color(0xFF8CA8D4), Color(0xFFE8D48A), Color(0xFF88D4A8), Color(0xFFD48CA8),
-    Color(0xFFA8C888), Color(0xFFC8A888)
+    Color(0xFFC2A18A), Color(0xFFC2B18D), Color(0xFFA89B93), Color(0xFF94A49B),
+    Color(0xFF8FA0A8), Color(0xFFC7B284), Color(0xFF98A887), Color(0xFFC09A8A),
+    Color(0xFFA29A88), Color(0xFFB7A088)
 )
 
 @Composable
@@ -978,10 +988,11 @@ private fun SessionScreen(
     onSeek: (Long) -> Unit,
     onToggleDjVoice: () -> Unit,
     onSpeakCommentary: () -> Unit,
-    onRefreshPulseStatus: () -> Unit
+    onRefreshPulseStatus: () -> Unit,
+    onOpenPlayer: () -> Unit
 ) {
     LaunchedEffect(Unit) { onRefreshPulseStatus() }
-    if (segment == null || isLoading) {
+    if (segment == null) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -1015,21 +1026,28 @@ private fun SessionScreen(
         listeningStyle == PulseListeningStyle.GENRE
 
     val styleLabel = when (listeningStyle) {
-        PulseListeningStyle.PULSE_LIVE -> "Pulse Live"
+        PulseListeningStyle.PULSE_LIVE -> "Live DJ"
         PulseListeningStyle.ENDLESS_JUKEBOX -> "Station"
         PulseListeningStyle.MADE_FOR_YOU -> "Made for you"
         PulseListeningStyle.ERA -> "Era mix"
         PulseListeningStyle.GENRE -> "Genre mix"
-        PulseListeningStyle.RELEASE_RADAR -> "Release Radar"
+        PulseListeningStyle.RELEASE_RADAR -> "Just Dropped"
         PulseListeningStyle.MOOD -> "Mood"
-        PulseListeningStyle.FORGOTTEN_FAVORITES -> "Forgotten"
+        PulseListeningStyle.FORGOTTEN_FAVORITES -> "Remember This?"
         null -> "Radio"
     }
 
     val subtitle = if (isStationMode) {
         "Continuous mix · no ads"
     } else {
-        "$styleLabel · Chapter $totalSegments"
+        "$styleLabel \u00b7 Your mix"
+    }
+
+    // Progress updates should redraw the seek bar, not the artwork and text card.
+    val heroState = remember(nowPlaying.trackId, nowPlaying.title, nowPlaying.artist,
+        nowPlaying.artworkUrl, nowPlaying.versionLabel, nowPlaying.qualityInfo,
+        nowPlaying.isPlaying, nowPlaying.isBuffering, nowPlaying.errorMessage) {
+        nowPlaying.copy(positionMs = 0L, bufferedMs = 0L)
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -1059,6 +1077,8 @@ private fun SessionScreen(
 
                 Spacer(Modifier.height(14.dp))
 
+                RadioNowPlayingMoment(nowPlaying = heroState, onOpenPlayer = onOpenPlayer)
+                Spacer(Modifier.height(16.dp))
                 ListenerControlsRow(
                     onStayHere = onStayHere,
                     onChangeItUp = onChangeItUp,
@@ -1069,10 +1089,6 @@ private fun SessionScreen(
                         listeningStyle == PulseListeningStyle.GENRE
                 )
 
-                Spacer(Modifier.height(16.dp))
-
-                NowPlayingMoment(nowPlaying = nowPlaying)
-
                 Spacer(Modifier.height(22.dp))
 
                 if (!liveCommentary.isNullOrBlank()) {
@@ -1081,6 +1097,7 @@ private fun SessionScreen(
                         isGenerating = isGeneratingCommentary,
                         fromPulse = commentaryFromPulseAi,
                         companionMode = companionMode,
+                        voiceEnabled = djVoiceEnabled,
                         onCycleCompanionMode = onToggleDjVoice
                     )
                     Spacer(Modifier.height(28.dp))
@@ -1088,6 +1105,10 @@ private fun SessionScreen(
                     Spacer(Modifier.height(8.dp))
                 }
 
+                if (isLoading) {
+                    Text("Finding your next songs...", color = AppTextSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                }
                 ComingUpSection(
                     picks = segment.picks,
                     nowPlayingTrackId = nowPlaying.trackId,
@@ -1235,7 +1256,7 @@ private fun SessionHeader(
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Text(
-                        text = "Pulse is curating",
+                        text = "Picking your next songs",
                         color = AppAccent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1285,17 +1306,20 @@ private fun SessionActionChip(
 }
 
 @Composable
-private fun NowPlayingMoment(
-    nowPlaying: com.audiophile.musicplayer.playback.NowPlayingState
+internal fun RadioNowPlayingMoment(
+    nowPlaying: com.audiophile.musicplayer.playback.NowPlayingState,
+    onOpenPlayer: () -> Unit
 ) {
+    var showQuality by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
+                .widthIn(max = 300.dp)
                 .fillMaxWidth()
-                .height(200.dp)
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(VantaRadius.largeCard))
                 .border(
                     0.5.dp,
@@ -1351,7 +1375,9 @@ private fun NowPlayingMoment(
 
         Text(
             text = nowPlaying.title ?: "Not playing",
-            style = VantaType.editorialLarge,
+            color = AppText,
+            fontSize = 25.sp,
+            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -1380,6 +1406,22 @@ private fun NowPlayingMoment(
                 textAlign = TextAlign.Center
             )
         }
+        androidx.compose.material3.TextButton(onClick = onOpenPlayer) {
+            Text("Lyrics & song details", color = AppAccent)
+        }
+        nowPlaying.qualityInfo?.let { info ->
+            androidx.compose.material3.TextButton(onClick = { showQuality = true }) {
+                Text(com.audiophile.musicplayer.ui.nowplaying.composedQualityLine(info), color = AppTextSecondary, fontSize = 12.sp)
+            }
+        }
+        if (nowPlaying.isBuffering) {
+            Text("Getting your song ready...", color = AppTextSecondary, fontSize = 13.sp)
+        }
+        nowPlaying.errorMessage?.let { Text("This song couldn't play. Try the next track.", color = AppTextSecondary, fontSize = 13.sp) }
+    }
+    if (showQuality) nowPlaying.qualityInfo?.let { info ->
+        com.audiophile.musicplayer.ui.nowplaying.QualityDetailsSheet(info, AppAccent,
+            nowPlaying.title.orEmpty(), nowPlaying.artist.orEmpty(), { showQuality = false })
     }
 }
 
@@ -1389,7 +1431,8 @@ private fun PulseWhisperCard(
     isGenerating: Boolean,
     fromPulse: Boolean,
     companionMode: com.audiophile.musicplayer.data.dj.DjCompanionMode,
-    onCycleCompanionMode: () -> Unit
+    onCycleCompanionMode: () -> Unit,
+    voiceEnabled: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1416,8 +1459,8 @@ private fun PulseWhisperCard(
             ) {
                 Text(
                     text = when {
-                        isGenerating -> "Pulse is listening…"
-                        fromPulse -> "From Pulse"
+                        isGenerating -> "Finding your sound..."
+                        fromPulse -> "Your DJ"
                         else -> "In the room"
                     },
                     style = VantaType.caption,
@@ -1449,7 +1492,11 @@ private fun PulseWhisperCard(
                 )
             }
             Text(
-                text = "Text-first companion · tap mode to change personality",
+                text = if (voiceEnabled) {
+                    "Voice DJ live · tap mode to change personality"
+                } else {
+                    "Text-only companion · add a voice engine in Settings to hear your DJ"
+                },
                 color = AppTextMuted,
                 fontSize = 11.sp
             )
@@ -1549,36 +1596,12 @@ private fun RadioControlStrip(
                 AppAccent.copy(alpha = 0.1f),
                 RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             )
-            .padding(horizontal = VantaSpacing.screenHorizontal, vertical = 14.dp)
-            .padding(bottom = appBottomContentPadding(isMiniPlayerVisible = false)),
+            .padding(horizontal = VantaSpacing.screenHorizontal, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(AppOutline.copy(alpha = 0.5f))
-                .pointerInput(nowPlaying.durationMs) {
-                    detectTapGestures { offset ->
-                        if (nowPlaying.durationMs > 0L) {
-                            val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                            onSeek((nowPlaying.durationMs * fraction).toLong())
-                        }
-                    }
-                }
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress)
-                    .height(3.dp)
-                    .background(AppAccent.copy(alpha = 0.75f))
-            )
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(nowPlaying.positionMs), style = VantaType.tabularNumbers)
-            Text(formatDuration(nowPlaying.durationMs), style = VantaType.tabularNumbers)
-        }
+        com.audiophile.musicplayer.ui.nowplaying.CleanProgressSection(
+            state = nowPlaying, accentColor = AppAccent, onSeekTo = onSeek
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1587,19 +1610,21 @@ private fun RadioControlStrip(
         ) {
             ControlIconButton(
                 icon = Icons.Filled.ThumbDown,
+                label = "Less like this",
                 tint = AppTextMuted,
                 size = 22.dp,
                 onClick = onThumbsDown
             )
             ControlIconButton(
                 icon = Icons.Filled.SkipPrevious,
+                label = "Previous track",
                 tint = AppText,
                 size = 28.dp,
                 onClick = onPrevious
             )
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .size(64.dp)
                     .clip(CircleShape)
                     .background(AppAccent)
                     .clickable(onClick = onTogglePlayback),
@@ -1614,12 +1639,14 @@ private fun RadioControlStrip(
             }
             ControlIconButton(
                 icon = Icons.Filled.SkipNext,
+                label = "Next track",
                 tint = AppText,
                 size = 28.dp,
                 onClick = onNext
             )
             ControlIconButton(
                 icon = Icons.Filled.ThumbUp,
+                label = "More like this",
                 tint = AppAccent,
                 size = 22.dp,
                 onClick = onThumbsUp
@@ -1633,16 +1660,17 @@ private fun ControlIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     size: androidx.compose.ui.unit.Dp,
+    label: String,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(size))
     }
 }
 

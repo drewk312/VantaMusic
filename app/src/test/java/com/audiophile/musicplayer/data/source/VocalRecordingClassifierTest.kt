@@ -104,4 +104,22 @@ class VocalRecordingClassifierTest {
             )
         )
     }
+
+    @Test
+    fun rejectsOriginallyPerformedByAndBackingTracks() {
+        assertFalse(
+            VocalRecordingClassifier.shouldAllowInCatalog(
+                title = "Halo Originally Performed By Beyoncé",
+                artist = "The Backing Tracks",
+                album = "Karaoke Versions"
+            )
+        )
+        assertTrue(
+            VocalRecordingClassifier.shouldAllowInCatalog(
+                title = "Texas Hold 'Em",
+                artist = "Beyoncé",
+                album = "Cowboy Carter"
+            )
+        )
+    }
 }

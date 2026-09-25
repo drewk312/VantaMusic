@@ -139,25 +139,118 @@ object DisplayMetadataCleaner {
     )
 
     private val featurePattern = Regex(
-        """(?i)\s*[\(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+([^\)\]]+)\s*[\)\]]|\s+\b(?:feat\.?|featuring|ft\.?|with)\s+(.+?)(?:\s*[\(\[]|$)"""
+        """(?i)\s*[\(\[]\s*(?:feat\.?|featuring|ft\.?|with)\s+([^\)\]]+)\s*[\)\]]|\s+\b(?:feat\.?|featuring|ft\.?)\s+(.+?)(?:\s*[\(\[]|$)"""
     )
+
+    private val creditSplitPattern = Regex("""(?i)\s*(?:,|&|\band\b|\bvs\.?\b|\s+x\s+|\+)\s*""")
+
+    private val commaBandNames = setOf(
+        "earth, wind & fire",
+        "earth, wind, and fire",
+        "blood, sweat & tears",
+        "crosby, stills & nash",
+        "crosby, stills, nash & young",
+        "emerson, lake & palmer"
+    )
+
+    private val duoBandNames = setOf(
+        "simon & garfunkel",
+        "hall & oates",
+        "brooks & dunn",
+        "brooks and dunn",
+        "sam & dave",
+        "sam and dave",
+        "ike & tina turner",
+        "ike and tina turner",
+        "captain & tennille",
+        "captain and tennille",
+        "sonny & cher",
+        "sonny and cher",
+        "peaches & herb",
+        "peaches and herb",
+        "ashford & simpson",
+        "ashford and simpson"
+    )
+
+    data class ArtistCredits(
+        val primary: String,
+        val featured: List<String>
+    )
+
+    /**
+     * Apple-style collab parse: "Ella Langley & Morgan Wallen" → primary + featured.
+     * Permanent duo/band names stay intact.
+     */
+    fun splitArtistCredits(rawArtist: String): ArtistCredits {
+        val artist = replaceUnderscoresWithSpaces(rawArtist).trim()
+        if (artist.isBlank()) return ArtistCredits("", emptyList())
+        val normalized = artist.lowercase()
+        if (duoBandNames.contains(normalized) || commaBandNames.any { normalized == it || normalized.startsWith("$it,") }) {
+            return ArtistCredits(artist, emptyList())
+        }
+
+        val featMatch = featurePattern.find(artist)
+        if (featMatch != null && featMatch.range.first > 0) {
+            val primary = artist.substring(0, featMatch.range.first).trim()
+            val raw = (featMatch.groups[1]?.value ?: featMatch.groups[2]?.value ?: "").trim()
+            val featured = raw.split(creditSplitPattern)
+                .map { cleanArtistName(it.trim()) ?: it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+            return ArtistCredits(primary.ifBlank { artist }, featured)
+        }
+
+        val parts = artist.split(creditSplitPattern).map { it.trim() }.filter { it.isNotBlank() }
+        if (parts.size < 2) return ArtistCredits(artist, emptyList())
+        val allSingleWord = parts.all { it.split(Regex("\\s+")).size == 1 }
+        if (allSingleWord && !artist.contains('&') && !artist.contains('+') &&
+            !Regex("""(?i)\band\b|\bx\b""").containsMatchIn(artist)
+        ) {
+            return ArtistCredits(artist, emptyList())
+        }
+        val primary = parts.first()
+        val featuredRaw = parts.drop(1)
+            .map { cleanArtistName(it) ?: it }
+            .filter { it.isNotBlank() && !it.equals(primary, ignoreCase = true) && looksLikePersonCredit(it) }
+            .distinct()
+        // Long comma lists are almost always liner-note dumps (Qobuz performers).
+        val featured = if (parts.size > 3) featuredRaw.take(1) else featuredRaw.take(2)
+        return ArtistCredits(primary, featured)
+    }
 
     fun extractFeaturedArtists(rawTitle: String, rawArtist: String = ""): List<String> {
         val candidates = mutableListOf<String>()
-        featurePattern.findAll("$rawTitle $rawArtist").forEach { match ->
+        featurePattern.findAll(rawTitle).forEach { match ->
             val raw = (match.groups[1]?.value ?: match.groups[2]?.value ?: "").trim()
             if (raw.isNotBlank()) {
-                // Split on common separators like &, and, vs, comma
-                raw.split(Regex("""(?i)\s*(?:,|\&|and|vs\.?|x)\s*"""))
+                raw.split(creditSplitPattern)
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .forEach { candidates.add(it) }
             }
         }
+        splitArtistCredits(rawArtist).featured.forEach { candidates.add(it) }
         return candidates
             .map { cleanArtistName(it) ?: it }
-            .filter { it.isNotBlank() }
+            .filter { it.isNotBlank() && looksLikePersonCredit(it) }
             .distinct()
+            .take(2)
+    }
+
+    private fun looksLikePersonCredit(name: String): Boolean {
+        val cleaned = name.trim()
+        if (cleaned.isBlank()) return false
+        val lower = cleaned.lowercase()
+        if (lower in setOf(
+                "electric guitar", "acoustic guitar", "bass guitar", "pedal steel guitar",
+                "drums", "percussion", "mandolin", "piano", "vocals", "bass", "guitar",
+                "project coordinator", "producer", "engineer", "mixer"
+            )
+        ) return false
+        if (Regex("""(?i)^(electric|acoustic|bass|pedal\s*steel)?\s*(guitar|drums?|percussion|mandolin|piano|coordinator|engineer|producer|mixer)$""")
+                .matches(cleaned)
+        ) return false
+        return true
     }
 
     fun cleanAlbumName(album: String?): String? {
@@ -177,15 +270,22 @@ object DisplayMetadataCleaner {
         explicit: Boolean? = null,
         providerId: String? = null
     ): DisplayMetadata {
-        val featuredArtists = extractFeaturedArtists(rawTitle, rawArtist)
+        val artistCredits = splitArtistCredits(rawArtist)
+        val featuredArtists = (
+            extractFeaturedArtists(rawTitle, rawArtist) + artistCredits.featured
+            )
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
         val suffixCleanedTitle = stripSuffixes(rawTitle).let { it.ifBlank { rawTitle } }
         val artistTitle = parseArtistTitle(suffixCleanedTitle)
 
-        val enrichedArtist = enrichArtistWithFeatured(finalArtist = null, featuredArtists = featuredArtists)
-
         if (artistTitle != null) {
             val (parsedArtist, parsedSong) = artistTitle
-            val displayArtistRaw = cleanChannelName(rawArtist, parsedArtist)
+            val displayArtistRaw = cleanChannelName(
+                artistCredits.primary.ifBlank { rawArtist },
+                splitArtistCredits(parsedArtist).primary.ifBlank { parsedArtist }
+            )
             val displayArtist = enrichArtistWithFeatured(displayArtistRaw, featuredArtists)
             val displayTitle = replaceUnderscoresWithSpaces(stripSuffixes(parsedSong))
             if (displayTitle.isNotBlank()) {
@@ -202,8 +302,9 @@ object DisplayMetadataCleaner {
             }
         }
 
+        val primaryBase = artistCredits.primary.ifBlank { cleanChannelName(rawArtist, null) }
         val finalTitle = replaceUnderscoresWithSpaces(suffixCleanedTitle)
-        val finalArtist = enrichArtistWithFeatured(cleanChannelName(rawArtist, null), featuredArtists)
+        val finalArtist = enrichArtistWithFeatured(primaryBase, featuredArtists)
         val reason = if (finalTitle != rawTitle) "youtube_strip_suffixes" else "raw_provider"
 
         Log.d("VANTA_METADATA_CLEAN",
@@ -267,6 +368,15 @@ object DisplayMetadataCleaner {
 
     fun stripSuffixes(text: String): String {
         var result = text.trim()
+        // Video catalog titles sometimes append a quoted lyric teaser after the
+        // presentation label, for example: Song (Lyrics) "first lyric line".
+        // Everything from that bracketed label onward is packaging, not title.
+        result = result.replace(
+            Regex(
+                """(?i)\s*[\(\[]\s*(?:lyrics?|lyric\s+video|official\s+(?:audio|music\s+video|video)|audio|visualizer)\s*[\)\]].*$"""
+            ),
+            ""
+        ).trim()
         // Strip known platform/suffix labels
         for (suffix in titleSuffixes) {
             while (result.endsWith(suffix, ignoreCase = true)) {

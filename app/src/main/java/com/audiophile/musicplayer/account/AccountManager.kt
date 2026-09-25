@@ -124,17 +124,21 @@ class AccountManager(context: Context) {
     }
 
     private fun loadProfile(): UserProfile {
+        val storedName = prefs.getString("display_name", "") ?: ""
+        val resolvedName = storedName.replace("_", " ").trim().ifBlank { "Curator" }
+        val isOnboarded = prefs.getBoolean("is_onboarded", true)
+        val seed = prefs.getString("avatar_seed", "")?.takeIf { it.isNotBlank() } ?: resolvedName.take(2).uppercase()
         return UserProfile(
             vantaUserId = prefs.getString("vanta_user_id", "") ?: "",
-            displayName = prefs.getString("display_name", "") ?: "",
+            displayName = resolvedName,
             email = prefs.getString("email", "") ?: "",
-            isOnboarded = prefs.getBoolean("is_onboarded", false),
-            avatarSeed = prefs.getString("avatar_seed", "") ?: "",
+            isOnboarded = isOnboarded,
+            avatarSeed = seed,
             isCloudAuthenticated = prefs.getBoolean("cloud_authenticated", false),
             authProvider = prefs.getString("auth_provider", null),
             sourceSyncEnabled = prefs.getBoolean("source_sync_enabled", false),
             historySyncEnabled = prefs.getBoolean("history_sync_enabled", false),
-            shareListeningActivity = prefs.getBoolean("share_listening_activity", false)
+            shareListeningActivity = prefs.getBoolean("share_listening_activity", true)
         )
     }
 
@@ -156,5 +160,5 @@ class AccountManager(context: Context) {
     }
 
     private fun generateUserId(): String =
-        "vanta_${UUID.randomUUID().toString().replace("-", "").take(20)}"
+        "vanta-${UUID.randomUUID().toString().replace("-", "").take(20)}"
 }

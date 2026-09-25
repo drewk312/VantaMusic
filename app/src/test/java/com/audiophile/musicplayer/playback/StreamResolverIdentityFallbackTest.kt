@@ -86,6 +86,64 @@ class StreamResolverIdentityFallbackTest {
     }
 
     @Test
+    fun playbackSourceQualityRank_prefersQobuzTidalOverYouTubeAtSimilarBitrate() {
+        val youtube = source(
+            sourceId = 1L,
+            bitrate = 138,
+            provider = "youtube_music",
+            sourceType = SourceType.YOUTUBE_MUSIC
+        )
+        val qobuzTidal = source(
+            sourceId = 2L,
+            bitrate = 128,
+            provider = "qobuz_tidal",
+            sourceType = SourceType.ADDON
+        )
+
+        assertTrue(playbackSourceQualityRank(qobuzTidal) > playbackSourceQualityRank(youtube))
+    }
+
+    @Test
+    fun fallbackRanksCatalogAheadOfYouTubeWhenIdentityMatches() {
+        val track = UnifiedTrackWithSources(
+            track = UnifiedTrack(
+                trackId = 1L,
+                title = "Blinding Lights",
+                artist = "The Weeknd",
+                albumName = "After Hours",
+                coverArtUrl = null,
+                durationMs = 200_000L
+            ),
+            sources = emptyList()
+        )
+
+        val ranked = rankFallbackStreamCandidates(
+            track = track,
+            candidates = listOf(
+                result(
+                    id = "yt",
+                    title = "Blinding Lights",
+                    artist = "The Weeknd",
+                    album = "After Hours",
+                    durationMs = 200_000L,
+                    providerId = "youtube_music"
+                ),
+                result(
+                    id = "qobuz",
+                    title = "Blinding Lights",
+                    artist = "The Weeknd",
+                    album = "After Hours",
+                    durationMs = 200_000L,
+                    providerId = "qobuz_tidal"
+                )
+            )
+        )
+
+        assertEquals("qobuz", ranked.first().id)
+        assertEquals("youtube_music", ranked.last().providerId)
+    }
+
+    @Test
     fun playbackSourceQualityRank_prefersHigherQualityLosslessSource() {
         val lowQuality = source(
             sourceId = 1L,
@@ -99,6 +157,42 @@ class StreamResolverIdentityFallbackTest {
         )
 
         assertTrue(playbackSourceQualityRank(hiRes) > playbackSourceQualityRank(lowQuality))
+    }
+
+    @Test
+    fun searchFallbackPersistsTheResolvedCandidateNotTheFailedIdentity() {
+        val persisted = "qobuz_tidal" to "qobuz:1"
+        val actual = persistIdentityForResolvedCandidate("tidal_gateway", "tidal:99")
+        assertEquals("tidal_gateway", actual.first)
+        assertEquals("tidal:99", actual.second)
+        assertFalse(actual == persisted)
+    }
+
+    @Test
+    fun tapBudgetDoesNotLeaveATwentySecondResolveWindow() {
+        val totalBudget = com.audiophile.musicplayer.data.source.CloudLibraryHelpers.TAP_PLAY_TOTAL_BUDGET_MS
+        assertTrue("tap-to-play budget must stay bounded", totalBudget in 1L..15_000L)
+        assertEquals(
+            totalBudget,
+            com.audiophile.musicplayer.data.source.CloudLibraryHelpers.TAP_PLAY_RESOLVE_TIMEOUT_MS
+        )
+        assertTrue(com.audiophile.musicplayer.data.source.CloudLibraryHelpers.TAP_PLAY_SEARCH_TIMEOUT_MS <= 4_000L)
+        assertEquals(
+            0L,
+            com.audiophile.musicplayer.data.source.CloudLibraryHelpers.remainingTapBudgetMs(
+                startedAtMs = 0L,
+                budgetMs = 8_000L,
+                nowMs = 8_000L
+            )
+        )
+        assertEquals(
+            3_000L,
+            com.audiophile.musicplayer.data.source.CloudLibraryHelpers.remainingTapBudgetMs(
+                startedAtMs = 1_000L,
+                budgetMs = 8_000L,
+                nowMs = 6_000L
+            )
+        )
     }
 
     private fun result(
@@ -120,10 +214,15 @@ class StreamResolverIdentityFallbackTest {
         qualityLabel = null
     )
 
-    private fun source(sourceId: Long, bitrate: Int, provider: String) = TrackSource(
+    private fun source(
+        sourceId: Long,
+        bitrate: Int,
+        provider: String,
+        sourceType: SourceType = SourceType.ADDON
+    ) = TrackSource(
         sourceId = sourceId,
         parentTrackId = 1L,
-        sourceType = SourceType.ADDON,
+        sourceType = sourceType,
         streamUrl = "https://example.com/$sourceId.flac",
         bitrate = bitrate,
         externalProviderId = provider,

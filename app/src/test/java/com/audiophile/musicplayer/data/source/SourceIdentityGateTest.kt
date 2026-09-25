@@ -153,6 +153,40 @@ class SourceIdentityGateTest {
         assertTrue(rejected.first)
     }
 
+    @Test
+    fun catalogProviderOutranksYouTube() {
+        assertTrue(SourceIdentityGate.playbackProviderRank("qobuz_tidal") > SourceIdentityGate.playbackProviderRank("youtube_music"))
+        assertTrue(SourceIdentityGate.isCatalogPlaybackProvider("qobuz_tidal"))
+        assertTrue(SourceIdentityGate.isSupplementalPlaybackProvider("youtube_music"))
+        assertFalse(SourceIdentityGate.isCatalogPlaybackProvider("youtube_music"))
+    }
+
+    @Test
+    fun measuredAtmosM4aOutranksYouTubeAndCdFlac() {
+        val atmos = ResolvedStream(
+            streamUrl = "https://example.com/jungle.m4a",
+            bitrateKbps = 3284,
+            mimeType = "audio/mp4",
+            format = "m4a",
+            qualityLabel = "atmos",
+            isDolbyAtmos = true
+        )
+        val flac = ResolvedStream(
+            streamUrl = "https://example.com/jungle.flac",
+            bitrateKbps = 1411,
+            mimeType = "audio/flac",
+            format = "flac"
+        )
+        val youtube = ResolvedStream(
+            streamUrl = "https://example.com/jungle.webm",
+            bitrateKbps = 128,
+            mimeType = "audio/webm",
+            format = "webm"
+        )
+        assertTrue(SourceIdentityGate.streamPlaybackScore("tidal", atmos) > SourceIdentityGate.streamPlaybackScore("qobuz", flac))
+        assertTrue(SourceIdentityGate.streamPlaybackScore("qobuz", flac) > SourceIdentityGate.streamPlaybackScore("youtube_music", youtube))
+    }
+
     private fun searchResult(
         title: String,
         artist: String,

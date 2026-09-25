@@ -73,7 +73,8 @@ class ReleaseRadarGenerator : PersonalizedMixGenerator {
         deps: PersonalizedMixDeps,
         taste: com.audiophile.musicplayer.data.dj.AiDjRecommendationEngine.TasteProfile
     ): List<String> {
-        val combined = (taste.favoriteArtists + taste.topArtists)
+        val historyArtists = deps.listeningHistory?.recommendationArtists().orEmpty()
+        val combined = (taste.favoriteArtists + historyArtists + taste.topArtists)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()

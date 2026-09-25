@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.ui.VantaType
+import com.audiophile.musicplayer.ui.isDolbyAtmosLabel
+import com.audiophile.musicplayer.ui.isSony360Label
 
 @Composable
 fun LivingLyricsScene(
@@ -260,17 +262,7 @@ fun LivingLyricsMetadataRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.50f),
-                        Color.Black.copy(alpha = 0.22f),
-                        Color.Transparent
-                    )
-                ),
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 4.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -278,7 +270,7 @@ fun LivingLyricsMetadataRow(
                 text = title,
                 style = VantaType.sectionTitle.copy(
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp
+                    fontSize = 16.sp
                 ),
                 color = Color.White,
                 maxLines = 1,
@@ -297,7 +289,7 @@ fun LivingLyricsMetadataRow(
                     text = artist,
                     style = VantaType.subtitle.copy(
                         color = Color.White.copy(alpha = 0.78f),
-                        fontSize = 14.sp
+                        fontSize = 12.sp
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -313,7 +305,7 @@ fun LivingLyricsMetadataRow(
                         text = " • $album",
                         style = VantaType.caption.copy(
                             color = Color.White.copy(alpha = 0.52f),
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -339,6 +331,8 @@ fun LivingLyricsMetadataRow(
             ) {
                 Text(
                     text = when {
+                        isDolbyAtmosLabel(qualityLabel) -> "ATMOS"
+                        isSony360Label(qualityLabel) -> "360 RA"
                         qualityLabel.contains("hi-res", ignoreCase = true) || qualityLabel.contains("hi res", ignoreCase = true) -> "HI-RES"
                         qualityLabel.contains("lossless", ignoreCase = true) -> "LOSSLESS"
                         else -> qualityLabel.take(12)

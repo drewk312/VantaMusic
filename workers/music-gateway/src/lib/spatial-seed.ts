@@ -6,6 +6,7 @@
  * It is intentionally conservative: only well-known commercial releases.
  */
 import type { GatewayTrack } from "../types";
+import { spatialEvidenceFromSignals } from "./stream-quality";
 
 export interface SpatialSeedEntry {
   title?: string;
@@ -58,7 +59,9 @@ export const SPATIAL_SEED: SpatialSeedEntry[] = [
   { title: "Cruel Summer", artist: "Taylor Swift", spatialFormat: "dolby_atmos" },
   { title: "Karma", artist: "Taylor Swift", spatialFormat: "dolby_atmos" },
   { title: "Lover", artist: "Taylor Swift", spatialFormat: "dolby_atmos" },
-  { title: "Midnight Rain", artist: "Taylor Swift", spatialFormat: "dolby_atmos" },
+  { title: "Man I Need", artist: "Olivia Dean", spatialFormat: "dolby_atmos" },
+  { title: "The Art of Loving", artist: "Olivia Dean", spatialFormat: "dolby_atmos" },
+  { title: "So Easy (To Fall In Love)", artist: "Olivia Dean", spatialFormat: "dolby_atmos" },
   { title: "Uptown Funk", artist: "Mark Ronson", spatialFormat: "dolby_atmos" },
   { title: "24K Magic", artist: "Bruno Mars", spatialFormat: "dolby_atmos" },
   { title: "Locked Out of Heaven", artist: "Bruno Mars", spatialFormat: "dolby_atmos" },
@@ -132,13 +135,25 @@ function normalize(value: string): string {
 
 export function enrichSpatialFromSeed(track: GatewayTrack): GatewayTrack {
   const seed = isKnownSpatialTrack(track.title, track.artist);
-  if (!seed) return track;
+  const detected = spatialEvidenceFromSignals(track.format, track.audioQuality, track.spatialEvidence);
+  const codecVerified = detected === "verified";
+  if (!seed) {
+    return {
+      ...track,
+      isDolbyAtmos: codecVerified,
+      isSpatialAudio: codecVerified,
+      isSurround: codecVerified,
+      spatialEvidence: detected,
+    };
+  }
   return {
     ...track,
-    isDolbyAtmos: seed.spatialFormat === "dolby_atmos" || track.isDolbyAtmos,
-    isSpatialAudio: ["dolby_atmos", "spatial_audio"].includes(seed.spatialFormat) || track.isSpatialAudio,
-    isSurround: ["dolby_atmos", "spatial_audio", "surround"].includes(seed.spatialFormat) || track.isSurround,
-    isHiRes: seed.spatialFormat === "hi_res" || track.isHiRes,
+    atmosMixAvailable: seed.spatialFormat === "dolby_atmos" || Boolean(track.atmosMixAvailable),
+    isDolbyAtmos: codecVerified,
+    isSpatialAudio: codecVerified,
+    isSurround: codecVerified,
+    isHiRes: seed.spatialFormat === "hi_res" || Boolean(track.isHiRes),
+    spatialEvidence: codecVerified ? "verified" : "catalog",
   };
 }
 

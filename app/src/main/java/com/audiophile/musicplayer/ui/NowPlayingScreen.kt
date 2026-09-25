@@ -62,7 +62,6 @@ import com.audiophile.musicplayer.ui.VantaType
 import com.audiophile.musicplayer.ui.nowplaying.TrackMood
 import com.audiophile.musicplayer.ui.nowplaying.TrackMoodEngine
 import com.audiophile.musicplayer.ui.nowplaying.LivingArtworkBackdrop
-import com.audiophile.musicplayer.ui.nowplaying.StoryMomentChip
 import com.audiophile.musicplayer.playback.UpnpCastingHolder
 import com.audiophile.musicplayer.ui.AppTextMuted
 import com.audiophile.musicplayer.ui.AppTextSecondary
@@ -92,6 +91,7 @@ fun NowPlayingScreen(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSeekTo: (Long) -> Unit,
+    onToggleShuffle: () -> Unit = {},
     onPlayNextQueue: () -> Unit = {},
     onMoveQueueItem: (Int) -> Unit = {},
     onRemoveQueueItem: (Int) -> Unit = {},
@@ -104,7 +104,9 @@ fun NowPlayingScreen(
     animatedArtworkEnabled: Boolean = true,
     statusMessage: String = "",
     visualizerViewModel: VantaVisualizerViewModel? = null,
-    nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null
+    nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {}
 ) {
     // Audio frames update many times per second. Read them inside this screen so
     // they cannot invalidate the root navigation tree while users browse.
@@ -112,7 +114,7 @@ fun NowPlayingScreen(
     val audioFrame = visualizerViewModel?.audioFrame?.collectAsState()?.value
     var mode by rememberSaveable { mutableStateOf(NowPlayingMode.ARTWORK) }
     var showQualityDetails by remember { mutableStateOf(false) }
-    var showCastSheet by remember { mutableStateOf(false) }
+    var showOutputSheet by remember { mutableStateOf(false) }
     var visibleStatusMessage by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(statusMessage) {
         val cleanStatus = statusMessage.trim()
@@ -170,9 +172,9 @@ fun NowPlayingScreen(
     val hasArtwork = !resolvedArtworkUrl.isNullOrBlank()
     val artworkSeed = "${nowPlayingState.title ?: ""} ${nowPlayingState.artist ?: ""}"
     val artworkColors = rememberArtworkGradientColors(artworkUrl = resolvedArtworkUrl, seed = artworkSeed)
-    val screenAccent = if (hasArtwork) artworkColors.accentColor else Color(0xFFB8A77F)
-    val screenTopColor = if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else if (hasArtwork) artworkColors.topColor else Color(0xFF1A1218)
-    val screenMidColor = if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else if (hasArtwork) artworkColors.midColor else Color(0xFF0D0A0C)
+    val screenAccent = if (hasArtwork) artworkColors.accentColor else VantaFallbackAccent
+    val screenTopColor = if (hasArtwork) artworkColors.topColor else VantaFallbackUmber
+    val screenMidColor = if (hasArtwork) artworkColors.midColor else VantaFallbackUmberDark
 
     val animatedAccentColor by animateColorAsState(targetValue = screenAccent, animationSpec = tween(900), label = "ambientAccentColor")
     val animatedTopColorForBg by animateColorAsState(targetValue = screenTopColor, animationSpec = tween(900), label = "ambientTopColor")
@@ -203,7 +205,7 @@ fun NowPlayingScreen(
                         colors = listOf(
                             animatedTopColorForBg,
                             animatedMidColorForBg,
-                            AppBackgroundBottom
+                            if (hasArtwork) artworkColors.bottomColor else AppBackgroundBottom
                         )
                     )
                 )
@@ -211,8 +213,22 @@ fun NowPlayingScreen(
         val isWide = maxWidth > maxHeight
         val isCompact = maxHeight < 680.dp
 
-        val effectiveAuraPalette = remember(auraState?.palette, screenAccent) {
-            auraState?.palette?.forArtwork(listOf(screenAccent)) ?: com.audiophile.musicplayer.audio.visualizer.AuraPalette()
+        val effectiveAuraPalette = remember(
+            auraState?.palette,
+            artworkColors.topColor,
+            artworkColors.midColor,
+            artworkColors.accentColor,
+            screenAccent
+        ) {
+            val base = auraState?.palette ?: com.audiophile.musicplayer.audio.visualizer.AuraPalette()
+            base.forArtwork(
+                listOf(
+                    artworkColors.accentColor,
+                    artworkColors.topColor,
+                    artworkColors.midColor,
+                    screenAccent
+                )
+            )
         }
 
         val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -237,16 +253,15 @@ fun NowPlayingScreen(
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            if (mode != NowPlayingMode.LYRICS) {
-                LivingArtworkBackdrop(
-                    artworkUrl = resolvedArtworkUrl,
-                    seed = artworkSeed,
-                    audioFrame = audioFrame,
-                    mood = trackMood,
-                    moodEnergy = audioFrame?.let { it.rms } ?: 0.5f,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            // Keep a blurred cover behind lyrics and artwork modes.
+            LivingArtworkBackdrop(
+                artworkUrl = resolvedArtworkUrl,
+                seed = artworkSeed,
+                audioFrame = audioFrame,
+                mood = trackMood,
+                moodEnergy = audioFrame?.let { it.rms } ?: 0.5f,
+                modifier = Modifier.fillMaxSize()
+            )
             if (mode != NowPlayingMode.LYRICS && auraState != null && audioFrame != null && auraState.isActive && auraState.audioReactiveEnabled) {
                 VantaAuraBackground(
                     palette = effectiveAuraPalette,
@@ -267,11 +282,12 @@ fun NowPlayingScreen(
                     queueSnapshot = queueSnapshot, mode = mode, onModeChange = { mode = it },
                     onBack = onBack, onToggleFavorite = onToggleFavorite, onTogglePlayPause = onTogglePlayPause,
                     onPrevious = onPrevious, onNext = onNext, onSeekTo = onSeekTo,
+                    onToggleShuffle = onToggleShuffle,
                     onMoveQueueItem = onMoveQueueItem, onRemoveQueueItem = onRemoveQueueItem,
                     onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
                     onOpenTrackSheet = onOpenTrackSheet, onOpenDj = onOpenDj, onOpenEqualizer = onOpenEqualizer,
                     onOpenQueueTrackSheet = onOpenQueueTrackSheet,
-                    onOpenCast = { showCastSheet = true },
+                    onOpenCast = { showOutputSheet = true },
                     displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
                     hasArtwork = hasArtwork,
                     animatedArtworkEnabled = animatedArtworkEnabled, posterAccentColor = screenAccent,
@@ -279,7 +295,9 @@ fun NowPlayingScreen(
                     audioFrame = audioFrame, auraEnabled = auraState?.isActive == true, reducedMotion = auraState?.reducedMotion == true,
                     auraState = auraState, effectiveAuraPalette = effectiveAuraPalette,
                     nowPlayingViewModel = nowPlayingViewModel,
-                    trackMood = trackMood
+                    trackMood = trackMood,
+                    selectedDiscoveryMode = selectedDiscoveryMode,
+                    onDiscoveryModeSelected = onDiscoveryModeSelected
                 )
             } else {
                 PortraitNowPlayingContent(
@@ -291,11 +309,12 @@ fun NowPlayingScreen(
                     queueSnapshot = queueSnapshot, mode = mode, onModeChange = { mode = it },
                     onBack = onBack, onToggleFavorite = onToggleFavorite, onTogglePlayPause = onTogglePlayPause,
                     onPrevious = onPrevious, onNext = onNext, onSeekTo = onSeekTo,
+                    onToggleShuffle = onToggleShuffle,
                     onMoveQueueItem = onMoveQueueItem, onRemoveQueueItem = onRemoveQueueItem,
                     onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
                     onOpenTrackSheet = onOpenTrackSheet, onOpenDj = onOpenDj, onOpenEqualizer = onOpenEqualizer,
                     onOpenQueueTrackSheet = onOpenQueueTrackSheet,
-                    onOpenCast = { showCastSheet = true },
+                    onOpenCast = { showOutputSheet = true },
                     displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
                     hasArtwork = hasArtwork,
                     animatedArtworkEnabled = animatedArtworkEnabled, posterAccentColor = screenAccent,
@@ -304,7 +323,9 @@ fun NowPlayingScreen(
                     auraState = auraState, effectiveAuraPalette = effectiveAuraPalette,
                     nowPlayingViewModel = nowPlayingViewModel,
                     isCompact = isCompact,
-                    trackMood = trackMood
+                    trackMood = trackMood,
+                    selectedDiscoveryMode = selectedDiscoveryMode,
+                    onDiscoveryModeSelected = onDiscoveryModeSelected
                 )
             }
         }
@@ -317,20 +338,17 @@ fun NowPlayingScreen(
             QualityDetailsSheet(qualityInfo = qualityInfo, accentColor = screenAccent, trackTitle = displayTitle, trackArtist = displayArtist, onDismiss = { showQualityDetails = false })
         }
 
-        if (showCastSheet) {
-            val castingManager = UpnpCastingHolder.manager
-            if (castingManager != null) {
-                @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-                androidx.compose.material3.ModalBottomSheet(
-                    onDismissRequest = { showCastSheet = false },
-                    containerColor = com.audiophile.musicplayer.ui.AppSurface
-                ) {
-                    CastDeviceSheet(
-                        castingManager = castingManager,
-                        streamUrl = nowPlayingState.streamUrl,
-                        onDismiss = { showCastSheet = false }
-                    )
-                }
+        if (showOutputSheet) {
+            @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+            androidx.compose.material3.ModalBottomSheet(
+                onDismissRequest = { showOutputSheet = false },
+                containerColor = com.audiophile.musicplayer.ui.AppSurface
+            ) {
+                OutputDeviceSheet(
+                    castingManager = UpnpCastingHolder.manager,
+                    streamUrl = nowPlayingState.streamUrl,
+                    onDismiss = { showOutputSheet = false }
+                )
             }
         }
     }
@@ -346,6 +364,7 @@ private fun WideNowPlayingContent(
     queueSnapshot: QueueSnapshot, mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
     onBack: () -> Unit, onToggleFavorite: () -> Unit, onTogglePlayPause: () -> Unit,
     onPrevious: () -> Unit, onNext: () -> Unit, onSeekTo: (Long) -> Unit,
+    onToggleShuffle: () -> Unit = {},
     onMoveQueueItem: (Int) -> Unit, onRemoveQueueItem: (Int) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit, onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
     onOpenTrackSheet: () -> Unit, onOpenDj: () -> Unit, onOpenEqualizer: () -> Unit,
@@ -357,11 +376,13 @@ private fun WideNowPlayingContent(
     audioFrame: VantaAudioFrame? = null, auraEnabled: Boolean = false, reducedMotion: Boolean = true,
     auraState: VantaAuraState? = null, effectiveAuraPalette: AuraPalette? = null,
     nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null,
-    trackMood: TrackMood = TrackMood.UNKNOWN
+    trackMood: TrackMood = TrackMood.UNKNOWN,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {}
 ) {
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
-    val effectiveLyricsData = lyricsData?.takeIf { displaySnapshot.canDisplayLyrics }
+    val effectiveLyricsData = lyricsData
     var lyricsControlsVisible by remember { mutableStateOf(true) }
     val topInsetDp = with(LocalDensity.current) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     val bottomInsetDp = with(LocalDensity.current) { WindowInsets.systemBars.only(WindowInsetsSides.Bottom).getBottom(this).toDp() }
@@ -378,9 +399,14 @@ private fun WideNowPlayingContent(
                     accentColor = posterAccentColor, isFavorite = nowPlayingState.isFavorite,
                     onToggleFavorite = onToggleFavorite, modifier = Modifier.fillMaxSize()
                 )
+                NowPlayingMode.CANVAS -> VantaCanvasStage(
+                    coverArtUrl = displaySnapshot.artworkUrl, seed = displayTitle, hasArtwork = hasArtwork,
+                    isPlaying = nowPlayingState.isPlaying, accentColor = posterAccentColor,
+                    audioFrame = audioFrame, modifier = Modifier.fillMaxSize()
+                )
                 NowPlayingMode.LYRICS -> VantaLyricsStage(
                     lyricsData = effectiveLyricsData,
-                    lyricsLoading = lyricsLoading || lyricsTrackId != null && !displaySnapshot.canDisplayLyrics,
+                    lyricsLoading = lyricsLoading && lyricsData == null,
                     lyricsIdentity = lyricsIdentity,
                     nowPlayingState = nowPlayingState, displayTitle = displayTitle, displayArtist = displayArtist,
                     displayAlbum = displayAlbum, qualityInfo = displaySnapshot.qualityInfo,
@@ -393,7 +419,8 @@ private fun WideNowPlayingContent(
                 )
                 NowPlayingMode.QUEUE -> Box(modifier = Modifier.fillMaxSize()) {
                     QueueView(queueSnapshot = queueSnapshot, onMoveQueueItem = onMoveQueueItem,
-                        onRemoveQueueItem = onRemoveQueueItem, onOpenTrackSheet = onOpenQueueTrackSheet, modifier = Modifier.fillMaxSize())
+                        onRemoveQueueItem = onRemoveQueueItem, onOpenTrackSheet = onOpenQueueTrackSheet,
+                        onShuffleQueue = onToggleShuffle, modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -401,22 +428,59 @@ private fun WideNowPlayingContent(
         if (mode != NowPlayingMode.LYRICS || lyricsControlsVisible) {
         Column(modifier = Modifier.weight(0.38f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
             VantaSceneHeaderRow(centerLabel = "VANTA LISTENING", titleForMenu = displaySnapshot.title,
-                onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet, onOpenCast = onOpenCast)
+                onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet, onOpenCast = onOpenCast,
+                mode = mode, onModeChange = onModeChange)
             Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
                 Spacer(Modifier.height(10.dp))
                 Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = 24.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(displayArtist, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.7f)), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
-                        if (displaySnapshot.featuredArtists.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        displayArtist,
+                        style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.78f)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .clickable {
+                                Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'")
+                                onNavigateToArtist(displayArtist, null)
+                            }
+                    )
+                    if (displaySnapshot.featuredArtists.isNotEmpty()) {
+                        Spacer(Modifier.width(10.dp))
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
                             Text(
-                                "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
-                                style = VantaType.caption.copy(color = Color.White.copy(alpha = 0.4f)),
+                                "featuring",
+                                style = VantaType.caption.copy(
+                                    color = Color.White.copy(alpha = 0.35f),
+                                    letterSpacing = 0.8.sp
+                                ),
+                                maxLines = 1
+                            )
+                            Text(
+                                displaySnapshot.featuredArtists.joinToString(", "),
+                                style = VantaType.subtitle.copy(
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    fontSize = 14.sp
+                                ),
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.clickable {
+                                    val guest = displaySnapshot.featuredArtists.firstOrNull().orEmpty()
+                                    if (guest.isNotBlank()) {
+                                        Log.d("VANTA_UI_ACTION", "control='nowplaying_featured_artist' result='tap'")
+                                        onNavigateToArtist(guest, null)
+                                    }
+                                }
                             )
                         }
                     }
@@ -431,11 +495,27 @@ private fun WideNowPlayingContent(
                     val pq = nowPlayingState.qualityInfo
                     if (pq != null && shouldShowQualityChip(pq)) {
                         Spacer(Modifier.width(10.dp))
-                        NowPlayingQualitySignal(qualityInfo = pq, onClick = onOpenQualityDetails)
+                        VantaFormatBadgeRow(
+                            qualityInfo = pq,
+                            acousticness = nowPlayingState.acousticness,
+                            size = FormatBadgeSize.Compact,
+                            onClick = onOpenQualityDetails
+                        )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
-                LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = canPlayPrevious, canPlayNext = canPlayNext, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
+
+                LuxuryControlsRow(
+                    isPlaying = nowPlayingState.isPlaying,
+                    canPlayPrevious = canPlayPrevious,
+                    canPlayNext = canPlayNext,
+                    isFavorite = nowPlayingState.isFavorite,
+                    onToggleFavorite = onToggleFavorite,
+                    isShuffleEnabled = queueSnapshot.isShuffleEnabled || nowPlayingState.shuffleEnabled,
+                    onToggleShuffle = onToggleShuffle,
+                    onPrevious = onPrevious,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onNext = onNext
+                )
                 Spacer(Modifier.height(12.dp))
                 PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
             }
@@ -454,6 +534,7 @@ private fun PortraitNowPlayingContent(
     queueSnapshot: QueueSnapshot, mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
     onBack: () -> Unit, onToggleFavorite: () -> Unit, onTogglePlayPause: () -> Unit,
     onPrevious: () -> Unit, onNext: () -> Unit, onSeekTo: (Long) -> Unit,
+    onToggleShuffle: () -> Unit = {},
     onMoveQueueItem: (Int) -> Unit, onRemoveQueueItem: (Int) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit, onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
     onOpenTrackSheet: () -> Unit, onOpenDj: () -> Unit, onOpenEqualizer: () -> Unit,
@@ -466,11 +547,13 @@ private fun PortraitNowPlayingContent(
     auraState: VantaAuraState? = null, effectiveAuraPalette: AuraPalette? = null,
     nowPlayingViewModel: com.audiophile.musicplayer.playback.NowPlayingViewModel? = null,
     isCompact: Boolean = false,
-    trackMood: TrackMood = TrackMood.UNKNOWN
+    trackMood: TrackMood = TrackMood.UNKNOWN,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {}
 ) {
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
-    val effectiveLyricsData = lyricsData?.takeIf { displaySnapshot.canDisplayLyrics }
+    val effectiveLyricsData = lyricsData
     var lyricsControlsVisible by remember { mutableStateOf(true) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -485,28 +568,19 @@ private fun PortraitNowPlayingContent(
             VantaSceneHeaderRow(centerLabel = "NOW PLAYING", titleForMenu = displaySnapshot.title,
                 onBack = onBack, onOpenEqualizer = onOpenEqualizer, onOpenTrackSheet = onOpenTrackSheet,
                 onOpenCast = onOpenCast,
+                mode = mode,
+                onModeChange = onModeChange,
                 modifier = Modifier
-                    .background(if (mode == NowPlayingMode.LYRICS) Color(0xFF0C0B0D) else Color.Transparent)
+                    .background(Color.Transparent)
                     .padding(horizontal = horizontalPadding))
 
-            val stageModifier = if (mode == NowPlayingMode.ARTWORK) {
-                Modifier
-                    .fillMaxWidth()
-                    .height(artSize + if (compact) 2.dp else 8.dp)
-            } else {
-                Modifier
+            val stageHorizontalPadding = if (mode == NowPlayingMode.LYRICS || mode == NowPlayingMode.CANVAS) 0.dp else horizontalPadding
+            Box(
+                modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            }
-            val stageHorizontalPadding = if (mode == NowPlayingMode.LYRICS) 0.dp else horizontalPadding
-            val stageVerticalPadding = if (mode == NowPlayingMode.LYRICS) 0.dp else 4.dp
-            Box(
-                modifier = stageModifier
                     .padding(horizontal = stageHorizontalPadding)
-                    .padding(
-                        top = if (mode == NowPlayingMode.LYRICS) 0.dp else stageTopPadding,
-                        bottom = stageVerticalPadding
-                    )
+                    .padding(top = if (mode == NowPlayingMode.LYRICS || mode == NowPlayingMode.CANVAS) 0.dp else stageTopPadding)
             ) {
                 when (mode) {
                     NowPlayingMode.ARTWORK -> VantaArtworkStage(
@@ -515,9 +589,14 @@ private fun PortraitNowPlayingContent(
                         accentColor = posterAccentColor, isFavorite = nowPlayingState.isFavorite,
                         onToggleFavorite = onToggleFavorite, artworkSize = artSize, modifier = Modifier.fillMaxSize()
                     )
+                    NowPlayingMode.CANVAS -> VantaCanvasStage(
+                        coverArtUrl = displaySnapshot.artworkUrl, seed = displayTitle, hasArtwork = hasArtwork,
+                        isPlaying = nowPlayingState.isPlaying, accentColor = posterAccentColor,
+                        audioFrame = audioFrame, artworkSize = artSize, modifier = Modifier.fillMaxSize()
+                    )
                     NowPlayingMode.LYRICS -> VantaLyricsStage(
                         lyricsData = effectiveLyricsData,
-                        lyricsLoading = lyricsLoading || lyricsTrackId != null && !displaySnapshot.canDisplayLyrics,
+                        lyricsLoading = lyricsLoading && lyricsData == null,
                         lyricsIdentity = lyricsIdentity,
                         nowPlayingState = nowPlayingState, displayTitle = displayTitle, displayArtist = displayArtist,
                         displayAlbum = displayAlbum, qualityInfo = displaySnapshot.qualityInfo,
@@ -530,10 +609,13 @@ private fun PortraitNowPlayingContent(
                     )
                     NowPlayingMode.QUEUE -> Box(modifier = Modifier.fillMaxSize()) {
                         QueueView(queueSnapshot = queueSnapshot, onMoveQueueItem = onMoveQueueItem,
-                            onRemoveQueueItem = onRemoveQueueItem, onOpenTrackSheet = onOpenQueueTrackSheet, modifier = Modifier.fillMaxSize())
+                            onRemoveQueueItem = onRemoveQueueItem, onOpenTrackSheet = onOpenQueueTrackSheet,
+                            onShuffleQueue = onToggleShuffle, modifier = Modifier.fillMaxSize())
                     }
                 }
             }
+
+            val isStationPlaying = queueSnapshot.isRadio || nowPlayingState.isLiveRadio
 
             if (mode == NowPlayingMode.LYRICS && lyricsControlsVisible) {
                 LyricsInfoSection(
@@ -544,23 +626,33 @@ private fun PortraitNowPlayingContent(
                     reducedMotion = reducedMotion, compact = compact,
                     onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
                     onOpenQualityDetails = onOpenQualityDetails,
+                    onToggleFavorite = onToggleFavorite,
+                    isShuffleEnabled = queueSnapshot.isShuffleEnabled || nowPlayingState.shuffleEnabled,
+                    onToggleShuffle = onToggleShuffle,
                     onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext,
-                    mode = mode, onModeChange = onModeChange
+                    mode = mode, onModeChange = onModeChange,
+                    selectedDiscoveryMode = selectedDiscoveryMode,
+                    onDiscoveryModeSelected = onDiscoveryModeSelected,
+                    isStationPlaying = isStationPlaying
                 )
-            } else {
-                Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    ArtworkInfoSection(
-                        displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
-                        displaySnapshot = displaySnapshot, enhancedMetadata = enhancedMetadata,
-                        nowPlayingState = nowPlayingState, posterAccentColor = posterAccentColor,
-                        onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled,
-                        reducedMotion = reducedMotion, compact = compact,
-                        onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
-                        onOpenQualityDetails = onOpenQualityDetails,
-                        onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext,
-                        mode = mode, onModeChange = onModeChange
-                    )
-                }
+            } else if (mode != NowPlayingMode.LYRICS) {
+                ArtworkInfoSection(
+                    displayTitle = displayTitle, displayArtist = displayArtist, displayAlbum = displayAlbum,
+                    displaySnapshot = displaySnapshot, enhancedMetadata = enhancedMetadata,
+                    nowPlayingState = nowPlayingState, posterAccentColor = posterAccentColor,
+                    onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled,
+                    reducedMotion = reducedMotion, compact = compact,
+                    onNavigateToArtist = onNavigateToArtist, onNavigateToAlbum = onNavigateToAlbum,
+                    onOpenQualityDetails = onOpenQualityDetails,
+                    onToggleFavorite = onToggleFavorite,
+                    isShuffleEnabled = queueSnapshot.isShuffleEnabled || nowPlayingState.shuffleEnabled,
+                    onToggleShuffle = onToggleShuffle,
+                    onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext,
+                    mode = mode, onModeChange = onModeChange,
+                    selectedDiscoveryMode = selectedDiscoveryMode,
+                    onDiscoveryModeSelected = onDiscoveryModeSelected,
+                    isStationPlaying = isStationPlaying
+                )
             }
         }
     }
@@ -578,15 +670,29 @@ private fun LyricsInfoSection(
     onNavigateToArtist: (String, String?) -> Unit,
     onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
     onOpenQualityDetails: () -> Unit,
+    onToggleFavorite: () -> Unit = {},
+    isShuffleEnabled: Boolean = false,
+    onToggleShuffle: (() -> Unit)? = null,
     onPrevious: () -> Unit, onTogglePlayPause: () -> Unit, onNext: () -> Unit,
-    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit
+    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {},
+    isStationPlaying: Boolean = false
 ) {
     val pq = nowPlayingState.qualityInfo
     val qualityLabel = if (pq != null && shouldShowQualityChip(pq)) pq.bestQualityLabel() else null
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0C0B0D))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.55f),
+                        Color.Black.copy(alpha = 0.88f)
+                    )
+                )
+            )
             .padding(horizontal = if (compact) 18.dp else 24.dp)
     ) {
         LivingLyricsMetadataRow(
@@ -596,13 +702,23 @@ private fun LyricsInfoSection(
             qualityLabel = qualityLabel,
             accentColor = posterAccentColor
         )
-        Spacer(Modifier.height(6.dp))
         CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
-        Spacer(Modifier.height(14.dp))
-        LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = nowPlayingState.queuePosition > 0, canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(4.dp))
+        LuxuryControlsRow(
+            isPlaying = nowPlayingState.isPlaying,
+            canPlayPrevious = nowPlayingState.queuePosition > 0,
+            canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1,
+            isFavorite = nowPlayingState.isFavorite,
+            onToggleFavorite = onToggleFavorite,
+            isShuffleEnabled = isShuffleEnabled,
+            onToggleShuffle = onToggleShuffle,
+            onPrevious = onPrevious,
+            onTogglePlayPause = onTogglePlayPause,
+            onNext = onNext
+        )
+        Spacer(Modifier.height(10.dp))
         PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -616,66 +732,138 @@ private fun ArtworkInfoSection(
     onNavigateToArtist: (String, String?) -> Unit,
     onNavigateToAlbum: (String, String, String?, Int?, String?, Boolean?) -> Unit,
     onOpenQualityDetails: () -> Unit,
+    onToggleFavorite: () -> Unit = {},
+    isShuffleEnabled: Boolean = false,
+    onToggleShuffle: (() -> Unit)? = null,
     onPrevious: () -> Unit, onTogglePlayPause: () -> Unit, onNext: () -> Unit,
-    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit
+    mode: NowPlayingMode, onModeChange: (NowPlayingMode) -> Unit,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {},
+    isStationPlaying: Boolean = false
 ) {
     val canPlayNext = nowPlayingState.queuePosition < nowPlayingState.queueSize - 1
     val canPlayPrevious = nowPlayingState.queuePosition > 0
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = if (compact) 18.dp else 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Spacer(Modifier.weight(1f))
-        CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
-        Spacer(Modifier.height(16.dp))
-        Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 24.sp else 30.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f, fill = false)) {
-                Text(displayArtist, style = VantaType.sectionTitle.copy(color = Color.White.copy(alpha = 0.75f), fontSize = if (compact) 15.sp else 17.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_artist' result='tap'"); onNavigateToArtist(displayArtist, null) })
-                if (displaySnapshot.featuredArtists.isNotEmpty()) {
-                    Text(
-                        "feat. ${displaySnapshot.featuredArtists.joinToString(", ")}",
-                        style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.45f), fontSize = if (compact) 12.sp else 14.sp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+    val containerModifier = if (mode == NowPlayingMode.CANVAS) {
+        Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.65f),
+                        Color.Black.copy(alpha = 0.92f)
                     )
-                }
-            }
-            val albumText = (displayAlbum ?: DisplayMetadataCleaner.cleanDisplayName(enhancedMetadata?.album).takeIf { it.isNotBlank() })?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
-            if (albumText != null) {
-                Spacer(Modifier.width(8.dp))
-                Text("•", style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.3f)))
-                Spacer(Modifier.width(8.dp))
-                Text(albumText, style = VantaType.subtitle.copy(color = Color.White.copy(alpha = 0.5f), fontSize = if (compact) 13.sp else 15.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_album' result='tap'"); onNavigateToAlbum(albumText, enhancedMetadata?.artist ?: displayArtist, enhancedMetadata?.artworkUrl, enhancedMetadata?.releaseYear, enhancedMetadata?.genres?.firstOrNull(), enhancedMetadata?.explicit ?: false) })
-            }
-            val pq = nowPlayingState.qualityInfo
-            if (pq != null && shouldShowQualityChip(pq)) {
-                Spacer(Modifier.width(10.dp))
-                NowPlayingQualitySignal(qualityInfo = pq, onClick = onOpenQualityDetails)
+                )
+            )
+            .padding(horizontal = if (compact) 18.dp else 24.dp)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = if (compact) 18.dp else 24.dp)
+    }
+    Column(modifier = containerModifier) {
+        CleanProgressSection(state = nowPlayingState, accentColor = posterAccentColor, onSeekTo = onSeekTo, audioFrame = audioFrame, auraEnabled = auraEnabled, reducedMotion = reducedMotion)
+        Spacer(Modifier.height(8.dp))
+        Text(displayTitle, style = VantaType.editorialHero.copy(fontSize = if (compact) 22.sp else 28.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(2.dp))
+        Text(displayArtist, color = AppTextSecondary, fontSize = if (compact) 14.sp else 16.sp,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().clickable { onNavigateToArtist(displayArtist, null) })
+        val albumText = displayAlbum?.takeIf { it.isNotBlank() && !it.equals(displayTitle, true) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(albumText.orEmpty(), color = AppTextMuted, fontSize = 13.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).clickable(enabled = albumText != null) {
+                    albumText?.let { onNavigateToAlbum(it, displayArtist, displaySnapshot.artworkUrl,
+                        enhancedMetadata?.releaseYear, enhancedMetadata?.genres?.firstOrNull(), enhancedMetadata?.explicit ?: false) }
+                })
+            nowPlayingState.qualityInfo?.takeIf { shouldShowQualityChip(it) }?.let {
+                VantaFormatBadgeRow(
+                    qualityInfo = it,
+                    acousticness = nowPlayingState.acousticness,
+                    size = FormatBadgeSize.Compact,
+                    onClick = onOpenQualityDetails
+                )
             }
         }
-        Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
-        LuxuryControlsRow(isPlaying = nowPlayingState.isPlaying, canPlayPrevious = canPlayPrevious, canPlayNext = canPlayNext, onPrevious = onPrevious, onTogglePlayPause = onTogglePlayPause, onNext = onNext)
-        Spacer(Modifier.height(if (compact) 16.dp else 32.dp))
-        PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
-        Spacer(Modifier.height(8.dp))
-        StoryMomentChip(
-            nowPlayingState = nowPlayingState,
-            audioFrame = audioFrame,
-            visible = true,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+        if (nowPlayingState.isBuffering || !nowPlayingState.errorMessage.isNullOrBlank()) {
+            val error = nowPlayingState.errorMessage?.trim()?.takeIf { it.isNotBlank() }
+            val statusColor = if (error != null) AppError else posterAccentColor
+            val pq = nowPlayingState.qualityInfo
+            val isAtmos = pq?.isDolbyAtmos == true || isDolbyAtmosLabel(pq?.bestQualityLabel())
+            val isSony360 = pq?.isSony360RealityAudio == true || isSony360Label(pq?.bestQualityLabel())
+            val isHiRes = pq?.isHiRes == true || pq?.bestQualityLabel()?.contains("24-bit", ignoreCase = true) == true
+            val statusText = when {
+                error != null -> "Source unavailable — retrying"
+                isAtmos -> "Connecting Dolby Atmos bitstream…"
+                isSony360 -> "Connecting 360 Reality Audio…"
+                isHiRes -> "Streaming 24-bit Studio Master FLAC…"
+                else -> "Connecting Studio Lossless FLAC…"
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(statusColor.copy(alpha = 0.08f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (nowPlayingState.isBuffering) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), color = statusColor, strokeWidth = 1.5.dp)
+                }
+                Text(
+                    statusText,
+                    style = VantaType.caption.copy(color = statusColor, fontSize = 11.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        LuxuryControlsRow(
+            isPlaying = nowPlayingState.isPlaying,
+            canPlayPrevious = canPlayPrevious,
+            canPlayNext = canPlayNext,
+            isFavorite = nowPlayingState.isFavorite,
+            onToggleFavorite = onToggleFavorite,
+            isShuffleEnabled = isShuffleEnabled,
+            onToggleShuffle = onToggleShuffle,
+            onPrevious = onPrevious,
+            onTogglePlayPause = onTogglePlayPause,
+            onNext = onNext
         )
-        Spacer(Modifier.height(if (compact) 12.dp else 24.dp))
+        Spacer(Modifier.height(10.dp))
+        PortraitUtilityBar(mode = mode, displayTitle = displayTitle, displayArtist = displayArtist, onModeChange = onModeChange)
+        Spacer(Modifier.height(6.dp))
     }
 }
 
 @Composable
-private fun VantaSceneHeaderRow(centerLabel: String, titleForMenu: String, onBack: () -> Unit, onOpenEqualizer: () -> Unit, onOpenTrackSheet: () -> Unit, modifier: Modifier = Modifier, onOpenCast: () -> Unit = {}) {
+private fun VantaSceneHeaderRow(
+    centerLabel: String,
+    titleForMenu: String,
+    onBack: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenTrackSheet: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenCast: () -> Unit = {},
+    mode: NowPlayingMode = NowPlayingMode.ARTWORK,
+    onModeChange: (NowPlayingMode) -> Unit = {}
+) {
     Row(modifier = modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Back", tint = AppText,
             modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_back' result='tap'"); onBack() }.padding(12.dp))
         Text(centerLabel, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 2.2.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Lyrics",
+                tint = if (mode == NowPlayingMode.LYRICS) AppAccent else AppText.copy(alpha = 0.88f),
+                modifier = Modifier.size(48.dp).clip(CircleShape).clickable {
+                    Log.d("VANTA_UI_ACTION", "control='nowplaying_lyrics' result='tap'")
+                    onModeChange(if (mode == NowPlayingMode.LYRICS) NowPlayingMode.ARTWORK else NowPlayingMode.LYRICS)
+                }.padding(12.dp))
             Icon(Icons.Filled.Tune, contentDescription = "Equalizer", tint = AppAccent.copy(alpha = 0.85f),
                 modifier = Modifier.size(48.dp).clip(CircleShape).clickable { Log.d("VANTA_UI_ACTION", "control='nowplaying_equalizer' result='tap'"); onOpenEqualizer() }.padding(12.dp))
             Icon(Icons.Filled.Cast, contentDescription = "Cast", tint = AppAccent.copy(alpha = 0.7f),

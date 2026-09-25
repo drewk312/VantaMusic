@@ -27,11 +27,21 @@ import androidx.lifecycle.viewModelScope
 class NowPlayingViewModel @Inject constructor(
     private val playerController: PlayerController,
     private val stateStore: NowPlayingStateStore,
-    private val lyricsRepository: LyricsRepository?,
+    private val lyricsRepositoryLazy: dagger.Lazy<LyricsRepository>,
     private val playbackState: PlaybackStateHolder,
-    private val pulseAiBrain: PulseAiBrain,
-    private val lyricsTranslationProvider: LyricsTranslationProvider? = null
+    private val pulseAiBrainLazy: dagger.Lazy<PulseAiBrain>,
+    private val lyricsTranslationProviderLazy: dagger.Lazy<LyricsTranslationProvider>,
+    private val canonicalGraphDaoLazy: dagger.Lazy<com.audiophile.musicplayer.data.canonical.CanonicalGraphDao>
 ) : ViewModel() {
+
+    // The mini player only needs transport and the playback state. Lyrics, AI
+    // and canonical graph services are loaded on first use by Now Playing,
+    // rather than while Home is drawing its first frame.
+    private val lyricsRepository: LyricsRepository get() = lyricsRepositoryLazy.get()
+    private val pulseAiBrain: PulseAiBrain get() = pulseAiBrainLazy.get()
+    private val lyricsTranslationProvider: LyricsTranslationProvider get() = lyricsTranslationProviderLazy.get()
+    private val canonicalGraphDao: com.audiophile.musicplayer.data.canonical.CanonicalGraphDao
+        get() = canonicalGraphDaoLazy.get()
 
     private val _lyrics = MutableStateFlow<com.audiophile.musicplayer.data.lyrics.LyricsData?>(null)
     val lyrics: StateFlow<com.audiophile.musicplayer.data.lyrics.LyricsData?> = _lyrics.asStateFlow()
@@ -44,8 +54,7 @@ class NowPlayingViewModel @Inject constructor(
     private val _translationEnabled = MutableStateFlow(false)
     val translationEnabled: StateFlow<Boolean> = _translationEnabled.asStateFlow()
 
-    private val lyricsIdentityGate: LyricsIdentityGate? get() =
-        lyricsRepository?.let { LyricsIdentityGate(it) }
+    private val lyricsIdentityGate: LyricsIdentityGate get() = LyricsIdentityGate(lyricsRepository)
 
     private val _pulseInsight = MutableStateFlow<String?>(null)
     val pulseInsight: StateFlow<String?> = _pulseInsight.asStateFlow()
@@ -83,6 +92,7 @@ class NowPlayingViewModel @Inject constructor(
     private var lastTrackId: String? = null
     private var lyricsFetchGeneration = 0
     private var pulseInsightGeneration = 0
+    @Volatile private var detailEnrichmentEnabled = false
 
     init {
         viewModelScope.launch {
@@ -101,7 +111,7 @@ class NowPlayingViewModel @Inject constructor(
                     _pulseInsightLoading.value = false
                     _pulseDeepLoading.value = false
                     _translationEnabled.value = false
-                    if (newTrackId != null) {
+                    if (newTrackId != null && detailEnrichmentEnabled) {
                         fetchLyrics(state)
                         fetchPulseInsight(state)
                     }
@@ -129,10 +139,21 @@ class NowPlayingViewModel @Inject constructor(
             playbackState.replace(saved)
             lastTrackId = saved.trackId
             Log.d("VANTA_NP", "restore() loaded trackId=${saved.trackId} title=${saved.title}")
-            viewModelScope.launch {
+            if (detailEnrichmentEnabled) {
                 fetchLyrics(saved)
                 fetchPulseInsight(saved)
             }
+        }
+    }
+
+    /** Enable services only used by the full Now Playing experience. */
+    fun activateDetailEnrichment() {
+        if (detailEnrichmentEnabled) return
+        detailEnrichmentEnabled = true
+        val current = playbackState.snapshot()
+        if (!current.trackId.isNullOrBlank()) {
+            fetchLyrics(current)
+            fetchPulseInsight(current)
         }
     }
 
@@ -151,7 +172,7 @@ class NowPlayingViewModel @Inject constructor(
 
     fun retryLyrics() {
         val state = playbackState.snapshot()
-        val repo = lyricsRepository ?: return
+        val repo = lyricsRepository
         val title = state.title ?: return
         val artist = state.artist ?: return
         viewModelScope.launch {
@@ -172,16 +193,17 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     private fun fetchTranslations(lyricsData: com.audiophile.musicplayer.data.lyrics.LyricsData) {
-        val provider = lyricsTranslationProvider ?: return
+        val provider = lyricsTranslationProvider
         val lines = lyricsData.lines.map { it.text }
         if (lines.isEmpty()) return
+        val targetLang = java.util.Locale.getDefault().language  // Use device locale (e.g. "en", "es", "ja")
         viewModelScope.launch {
-            Log.d("VANTA_TRANSLATE", "Fetching translations for ${lines.size} lines")
-            val translated = provider.translate(lines)
+            Log.d("VANTA_TRANSLATE", "Fetching translations for ${lines.size} lines to '$targetLang'")
+            val translated = provider.translate(lines, targetLang)
             var updated = false
             val newLines = lyricsData.lines.mapIndexed { i, line ->
                 val t = translated.getOrNull(i)
-                if (t != null && t != line.text) {
+                if (t != null && t != line.text && t.isNotBlank()) {
                     updated = true
                     line.copy(translatedText = t)
                 } else line
@@ -230,7 +252,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     private fun fetchLyrics(state: NowPlayingState) {
-        val gate = lyricsIdentityGate ?: return
+        val gate = lyricsIdentityGate
         val rawTitle = state.title ?: return
         val rawArtist = state.artist ?: return
         val trackId = state.trackId ?: return
@@ -239,8 +261,6 @@ class NowPlayingViewModel @Inject constructor(
             rawArtist = rawArtist,
             rawAlbum = state.album
         )
-        val title = cleaned.title.ifBlank { rawTitle }
-        val artist = cleaned.artist.substringBefore(" feat.").trim().ifBlank { rawArtist }
         val generation = ++lyricsFetchGeneration
         viewModelScope.launch {
             _lyrics.value = null
@@ -248,16 +268,29 @@ class NowPlayingViewModel @Inject constructor(
             _lyricsLoading.value = true
             _lyricsIdentity.value = LyricsIdentity.Unavailable
 
+            // Prefer persisted canonical graph identity over provider packaging strings.
+            val graphTrack = state.canonicalTrackId?.toLongOrNull()?.let { id ->
+                runCatching { canonicalGraphDao.trackById(id) }.getOrNull()
+            }
+            val title = (graphTrack?.title ?: cleaned.title).ifBlank { rawTitle }
+            val artist = (graphTrack?.artistDisplay ?: cleaned.artist)
+                .substringBefore(" feat.")
+                .trim()
+                .ifBlank { rawArtist }
+            val album = graphTrack?.albumDisplay ?: state.album
+            val isrc = graphTrack?.isrc ?: state.isrc
+            val durationMs = graphTrack?.durationMs ?: state.durationMs.takeIf { it > 0 }
+
             val identity = try {
                 gate.resolveIdentity(
                     track = UnifiedTrack(
                         title = title,
                         artist = artist,
-                        albumName = state.album,
-                        coverArtUrl = state.artworkUrl,
-                        durationMs = state.durationMs.takeIf { it > 0 }
+                        albumName = album,
+                        coverArtUrl = graphTrack?.artworkUrl ?: state.artworkUrl,
+                        durationMs = durationMs
                     ),
-                    isrc = state.isrc,
+                    isrc = isrc,
                     userQuery = state.userQuery
                 )
             } catch (e: Exception) {

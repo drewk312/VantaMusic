@@ -7,6 +7,7 @@ import com.audiophile.musicplayer.playback.NowPlayingState
 
 enum class NowPlayingMode {
     ARTWORK,
+    CANVAS,
     LYRICS,
     QUEUE
 }
@@ -44,14 +45,28 @@ fun resolveNowPlayingDisplaySnapshot(
         .ifBlank { "Unknown Track" }
     // Now Playing renders featured artists as their own "feat." line, so the main
     // artist line must be primary-only — otherwise "feat. X" shows twice.
-    val featured = cleaned.featuredArtists.takeIf { it.isNotEmpty() } ?: nowPlayingState.featuredArtists
+    val featured = (
+        cleaned.featuredArtists + nowPlayingState.featuredArtists
+        )
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
     val artist = cleaned.artist
         .ifBlank { nowPlayingState.artist.orEmpty() }
         .ifBlank { enhancedMetadata?.artist.orEmpty() }
         .ifBlank { "Unknown Artist" }
         .let { full ->
             if (featured.isEmpty()) full
-            else full.replace(Regex("""\s+(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "").trim().ifBlank { full }
+            else {
+                var primary = full.replace(Regex("""\s+(?:feat\.?|featuring|ft\.?)\s+.*$""", RegexOption.IGNORE_CASE), "").trim()
+                for (name in featured) {
+                    primary = primary.replace(
+                        Regex(""",\s*${Regex.escape(name)}\s*$""", RegexOption.IGNORE_CASE),
+                        ""
+                    ).trim()
+                }
+                primary.ifBlank { full }
+            }
         }
     val album = cleaned.album?.takeIf { it.isNotBlank() }
     val source = when {

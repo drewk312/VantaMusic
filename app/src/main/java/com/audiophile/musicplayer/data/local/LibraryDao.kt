@@ -77,6 +77,9 @@ interface LibraryDao {
     @Query("UPDATE local_songs SET isFavorite = NOT isFavorite, updatedAt = :updatedAt WHERE id = :songId")
     suspend fun toggleFavorite(songId: Long, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE local_songs SET isFavorite = 1, updatedAt = :updatedAt WHERE id IN (:songIds)")
+    suspend fun likeSongs(songIds: List<Long>, updatedAt: Long = System.currentTimeMillis())
+
     @Query("UPDATE local_songs SET lastPlayedAt = :playedAt, updatedAt = :playedAt WHERE id = :songId")
     suspend fun updateRecentlyPlayed(songId: Long, playedAt: Long = System.currentTimeMillis())
 
@@ -140,6 +143,16 @@ interface LibraryDao {
     )
     suspend fun findSongByIsrc(isrc: String): LocalSongEntity?
 
+    @Query(
+        """
+        SELECT * FROM local_songs
+        WHERE canonicalTrackId IS NOT NULL
+          AND canonicalTrackId = :canonicalTrackId
+        LIMIT 1
+        """
+    )
+    suspend fun findSongByCanonicalTrackId(canonicalTrackId: Long): LocalSongEntity?
+
     @Transaction
     suspend fun addSongsToPlaylist(playlistId: Long, songIds: List<Long>) {
         insertPlaylistSongs(
@@ -159,4 +172,15 @@ interface LibraryDao {
 
     @Query("DELETE FROM local_playlists WHERE id = :playlistId")
     suspend fun deletePlaylist(playlistId: Long)
+    @Query("DELETE FROM playlist_song_cross_ref WHERE playlistId = :playlistId")
+    suspend fun clearPlaylistMembership(playlistId: Long)
+
+    @Transaction
+    suspend fun replacePlaylistMembership(playlistId: Long, songIds: List<Long>) {
+        clearPlaylistMembership(playlistId)
+        insertPlaylistSongs(songIds.distinct().mapIndexed { index, id ->
+            PlaylistSongCrossRef(playlistId = playlistId, songId = id, position = index)
+        })
+    }
+
 }

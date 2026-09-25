@@ -2,6 +2,7 @@ package com.audiophile.musicplayer.playback
 
 import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import com.audiophile.musicplayer.data.source.isMusicContentAllowed
 import com.audiophile.musicplayer.data.source.isPlayableMusicCandidate
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CoroutineScope
@@ -17,7 +18,7 @@ interface RecommendationEngine {
         com.audiophile.musicplayer.radio.StreamingStationTasteSignals()
 }
 
-enum class QueueMode { NORMAL_QUEUE, RADIO_QUEUE, STREAMING_STATION, SEARCH_RESULTS_QUEUE, AUTOPLAY_QUEUE, AI_DJ_QUEUE }
+enum class QueueMode { NORMAL_QUEUE, RADIO_QUEUE, STREAMING_STATION, SEARCH_RESULTS_QUEUE, AUTOPLAY_QUEUE, AI_DJ_QUEUE, SONIC_RADIO }
 
 data class QueueSnapshot(
     val originalQueue: List<UnifiedTrackWithSources> = emptyList(),
@@ -31,7 +32,8 @@ data class QueueSnapshot(
     val queueIndex: Int = -1,
     val queueSize: Int = 0,
     val canPlayNext: Boolean = false,
-    val canPlayPrevious: Boolean = false
+    val canPlayPrevious: Boolean = false,
+    val isRadio: Boolean = false
 )
 
 interface QueuePersistence {
@@ -42,11 +44,21 @@ interface QueuePersistence {
 class QueueManager(
     private val recommendationEngine: RecommendationEngine? = null,
     private val radioQueueEngine: com.audiophile.musicplayer.radio.RadioQueueEngine? = null,
+    private val recommendationEngineProvider: (() -> RecommendationEngine?)? = null,
+    private val radioQueueEngineProvider: (() -> com.audiophile.musicplayer.radio.RadioQueueEngine?)? = null,
     private val persistence: QueuePersistence? = null,
     private val onTrackConsumed: ((trackId: Long) -> Unit)? = null
 ) {
 
+    private fun currentRecommendationEngine(): RecommendationEngine? =
+        recommendationEngine ?: recommendationEngineProvider?.invoke()
+
+    private fun currentRadioQueueEngine(): com.audiophile.musicplayer.radio.RadioQueueEngine? =
+        radioQueueEngine ?: radioQueueEngineProvider?.invoke()
+
     private val mutex = Mutex()
+    private val queueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var isRefilling = false
 
     private val _originalQueue = CopyOnWriteArrayList<UnifiedTrackWithSources>()
     private val _priorityQueue = CopyOnWriteArrayList<UnifiedTrackWithSources>()
@@ -82,6 +94,118 @@ class QueueManager(
         activeRadioArtist = artist?.trim()?.takeIf { it.isNotBlank() }
     }
 
+    @Volatile var activeSonicRadioSession: com.audiophile.musicplayer.radio.sonic.RadioSessionManager? = null
+        private set
+
+    @Volatile var activeDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX
+        private set
+
+    suspend fun setDiscoveryMode(mode: com.audiophile.musicplayer.radio.RadioDiscoveryMode) = mutex.withLock {
+        activeDiscoveryMode = mode
+    }
+
+    suspend fun toggleShuffle(): Boolean = mutex.withLock {
+        isShuffleEnabled = !isShuffleEnabled
+        if (isShuffleEnabled) {
+            val currentUpNext = _upNextQueue.toList()
+            if (currentUpNext.size > 1) {
+                _upNextQueue.clear()
+                _upNextQueue.addAll(currentUpNext.shuffled())
+            }
+            val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+            val preserved = _originalQueue.take(playedCount)
+            val upcoming = _originalQueue.drop(playedCount)
+            if (upcoming.size > 1) {
+                _originalQueue.clear()
+                _originalQueue.addAll(preserved + upcoming.shuffled())
+            }
+        }
+        persist()
+        isShuffleEnabled
+    }
+
+    suspend fun shuffleUpNext() = mutex.withLock {
+        isShuffleEnabled = true
+        val currentUpNext = _upNextQueue.toList()
+        if (currentUpNext.size > 1) {
+            _upNextQueue.clear()
+            _upNextQueue.addAll(currentUpNext.shuffled())
+        }
+        val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+        val preserved = _originalQueue.take(playedCount)
+        val upcoming = _originalQueue.drop(playedCount)
+        if (upcoming.size > 1) {
+            _originalQueue.clear()
+            _originalQueue.addAll(preserved + upcoming.shuffled())
+        }
+        persist()
+    }
+
+    suspend fun reshapeUpcomingQueue(
+        mode: com.audiophile.musicplayer.radio.RadioDiscoveryMode,
+        favoritesIds: Set<String>,
+        recentHistoryIds: Set<String>
+    ) = mutex.withLock {
+        activeDiscoveryMode = mode
+        val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+        val preserved = _originalQueue.take(playedCount)
+        val upcoming = _originalQueue.drop(playedCount)
+        if (upcoming.isEmpty()) return@withLock
+
+        val reshuffled = when (mode) {
+            com.audiophile.musicplayer.radio.RadioDiscoveryMode.MY_FAVORITES -> {
+                val (favs, others) = upcoming.partition { it.track.trackId.toString() in favoritesIds }
+                favs + others
+            }
+            com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX -> {
+                upcoming.shuffled()
+            }
+            com.audiophile.musicplayer.radio.RadioDiscoveryMode.DEEP_DISCOVERY -> {
+                val nonFavs = upcoming.filter { it.track.trackId.toString() !in favoritesIds && it.track.trackId.toString() !in recentHistoryIds }
+                val remaining = upcoming.filter { it !in nonFavs }
+                nonFavs + remaining
+            }
+        }
+
+        _originalQueue.clear()
+        _originalQueue.addAll(preserved + reshuffled)
+        persist()
+    }
+
+    suspend fun setSonicRadioSession(session: com.audiophile.musicplayer.radio.sonic.RadioSessionManager?) = mutex.withLock {
+        activeSonicRadioSession = session
+    }
+
+    suspend fun onSonicThumbsUp(track: com.audiophile.musicplayer.radio.sonic.SonicTrack): com.audiophile.musicplayer.radio.sonic.FeatureVector? = mutex.withLock {
+        val session = activeSonicRadioSession ?: return@withLock null
+        val updatedFeatures = session.onThumbsUp(track)
+        val upcoming = session.getUpcomingQueue()
+        val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+        val preserved = _originalQueue.take(playedCount)
+        val freshUpcoming = upcoming.mapNotNull { it.rawUnifiedTrack }
+            .filter { candidate -> preserved.none { it.track.trackId == candidate.track.trackId } }
+
+        _originalQueue.clear()
+        _originalQueue.addAll(preserved + freshUpcoming)
+        persist()
+        updatedFeatures
+    }
+
+    suspend fun onSonicThumbsDown(track: com.audiophile.musicplayer.radio.sonic.SonicTrack): com.audiophile.musicplayer.radio.sonic.FeatureVector? = mutex.withLock {
+        val session = activeSonicRadioSession ?: return@withLock null
+        val updatedFeatures = session.onThumbsDown(track)
+        val upcoming = session.getUpcomingQueue()
+        val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+        val preserved = _originalQueue.take(playedCount)
+        val freshUpcoming = upcoming.mapNotNull { it.rawUnifiedTrack }
+            .filter { candidate -> preserved.none { it.track.trackId == candidate.track.trackId } && candidate.track.trackId.toString() != track.id }
+
+        _originalQueue.clear()
+        _originalQueue.addAll(preserved + freshUpcoming)
+        persist()
+        updatedFeatures
+    }
+
     @Volatile private var nextInFlight = false
 
     init {
@@ -114,7 +238,8 @@ class QueueManager(
     }
 
     suspend fun setOriginalQueue(tracks: List<UnifiedTrackWithSources>, startIndex: Int = 0, mode: QueueMode = QueueMode.NORMAL_QUEUE) = mutex.withLock {
-        val deduplicated = deduplicateTracks(tracks)
+        val musicTracks = tracks.filter { it.isMusicContentAllowed() }
+        val deduplicated = deduplicateTracks(musicTracks)
         _originalQueue.clear()
         _originalQueue.addAll(deduplicated)
         this.queueMode = mode
@@ -124,7 +249,10 @@ class QueueManager(
         if (mode != QueueMode.RADIO_QUEUE) {
             activeRadioArtist = null
         }
-        val originalTrack = tracks.getOrNull(startIndex)
+        if (mode != QueueMode.SONIC_RADIO) {
+            activeSonicRadioSession = null
+        }
+        val originalTrack = tracks.getOrNull(startIndex)?.takeIf { it.isMusicContentAllowed() }
         val dedupedStartIndex = if (originalTrack != null) {
             // Match by dedupe key, not trackId: deduplicateTracks may have kept a
             // higher-quality variant whose trackId differs from the requested start
@@ -137,11 +265,12 @@ class QueueManager(
         currentOriginalIndex = (dedupedStartIndex - 1).coerceAtLeast(-1)
         _priorityQueue.clear()
         _upNextQueue.clear()
-        Log.d("VANTA_QUEUE_TRUTH", "set_queue mode='${mode.name}' originalBefore=${tracks.size} originalAfter=${_originalQueue.size} startIndex=$dedupedStartIndex")
+        Log.d("VANTA_QUEUE_TRUTH", "set_queue mode='${mode.name}' originalBefore=${tracks.size} musicOnly=${musicTracks.size} originalAfter=${_originalQueue.size} startIndex=$dedupedStartIndex")
         persist()
     }
 
     suspend fun addToOriginalQueue(track: UnifiedTrackWithSources) = mutex.withLock {
+        if (!track.isMusicContentAllowed()) return@withLock
         _originalQueue.add(track)
         persist()
     }
@@ -184,31 +313,51 @@ class QueueManager(
     }
 
     suspend fun playNext(track: UnifiedTrackWithSources) = mutex.withLock {
+        if (!track.isMusicContentAllowed()) return@withLock
         _priorityQueue.add(0, track)
         persist()
     }
 
     suspend fun addToQueue(track: UnifiedTrackWithSources) = mutex.withLock {
+        if (!track.isMusicContentAllowed()) return@withLock
         _upNextQueue.add(track)
         persist()
     }
 
     suspend fun appendUpcoming(tracks: List<UnifiedTrackWithSources>) = mutex.withLock {
-        _upNextQueue.addAll(tracks)
+        _upNextQueue.addAll(tracks.filter { it.isMusicContentAllowed() })
         persist()
     }
 
     suspend fun moveUpNextItem(fromIndex: Int, toIndex: Int) = mutex.withLock {
-        if (fromIndex !in _upNextQueue.indices || toIndex !in _upNextQueue.indices) return@withLock
-        val moved = _upNextQueue.removeAt(fromIndex)
-        _upNextQueue.add(toIndex, moved)
-        persist()
+        if (fromIndex in _upNextQueue.indices && toIndex in _upNextQueue.indices) {
+            val moved = _upNextQueue.removeAt(fromIndex)
+            _upNextQueue.add(toIndex, moved)
+            persist()
+            return@withLock
+        }
+        val offset = _priorityQueue.size + _upNextQueue.size
+        val origFrom = currentOriginalIndex + 1 + (fromIndex - offset)
+        val origTo = currentOriginalIndex + 1 + (toIndex - offset)
+        if (origFrom in _originalQueue.indices && origTo in _originalQueue.indices) {
+            val moved = _originalQueue.removeAt(origFrom)
+            _originalQueue.add(origTo, moved)
+            persist()
+        }
     }
 
     suspend fun removeUpNextItem(index: Int) = mutex.withLock {
-        if (index !in _upNextQueue.indices) return@withLock
-        _upNextQueue.removeAt(index)
-        persist()
+        if (index in _upNextQueue.indices) {
+            _upNextQueue.removeAt(index)
+            persist()
+            return@withLock
+        }
+        val offset = _priorityQueue.size + _upNextQueue.size
+        val origIndex = currentOriginalIndex + 1 + (index - offset)
+        if (origIndex in _originalQueue.indices) {
+            _originalQueue.removeAt(origIndex)
+            persist()
+        }
     }
 
     suspend fun updateShuffleEnabled(enabled: Boolean) {
@@ -221,6 +370,10 @@ class QueueManager(
     }
 
     suspend fun markCurrentTrack(track: UnifiedTrackWithSources, positionMs: Long = 0L) = mutex.withLock {
+        if (!track.isMusicContentAllowed()) {
+            Log.w("VANTA_QUEUE_TRUTH", "blocked_non_music_current trackId=${track.track.trackId} title='${track.track.title}'")
+            return@withLock
+        }
         currentTrack = track
         val originalIndex = _originalQueue.indexOfFirst { it.track.trackId == track.track.trackId }
         if (originalIndex >= 0) {
@@ -234,38 +387,57 @@ class QueueManager(
     fun snapshot(): QueueSnapshot {
         val originalCopy = _originalQueue.toList()
         val priorityCopy = _priorityQueue.toList()
-        val upNextCopy = _upNextQueue.toList()
-        val queueSize = originalCopy.size + priorityCopy.size + upNextCopy.size
+        val manualUpNext = _upNextQueue.toList()
+        val playedCount = (currentOriginalIndex + 1).coerceAtLeast(0)
+        val remainingOriginal = if (originalCopy.isNotEmpty()) originalCopy.drop(playedCount) else emptyList()
+        val visibleUpNext = (priorityCopy + manualUpNext + remainingOriginal).filter { it.isMusicContentAllowed() }
+        val queueSize = originalCopy.size + priorityCopy.size + manualUpNext.size
         return QueueSnapshot(
             originalQueue = originalCopy,
             currentOriginalIndex = currentOriginalIndex,
             priorityQueue = priorityCopy,
-            upNextQueue = upNextCopy,
+            upNextQueue = visibleUpNext,
             lastPlayedTrack = lastPlayedTrack,
             currentTrack = currentTrack,
             currentPositionMs = currentPositionMs,
             isShuffleEnabled = isShuffleEnabled,
             queueIndex = currentOriginalIndex,
             queueSize = queueSize,
-            canPlayNext = priorityCopy.isNotEmpty() ||
-                upNextCopy.isNotEmpty() ||
-                (originalCopy.size > 1 && currentOriginalIndex < originalCopy.lastIndex),
-            canPlayPrevious = originalCopy.size > 1 && currentOriginalIndex > 0
+            canPlayNext = visibleUpNext.isNotEmpty(),
+            canPlayPrevious = originalCopy.size > 1 && currentOriginalIndex > 0,
+            isRadio = queueMode == QueueMode.RADIO_QUEUE ||
+                queueMode == QueueMode.STREAMING_STATION ||
+                queueMode == QueueMode.SONIC_RADIO
         )
     }
 
     private suspend fun restore(snapshot: QueueSnapshot) = mutex.withLock {
+        val restoredOriginal = snapshot.originalQueue.filter { it.isMusicContentAllowed() }
+        val restoredPriority = snapshot.priorityQueue.filter { it.isMusicContentAllowed() }
+        val restoredUpNext = snapshot.upNextQueue.filter { it.isMusicContentAllowed() }
+        val indexedTrack = snapshot.originalQueue.getOrNull(snapshot.currentOriginalIndex)
+            ?.takeIf { it.isMusicContentAllowed() }
         _originalQueue.clear()
-        _originalQueue.addAll(snapshot.originalQueue)
+        _originalQueue.addAll(restoredOriginal)
         _priorityQueue.clear()
-        _priorityQueue.addAll(snapshot.priorityQueue)
+        _priorityQueue.addAll(restoredPriority)
         _upNextQueue.clear()
-        _upNextQueue.addAll(snapshot.upNextQueue)
-        currentOriginalIndex = snapshot.currentOriginalIndex
-        lastPlayedTrack = snapshot.lastPlayedTrack
-        currentTrack = snapshot.currentTrack
-        currentPositionMs = snapshot.currentPositionMs
+        _upNextQueue.addAll(restoredUpNext)
+        currentOriginalIndex = indexedTrack?.let { indexed ->
+            val key = deduplicateKey(indexed)
+            _originalQueue.indexOfFirst { deduplicateKey(it) == key }
+        } ?: -1
+        lastPlayedTrack = snapshot.lastPlayedTrack?.takeIf { it.isMusicContentAllowed() }
+        currentTrack = snapshot.currentTrack?.takeIf { it.isMusicContentAllowed() }
+        currentPositionMs = if (currentTrack != null) snapshot.currentPositionMs else 0L
         isShuffleEnabled = snapshot.isShuffleEnabled
+        val removed = (snapshot.originalQueue.size - restoredOriginal.size) +
+            (snapshot.priorityQueue.size - restoredPriority.size) +
+            (snapshot.upNextQueue.size - restoredUpNext.size)
+        if (removed > 0 || (snapshot.currentTrack != null && currentTrack == null)) {
+            Log.w("VANTA_QUEUE_TRUTH", "sanitized_restored_queue removed=$removed clearedCurrent=${snapshot.currentTrack != null && currentTrack == null}")
+            persist()
+        }
     }
 
     private suspend fun persist() {
@@ -308,91 +480,20 @@ class QueueManager(
             return consume(track)
         }
 
-        if (_originalQueue.isEmpty() || currentOriginalIndex >= _originalQueue.lastIndex) {
-            fillAutoplay()
-            if (_originalQueue.isEmpty() || currentOriginalIndex >= _originalQueue.lastIndex) {
-                return null
+        val remainingAfterCurrent = _originalQueue.size - currentOriginalIndex - 1
+        if (remainingAfterCurrent < 6 && queueMode != QueueMode.AI_DJ_QUEUE) {
+            if (remainingAfterCurrent > 0) {
+                // Return next song immediately without delay; refill buffer in background
+                triggerBackgroundRefill()
+            } else {
+                // Queue is exhausted, must fetch synchronously before proceeding
+                refillQueueIfNeeded()
             }
         }
 
-        val remainingAfterCurrent = _originalQueue.size - currentOriginalIndex - 1
-        if (remainingAfterCurrent < 6 && queueMode != QueueMode.AI_DJ_QUEUE) {
-            val existingIds = _originalQueue.map { it.track.trackId }.toSet()
-            val seed = lastPlayedTrack
-            if (seed != null) {
-                if (queueMode == QueueMode.STREAMING_STATION && radioQueueEngine != null && activeStreamingSeed != null) {
-                    val stationSeed = activeStreamingSeed ?: return null
-                    val discoveredArtists = _originalQueue.mapNotNull { it.track.artist?.trim() }.filter { it.isNotBlank() }.distinct()
-                    val enrichedSeed = stationSeed.copy(
-                        seedArtists = (stationSeed.seedArtists + discoveredArtists).distinct().take(12)
-                    )
-                    val taste = recommendationEngine?.streamingTasteSignals()
-                        ?: com.audiophile.musicplayer.radio.StreamingStationTasteSignals()
-                    val refill = radioQueueEngine.refillStreamingStation(
-                        request = com.audiophile.musicplayer.radio.StreamingStationRequest(
-                            seed = enrichedSeed,
-                            excludeTrackIds = existingIds,
-                            playedTrackIds = _playedHistory.toSet(),
-                            taste = taste
-                        ),
-                        existingTrackIds = existingIds
-                    )
-                    if (refill.isNotEmpty()) {
-                        var addedCount = 0
-                        for (t in refill) {
-                            if (t.isPlayableMusicCandidate() && t.track.trackId !in existingIds) {
-                                _originalQueue.add(t)
-                                addedCount++
-                            }
-                        }
-                        Log.d(
-                            "VANTA_QUEUE_EXPAND",
-                            "streaming_station_autofill seed='${stationSeed.displayName}' added=$addedCount remaining=$remainingAfterCurrent queueSize=${_originalQueue.size}"
-                        )
-                    }
-                } else if (queueMode == QueueMode.RADIO_QUEUE && radioQueueEngine != null) {
-                    val seedTitle = seed.track.title ?: ""
-                    val seedArtist = activeRadioArtist ?: seed.track.artist.orEmpty()
-                    val refill = radioQueueEngine.refill(
-                        com.audiophile.musicplayer.radio.RadioSeed(
-                            title = seedTitle,
-                            artist = seedArtist,
-                            album = seed.track.albumName,
-                            genre = seed.track.genre
-                        ),
-                        existingTrackIds = existingIds,
-                        playedTrackIds = _playedHistory.toSet()
-                    )
-                    if (refill.isNotEmpty()) {
-                        var addedCount = 0
-                        var rejectedDrift = 0
-                        val lockedArtist = activeRadioArtist?.trim().orEmpty()
-                        for (t in refill) {
-                            if (!t.isPlayableMusicCandidate() || t.track.trackId in existingIds) continue
-                            _originalQueue.add(t)
-                            addedCount++
-                        }
-                        Log.d(
-                            "VANTA_QUEUE_EXPAND",
-                            "radio_autofill seed=${seed.track.artist} lockedArtist=$lockedArtist " +
-                                "added=$addedCount rejectedDrift=$rejectedDrift remaining=$remainingAfterCurrent " +
-                                "queueSize=${_originalQueue.size}"
-                        )
-                    }
-                } else {
-                    val more = recommendationEngine?.getSimilarTracks(seed.track.artist, seed.track.genre)
-                    if (!more.isNullOrEmpty()) {
-                        var addedCount = 0
-                        for (t in more) {
-                            if (t.isPlayableMusicCandidate() && t.track.trackId !in existingIds) {
-                                _originalQueue.add(t)
-                                addedCount++
-                            }
-                        }
-                        Log.d("VANTA_QUEUE_EXPAND", "autofill seed=${seed.track.artist} added=$addedCount remaining=$remainingAfterCurrent queueSize=${_originalQueue.size}")
-                    }
-                }
-            }
+        if (_originalQueue.isEmpty() || currentOriginalIndex >= _originalQueue.lastIndex) {
+            Log.d("VANTA_QUEUE_TRUTH", "no_next_track reason='exhausted' idx=$currentOriginalIndex size=${_originalQueue.size}")
+            return null
         }
 
         if (isShuffleEnabled) {
@@ -440,22 +541,146 @@ class QueueManager(
         consume(previousTrack)
     }
 
-    private suspend fun fillAutoplay() {
-        lastPlayedTrack?.let { seed ->
-            val existingIds = _originalQueue.map { it.track.trackId }.toSet()
-            val recommendations = recommendationEngine?.getSimilarTracks(
-                seedArtist = seed.track.artist,
-                seedGenre = seed.track.genre
+    private fun triggerBackgroundRefill() {
+        if (isRefilling) return
+        isRefilling = true
+        queueScope.launch {
+            try {
+                refillQueueIfNeeded()
+            } catch (e: Exception) {
+                Log.e("VANTA_QUEUE_EXPAND", "background refill failed: ${e.message}", e)
+            } finally {
+                isRefilling = false
+            }
+        }
+    }
+
+    private suspend fun refillQueueIfNeeded() {
+        val existingIds = _originalQueue.map { it.track.trackId }.toSet()
+        val seed = lastPlayedTrack ?: currentTrack ?: _originalQueue.getOrNull(currentOriginalIndex) ?: return
+        val activeRecommendationEngine = currentRecommendationEngine()
+        val activeRadioQueueEngine = currentRadioQueueEngine()
+
+        if (queueMode == QueueMode.STREAMING_STATION && activeRadioQueueEngine != null && activeStreamingSeed != null) {
+            val stationSeed = activeStreamingSeed ?: return
+            val discoveredArtists = _originalQueue.map { it.track.artist.trim() }.filter { it.isNotBlank() }.distinct()
+            val enrichedSeed = stationSeed.copy(
+                seedArtists = (stationSeed.seedArtists + discoveredArtists).distinct().take(12)
             )
-            if (!recommendations.isNullOrEmpty()) {
+            val taste = activeRecommendationEngine?.streamingTasteSignals()
+                ?: com.audiophile.musicplayer.radio.StreamingStationTasteSignals()
+            val refill = activeRadioQueueEngine.refillStreamingStation(
+                request = com.audiophile.musicplayer.radio.StreamingStationRequest(
+                    seed = enrichedSeed,
+                    excludeTrackIds = existingIds,
+                    playedTrackIds = _playedHistory.toSet(),
+                    taste = taste
+                ),
+                existingTrackIds = existingIds
+            )
+            if (refill.isNotEmpty()) {
                 var addedCount = 0
-                for (t in recommendations) {
+                for (t in refill) {
                     if (t.isPlayableMusicCandidate() && t.track.trackId !in existingIds) {
                         _originalQueue.add(t)
                         addedCount++
                     }
                 }
-                Log.d("VANTA_QUEUE_EXPAND", "fillAutoplay seed=${seed.track.artist} added=$addedCount queueSize=${_originalQueue.size}")
+                Log.d(
+                    "VANTA_QUEUE_EXPAND",
+                    "streaming_station_autofill seed='${stationSeed.displayName}' added=$addedCount queueSize=${_originalQueue.size}"
+                )
+            }
+        } else if (queueMode == QueueMode.SONIC_RADIO && activeSonicRadioSession != null) {
+            val session = activeSonicRadioSession
+            if (session != null) {
+                session.topUpQueue()
+                val upcoming = session.getUpcomingQueue()
+                var addedCount = 0
+                for (sonic in upcoming) {
+                    val unified = sonic.rawUnifiedTrack
+                    if (unified != null && unified.isPlayableMusicCandidate() && unified.track.trackId !in existingIds) {
+                        _originalQueue.add(unified)
+                        addedCount++
+                    }
+                }
+                Log.d(
+                    "VANTA_QUEUE_EXPAND",
+                    "sonic_radio_autofill added=$addedCount queueSize=${_originalQueue.size}"
+                )
+            }
+        } else if (queueMode == QueueMode.RADIO_QUEUE && activeRadioQueueEngine != null) {
+            val seedTitle = seed.track.title
+            val seedArtist = activeRadioArtist ?: seed.track.artist.orEmpty()
+            val refill = activeRadioQueueEngine.refill(
+                com.audiophile.musicplayer.radio.RadioSeed(
+                    title = seedTitle,
+                    artist = seedArtist,
+                    album = seed.track.albumName,
+                    genre = seed.track.genre
+                ),
+                existingTrackIds = existingIds,
+                playedTrackIds = _playedHistory.toSet()
+            )
+            if (refill.isNotEmpty()) {
+                var addedCount = 0
+                val lockedArtist = activeRadioArtist?.trim().orEmpty()
+                for (t in refill) {
+                    if (!t.isPlayableMusicCandidate() || t.track.trackId in existingIds) continue
+                    _originalQueue.add(t)
+                    addedCount++
+                }
+                Log.d(
+                    "VANTA_QUEUE_EXPAND",
+                    "radio_autofill seed=${seed.track.artist} lockedArtist=$lockedArtist added=$addedCount queueSize=${_originalQueue.size}"
+                )
+            }
+        } else {
+            fillAutoplay()
+        }
+    }
+
+    private suspend fun fillAutoplay() {
+        val seed = lastPlayedTrack ?: currentTrack ?: _originalQueue.getOrNull(currentOriginalIndex) ?: return
+        val existingIds = _originalQueue.map { it.track.trackId }.toSet()
+        val recommendations = currentRecommendationEngine()?.getSimilarTracks(
+            seedArtist = seed.track.artist,
+            seedGenre = seed.track.genre
+        )
+        if (!recommendations.isNullOrEmpty()) {
+            var addedCount = 0
+            for (t in recommendations) {
+                if (t.isPlayableMusicCandidate() && t.track.trackId !in existingIds) {
+                    _originalQueue.add(t)
+                    addedCount++
+                }
+            }
+            Log.d("VANTA_QUEUE_EXPAND", "fillAutoplay seed=${seed.track.artist} added=$addedCount queueSize=${_originalQueue.size}")
+            if (addedCount > 0) return
+        }
+
+        // Streaming radio fallback if local recommendations had no results
+        val activeRadioQueueEngine = currentRadioQueueEngine()
+        if (activeRadioQueueEngine != null) {
+            val refill = activeRadioQueueEngine.refill(
+                com.audiophile.musicplayer.radio.RadioSeed(
+                    title = seed.track.title,
+                    artist = seed.track.artist,
+                    album = seed.track.albumName,
+                    genre = seed.track.genre
+                ),
+                existingTrackIds = existingIds,
+                playedTrackIds = _playedHistory.toSet()
+            )
+            if (refill.isNotEmpty()) {
+                var addedCount = 0
+                for (t in refill) {
+                    if (t.isPlayableMusicCandidate() && t.track.trackId !in existingIds) {
+                        _originalQueue.add(t)
+                        addedCount++
+                    }
+                }
+                Log.d("VANTA_QUEUE_EXPAND", "fillAutoplay_streaming seed=${seed.track.artist} added=$addedCount queueSize=${_originalQueue.size}")
             }
         }
     }
@@ -493,9 +718,10 @@ class QueueManager(
 
     private fun deduplicateKey(track: UnifiedTrackWithSources): String {
         val t = track.track
-        if (!t.isrc.isNullOrBlank()) return "isrc:${t.isrc}"
-        val normTitle = normalizeText(t.title ?: "")
-        val normArtist = normalizeText(t.artist ?: "")
+        // Prefer durable recording identity; provider IDs are not song identity.
+        if (!t.isrc.isNullOrBlank()) return "isrc:${t.isrc.trim().uppercase()}"
+        val normTitle = normalizeText(t.title)
+        val normArtist = normalizeText(t.artist)
         return "norm:${normTitle}|${normArtist}"
     }
 
@@ -523,7 +749,7 @@ class QueueManager(
             } else {
                 val better = pickHigherQuality(existing, item)
                 seen[key] = better
-                removed.add(item.track.title ?: "unknown")
+                removed.add(item.track.title)
             }
         }
         val result = seen.values.toList()

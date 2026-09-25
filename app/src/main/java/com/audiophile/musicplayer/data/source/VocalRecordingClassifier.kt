@@ -34,10 +34,14 @@ object VocalRecordingClassifier {
         "party tyme",
         "ultimate tribute",
         "tribute stars",
+        "tribute of honor",
         "sound-a-like",
         "cover hits",
         "sing along",
-        "karaoke"
+        "karaoke",
+        "the backing tracks",
+        "backing tracks",
+        "backing track"
     )
 
     /** Album names that almost always mean non-vocal or tribute inventory. */
@@ -61,7 +65,13 @@ object VocalRecordingClassifier {
         "cover versions",
         "in the style of",
         "made famous by",
-        "tribute to"
+        "originally performed",
+        "as made famous",
+        "backing track",
+        "tribute to",
+        "tabata",
+        "hiit mix",
+        "workout mix"
     )
 
     private val instrumentalTitleMarkers = listOf(
@@ -121,9 +131,16 @@ object VocalRecordingClassifier {
         userQuery: String? = null
     ): Boolean {
         if (userRequestedNonVocal(userQuery)) return false
-        if (!shouldAllowInCatalog(title, artist, album, userQuery)) return false
+        // Only reject strictly non-vocal recordings for lyrics.
+        // Do NOT call shouldAllowInCatalog — that rejects live/remix/acoustic
+        // which are valid vocal recordings that should have lyrics.
+        if (isTributeOrNonVocalArtist(artist)) return false
+        if (hasInstrumentalTitleSignals(title)) return false
         val stack = haystack(title, artist, album)
         if (stack.contains("orchestra") || stack.contains("symphony") || stack.contains("ensemble")) {
+            return false
+        }
+        if (stack.contains("karaoke") || stack.contains("backing track")) {
             return false
         }
         return true

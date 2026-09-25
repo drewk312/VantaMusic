@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV banner: 320x180dp (1.78:1) shown on the Leanback home screen. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path
+        android:fillColor="#0A0C12"
+        android:pathData="M0,0h320v180h-320z" />
+    <!-- Soft accent glow behind the mark -->
+    <path
+        android:fillColor="#40324A0A"
+        android:pathData="M160,22 A68,68 0,1 1,159.99 22" />
+    <!-- VANTA ring -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M160,38 A52,52 0,1 1,159.99 38"
+        android:strokeColor="#D8A15D"
+        android:strokeLineCap="round"
+        android:strokeWidth="4" />
+    <!-- VANTA V -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M128,60 L160,124 L192,60"
+        android:strokeColor="#F0C989"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="12" />
+</vector>

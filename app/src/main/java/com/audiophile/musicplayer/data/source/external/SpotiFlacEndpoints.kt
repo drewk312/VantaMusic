@@ -14,7 +14,7 @@ object SpotiFlacEndpoints {
     const val DEFAULT_ADDON_BASE_URL: String = DEFAULT_GATEWAY_BASE_URL
 
     /** Public zero-config Qobuz stream relay (no API key). */
-    const val QOBUZ_WJHE_STREAM_API_URL = "https://music.wjhe.top/api/music/qobuz/url"
+    const val QOBUZ_WJHE_STREAM_API_URL = ""
 
     val GDSTUDIO_API_URLS = listOf(
         "https://music.gdstudio.xyz/api.php",
@@ -23,11 +23,16 @@ object SpotiFlacEndpoints {
     )
 
     /**
-     * Preferred stream quality sent to gateway relays: 24 = hi-res lossless, 16 = CD FLAC.
+     * Preferred stream quality: 24 = hi-res FLAC, 16 = CD FLAC, atmos = request Atmos media.
      * Mutable so the Settings screen can change it at runtime; loaded from prefs at startup.
      */
     @Volatile
-    var PREFERRED_STREAM_QUALITY: String = "24"
+    var PREFERRED_STREAM_QUALITY: String = "auto"
+
+    fun prefersSpatialMix(quality: String = PREFERRED_STREAM_QUALITY): Boolean {
+        val q = quality.trim().lowercase()
+        return q == "auto" || "atmos" in q || "360" in q || "spatial" in q || "iamf" in q
+    }
 
     const val COMMUNITY_DOWNLOAD_PATH = "/api/dl"
 
@@ -38,14 +43,17 @@ object SpotiFlacEndpoints {
     val PANDORA_COMMUNITY_API_URL: String = gatewayStreamEndpoint()
 
     fun mapTidalQualityToCommunity(quality: String?): String =
-        when (quality?.trim()?.uppercase()) {
+        when (quality?.trim()?.uppercase()?.replace("-", "_")) {
+            "ATMOS", "DOLBY_ATMOS", "DOLBY", "EAC3", "EAC3_JOC" -> "atmos"
+            "360", "360RA", "SONY360", "SONY_360", "360_REALITY_AUDIO" -> "360"
+            "AUTO" -> "auto"
             "HI_RES_LOSSLESS", "HI_RES", "24" -> "24"
             else -> "16"
         }
 
     fun mapQobuzQualityToCommunity(quality: String?): String =
-        when (quality?.trim()) {
-            "27", "7" -> "24"
+        when (quality?.trim()?.uppercase()?.replace("-", "_")) {
+            "27", "7", "24", "HI_RES", "HI_RES_LOSSLESS" -> "24"
             else -> "16"
         }
 
@@ -56,28 +64,14 @@ object SpotiFlacEndpoints {
             else -> 320 to "mp3"
         }
 
-    fun buildQobuzWjheStreamUrl(trackId: String, quality: String? = "27"): String {
-        val numericId = trackId.removePrefix("qobuz:").trim()
-        val (wjheQuality, wjheFormat) = mapQobuzWjheQuality(quality)
-        val query = listOf(
-            "ID" to numericId,
-            "quality" to wjheQuality.toString(),
-            "format" to wjheFormat
-        ).joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
-        return "$QOBUZ_WJHE_STREAM_API_URL?$query"
-    }
+    fun buildQobuzWjheStreamUrl(trackId: String, quality: String? = "27"): String = ""
 
     fun buildAddonStreamUrls(baseUrl: String, trackId: String, preferTidal: Boolean = false): List<String> {
         val trimmedBase = baseUrl.trimEnd('/')
         val id = encode(trackId.removePrefix("tidal:").removePrefix("qobuz:"))
-        val tidalSuffix = if (preferTidal) "?provider=tidal" else ""
+        val tidalSuffix = if (preferTidal) "&provider=tidal" else ""
         return listOf(
-            "$trimmedBase/stream/$id?quality=${PREFERRED_STREAM_QUALITY}$tidalSuffix",
-            "$trimmedBase/api/stream/$id?quality=${PREFERRED_STREAM_QUALITY}$tidalSuffix",
-            "$trimmedBase/stream/$id$tidalSuffix",
-            "$trimmedBase/api/stream/$id$tidalSuffix",
-            "$trimmedBase/stream?id=$id&quality=${PREFERRED_STREAM_QUALITY}$tidalSuffix",
-            "$trimmedBase/resolve/$id"
+            "$trimmedBase/stream/$id?quality=${PREFERRED_STREAM_QUALITY}$tidalSuffix"
         )
     }
 
@@ -105,7 +99,7 @@ object SpotiFlacEndpoints {
         "https://open.qobuz.com/track/${trackId.removePrefix("qobuz:").trim()}"
 
     fun buildSongLinkUrl(platformUrl: String): String =
-        "https://api.song.link/v1-alpha.1/links?url=${encode(platformUrl)}&userCountry=US"
+        "https://api.odesli.co/matches?url=${encode(platformUrl)}"
 
     private fun encode(value: String): String =
         URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")

@@ -23,7 +23,7 @@ function firebaseToken(claims: Record<string, unknown> = {}, header: Record<stri
   const signer = createSign("RSA-SHA256");
   signer.update(`${encodedHeader}.${encodedPayload}`);
   signer.end();
-  return `${encodedHeader}.${encodedPayload}.${signer.sign(keyPair.privateKey).toString("base64url")}`;
+  return `${encodedHeader}.${encodedPayload}.${signer.sign(keyPair.privateKey, "base64url")}`;
 }
 
 function firebaseEnv(): Env {

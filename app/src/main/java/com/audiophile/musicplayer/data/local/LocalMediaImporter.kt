@@ -10,6 +10,8 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import com.audiophile.musicplayer.data.local.entities.SourceType
+import com.audiophile.musicplayer.data.local.entities.LocalSongEntity
+import com.audiophile.musicplayer.data.repository.LocalLibraryRepository
 import com.audiophile.musicplayer.data.repository.TrackRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,7 +37,8 @@ private data class LocalAudioMetadata(
 
 class LocalMediaImporter(
     private val context: Context,
-    private val trackRepository: TrackRepository
+    private val trackRepository: TrackRepository,
+    private val localLibraryRepository: LocalLibraryRepository
 ) {
     private val appContext = context.applicationContext
 
@@ -101,7 +104,7 @@ class LocalMediaImporter(
                     val durationMs = if (durationIndex >= 0) it.getLong(durationIndex) else 0L
                     val mimeType = if (mimeTypeIndex >= 0) it.getString(mimeTypeIndex)?.trim() else null
                     val genre = if (genreIndex >= 0) {
-                        if (genreIndex >= 0) it.getString(genreIndex) else null?.trim()?.takeIf { value -> value.isNotBlank() }
+                        it.getString(genreIndex)?.trim()?.takeIf { value -> value.isNotBlank() }
                     } else {
                         null
                     }
@@ -126,6 +129,27 @@ class LocalMediaImporter(
                         durationMs = durationMs.takeIf { value -> value > 0 }
                     )
                     if (trackId > 0L) {
+                        val existing = localLibraryRepository.findSongByTitleArtist(title, artist)
+                        val now = System.currentTimeMillis()
+                        val localSong = existing?.copy(
+                            album = album ?: existing.album,
+                            durationMs = durationMs.takeIf { value -> value > 0L } ?: existing.durationMs,
+                            sourceType = SourceType.LOCAL,
+                            streamUrl = contentUri.toString(),
+                            importSource = "Device library",
+                            updatedAt = now
+                        ) ?: LocalSongEntity(
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            durationMs = durationMs.takeIf { value -> value > 0L },
+                            sourceType = SourceType.LOCAL,
+                            streamUrl = contentUri.toString(),
+                            importSource = "Device library",
+                            createdAt = now,
+                            updatedAt = now
+                        )
+                        localLibraryRepository.saveSongs(listOf(localSong))
                         imported += 1
                     }
                     if (scanned == 1 || scanned % 25 == 0) {
@@ -174,7 +198,7 @@ class LocalMediaImporter(
                 fallbackMimeType = null
             )
 
-            trackRepository.addTrackSource(
+            val trackId = trackRepository.addTrackSource(
                 title = metadata.title,
                 artist = metadata.artist,
                 album = metadata.album,
@@ -185,6 +209,33 @@ class LocalMediaImporter(
                 genre = metadata.genre,
                 durationMs = metadata.durationMs
             )
+            if (trackId <= 0L) return@withContext false
+
+            val now = System.currentTimeMillis()
+            val existing = localLibraryRepository.findSongByTitleArtist(metadata.title, metadata.artist)
+            val localSong = existing?.copy(
+                album = metadata.album ?: existing.album,
+                durationMs = metadata.durationMs ?: existing.durationMs,
+                artworkUrl = metadata.artworkUrl ?: existing.artworkUrl,
+                genres = metadata.genre?.let(::listOf) ?: existing.genres,
+                sourceType = SourceType.LOCAL,
+                streamUrl = uri.toString(),
+                importSource = "Audio file",
+                updatedAt = now
+            ) ?: LocalSongEntity(
+                title = metadata.title,
+                artist = metadata.artist,
+                album = metadata.album,
+                durationMs = metadata.durationMs,
+                artworkUrl = metadata.artworkUrl,
+                genres = metadata.genre?.let(::listOf).orEmpty(),
+                sourceType = SourceType.LOCAL,
+                streamUrl = uri.toString(),
+                importSource = "Audio file",
+                createdAt = now,
+                updatedAt = now
+            )
+            localLibraryRepository.saveSongs(listOf(localSong))
             return@withContext true
         } catch (e: Exception) {
             Log.e("LocalMediaImporter", "Failed to import URI: $uri", e)

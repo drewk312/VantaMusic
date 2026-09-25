@@ -23,8 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.audiophile.musicplayer.ui.AppAccent
-import com.audiophile.musicplayer.ui.AppBackground
 import com.audiophile.musicplayer.ui.rememberArtworkGradientColors
 import com.audiophile.musicplayer.audio.visualizer.VantaAudioFrame
 
@@ -87,22 +85,19 @@ fun LivingArtworkBackdrop(
                         translationX = driftX
                         translationY = driftY
                     }
-                    .blur(84.dp)
+                    .blur(64.dp)
             )
         } else {
+            // Neutral charcoal when cover art is missing — avoid seed-tinted greens.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = 1.05f
-                        scaleY = 1.05f
-                    }
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                artworkColors.topColor,
-                                artworkColors.midColor,
-                                artworkColors.bottomColor
+                                Color(0xFF16141A),
+                                Color(0xFF0C0B0F),
+                                Color(0xFF07070A)
                             )
                         )
                     )
@@ -119,19 +114,36 @@ fun LivingArtworkBackdrop(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.04f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.12f)
+                        ),
+                        start = Offset.Zero,
+                        end = Offset.Infinite
+                    )
+                )
+        )
+
+        // Lighter veil so blurred cover + aura visualizer stay readable.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.82f),
-                            Color.Black.copy(alpha = 0.42f),
-                            Color.Black.copy(alpha = 0.52f),
-                            Color.Black.copy(alpha = 0.92f)
+                            Color.Black.copy(alpha = 0.28f),
+                            Color.Black.copy(alpha = 0.10f),
+                            Color.Black.copy(alpha = 0.26f),
+                            Color.Black.copy(alpha = 0.72f)
                         )
                     )
                 )
         )
 
-        if (audioFrame != null && audioFrame.bassEnergy > 0.3f) {
-            val glowAlpha = (audioFrame.bassEnergy * 0.15f).coerceAtMost(0.25f)
+        if (audioFrame != null && audioFrame.bassEnergy > 0.18f) {
+            val glowAlpha = (audioFrame.bassEnergy * 0.28f).coerceAtMost(0.42f)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -139,6 +151,7 @@ fun LivingArtworkBackdrop(
                         Brush.radialGradient(
                             colors = listOf(
                                 artworkColors.accentColor.copy(alpha = glowAlpha),
+                                artworkColors.topColor.copy(alpha = glowAlpha * 0.35f),
                                 Color.Transparent
                             )
                         )

@@ -7,8 +7,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        container.initialize()
-        return true
+        do {
+            try container.initialize()
+            return true
+        } catch {
+            NSLog("VANTA database initialization failed: \(error)")
+            return false
+        }
     }
 
     func application(

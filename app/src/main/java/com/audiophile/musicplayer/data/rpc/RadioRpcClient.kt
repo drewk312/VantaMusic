@@ -92,30 +92,30 @@ class RadioRpcClient(
     private fun doConnect(url: String) {
         val request = Request.Builder().url(url).build()
         okHttpClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
                 response.close()
                 Log.i(TAG, "Connected to $url")
-                webSocket = ws
+                this@RadioRpcClient.webSocket = webSocket
                 consecutiveFailures = 0
             }
 
-            override fun onMessage(ws: WebSocket, text: String) {
+            override fun onMessage(webSocket: WebSocket, text: String) {
                 handleMessage(text)
             }
 
-            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                ws.close(code, reason)
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, reason)
             }
 
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "Disconnected code=$code reason=$reason")
-                webSocket = null
+                this@RadioRpcClient.webSocket = null
                 if (!closed) scheduleReconnect(url)
             }
 
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket failure: ${t.message}", t)
-                webSocket = null
+                this@RadioRpcClient.webSocket = null
                 consecutiveFailures++
                 if (!closed) scheduleReconnect(url)
             }
@@ -147,7 +147,9 @@ class RadioRpcClient(
                 return
             }
 
-            pendingReq.cont.resume(gson.fromJson(gson.toJson(base["result"]), Any::class.java) as Any) { }
+            pendingReq.cont.resumeWith(
+                Result.success(gson.fromJson(gson.toJson(base["result"]), Any::class.java) as Any)
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse RPC response: ${e.message}", e)
         }

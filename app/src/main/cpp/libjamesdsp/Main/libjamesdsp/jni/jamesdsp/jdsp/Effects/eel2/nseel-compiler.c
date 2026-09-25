@@ -2593,8 +2593,8 @@ static float NSEEL_CGEN_CALL _eel_base64_encode(void *opaque, float *destination
 			out = (unsigned char*)malloc(olen);
 			if (out == 0)
 				return 0;
-			end = src + len;
-			in = src;
+			end = (const unsigned char *)src + len;
+			in = (const unsigned char *)src;
 			pos = out;
 			line_len = 0;
 			while (end - in >= 3)
@@ -2630,7 +2630,7 @@ static float NSEEL_CGEN_CALL _eel_base64_encode(void *opaque, float *destination
 				*pos++ = '\n';
 			*pos = '\0';
 			size_t out_len = pos - out;
-			*dest = s_str_create_from_c_str(out);
+			*dest = s_str_create_from_c_str((const char *)out);
 			free(out);
 			return (float)out_len;
 		}
@@ -2744,7 +2744,7 @@ static float NSEEL_CGEN_CALL _eel_base64_decode(void *opaque, float *destination
 				}
 			}
 			size_t out_len = pos - out;
-			*dest = s_str_create_from_c_str_0Inc(out, out_len);
+			*dest = s_str_create_from_c_str_0Inc((const char *)out, out_len);
 			free(out);
 			return (float)out_len;
 		}
@@ -4364,7 +4364,7 @@ static float NSEEL_CGEN_CALL _eel_writeWavMemory(void *opaque, INT_PTR num_param
 	free(memoryBlk);
 	if (dest)
 		s_str_destroy(dest);
-	*dest = s_str_create_from_c_str(base64String);
+	*dest = s_str_create_from_c_str((const char *)base64String);
 	free(base64String);
 	return 1;
 }

@@ -35,7 +35,7 @@ class DjCompanionBrain(
         val parsed = DjStructuredResponseParser.parse(raw)
         if (parsed == null || parsed.message.isBlank()) {
             Log.w("VANTA_DJ_COMPANION", "json_parse_failed using_fallback")
-            return fallback.copy(message = raw?.take(160).orEmpty().ifBlank { fallback.message })
+            return fallback.copy(message = raw.take(160).ifBlank { fallback.message })
         }
         return parsed
     }

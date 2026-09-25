@@ -7,5 +7,6 @@ enum class JukeboxStationType {
     MOOD,
     ARTIST_SEED,
     SONG_SEED,
-    MULTI_ARTIST
+    MULTI_ARTIST,
+    GENOME_MODE
 }

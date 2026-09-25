@@ -9,11 +9,11 @@ class PlaybackStateHolder {
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
 
     fun update(transform: NowPlayingState.() -> NowPlayingState) {
-        _state.value = _state.value.transform()
+        _state.value = _state.value.transform().normalized()
     }
 
     fun replace(newState: NowPlayingState) {
-        _state.value = newState
+        _state.value = newState.normalized()
     }
 
     fun snapshot(): NowPlayingState = _state.value

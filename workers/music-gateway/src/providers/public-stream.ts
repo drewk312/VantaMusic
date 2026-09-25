@@ -4,6 +4,7 @@ import {
   hasSpatialAudioSignal,
   hasSurroundSignal,
   inferBitrateKbps,
+  inferContainerFromUrl,
   qualityLabelFromBitrate,
 } from "../lib/stream-quality";
 import { raceFirst } from "../lib/race-first";
@@ -11,11 +12,17 @@ import type { Env, ProviderId, StreamResult } from "../types";
 import { getCommunityApiKey } from "./community-api-key";
 import { getCommunityDownloadUrl } from "./community-crypto";
 import { streamViaMusicDlPublic } from "./musicdl-public";
+import { streamViaDeezerByTrackId } from "./deezer-public";
 import { fetchJson, fetchText } from "./shared";
+import { normalizePublicHttpsUrl } from "../lib/safe-stream-url";
+import { isRelayPoolDown as isRelayPoolDownEnc, markRelayPoolDown as markRelayPoolDownEnc, markRelayPoolUp as markRelayPoolUpEnc } from "./relay-health";
 
 const UA = "VANTA-MusicGateway/2.0";
 
 function mapQuality(quality: string): string {
+  const value = quality.trim().toLowerCase();
+  if (value === "atmos" || value === "dolby_atmos" || value.includes("atmos")) return "atmos";
+  if (value === "hi_res" || value === "hi_res_lossless") return "HI_RES";
   return quality === "16" ? "16" : "24";
 }
 
@@ -27,14 +34,17 @@ function extractStreamUrl(payload: unknown): string | null {
   if (!payload) return null;
   if (typeof payload === "string") {
     const trimmed = payload.trim().replace(/^"|"$/g, "");
-    return trimmed.startsWith("http") ? trimmed : null;
+    return normalizePublicHttpsUrl(trimmed);
   }
   if (typeof payload !== "object") return null;
 
   const record = payload as Record<string, unknown>;
   for (const key of ["url", "streamUrl", "stream_url", "downloadUrl", "download_url", "link", "location"]) {
     const value = record[key];
-    if (typeof value === "string" && value.startsWith("http")) return value;
+    if (typeof value === "string") {
+      const safeUrl = normalizePublicHttpsUrl(value);
+      if (safeUrl) return safeUrl;
+    }
   }
 
   for (const nested of Object.values(record)) {
@@ -44,19 +54,20 @@ function extractStreamUrl(payload: unknown): string | null {
   return null;
 }
 
-function toStreamResult(url: string, provider: ProviderId, quality?: string, format = "flac"): StreamResult {
-  const bitrateKbps = inferBitrateKbps(quality, format);
+function toStreamResult(url: string, provider: ProviderId, quality?: string, format?: string): StreamResult {
+  const resolvedFormat = format ?? inferContainerFromUrl(url) ?? (hasDolbyAtmosSignal(quality) ? "m4a" : undefined);
+  const bitrateKbps = inferBitrateKbps(quality, resolvedFormat);
   return {
     url,
     streamUrl: url,
-    format,
-    quality: quality ?? qualityLabelFromBitrate(bitrateKbps, format),
-    mimeType: format.includes("/") ? format : `audio/${format}`,
+    format: resolvedFormat,
+    quality: quality ?? qualityLabelFromBitrate(bitrateKbps, resolvedFormat),
+    mimeType: resolvedFormat?.includes("/") ? resolvedFormat : (resolvedFormat ? `audio/${resolvedFormat}` : undefined),
     bitrateKbps,
     provider,
-    isDolbyAtmos: hasDolbyAtmosSignal(quality, format),
-    isSpatialAudio: hasSpatialAudioSignal(quality, format),
-    isSurround: hasSurroundSignal(quality, format),
+    isDolbyAtmos: hasDolbyAtmosSignal(quality, resolvedFormat),
+    isSpatialAudio: hasSpatialAudioSignal(quality, resolvedFormat),
+    isSurround: hasSurroundSignal(quality, resolvedFormat),
   };
 }
 
@@ -81,12 +92,29 @@ export async function streamViaCommunityGateway(
   const q = mapQuality(quality);
   const bases = communityGatewayBases(env);
 
-  return raceFirst(
+  // These community gateway bases are the OSS/demand relays. When a base went
+  // through the relay breaker and was marked down for this provider, skip the
+  // whole fan-out so a single request does not burn the subrequest budget.
+  if (isRelayPoolDownEnc(`enc:${provider}`)) {
+    console.warn(
+      "VANTA_COMMUNITY_BREAKER",
+      JSON.stringify({ scope: `enc:${provider}`, trackId, action: "skip", reason: "relay pool marked down" })
+    );
+    return null;
+  }
+
+  const result = await raceFirst(
     bases.flatMap((base) => [
       () => streamViaCommunityGet(base, trackId, provider, q),
       () => streamViaCommunityPost(base, trackId, provider, q),
     ])
   );
+
+  if (result) {
+    markRelayPoolUpEnc(`enc:${provider}`);
+    return result;
+  }
+  return null;
 }
 
 async function streamViaCommunityGet(
@@ -95,20 +123,13 @@ async function streamViaCommunityGet(
   provider: ProviderId,
   quality: string
 ): Promise<StreamResult | null> {
-  const urls = [
-    `${base}/stream/${encodeURIComponent(trackId)}?provider=${provider}&quality=${quality}`,
-    `${base}/stream/${encodeURIComponent(trackId)}?quality=${quality}`,
-    `${base}/api/stream/${encodeURIComponent(trackId)}?provider=${provider}&quality=${quality}`,
-    `${base}/stream/${encodeURIComponent(trackId)}`,
-  ];
-
-  for (const endpoint of urls) {
-    const payload = await fetchJson(endpoint);
-    const url = extractStreamUrl(payload);
-    if (url) {
-      const label = (payload as { quality?: string })?.quality ?? quality;
-      return toStreamResult(url, provider, label);
-    }
+  // Single URL pattern (was 4) — save subrequests
+  const endpoint = `${base}/stream/${encodeURIComponent(trackId)}?provider=${provider}&quality=${quality}`;
+  const payload = await fetchJson(endpoint);
+  const url = extractStreamUrl(payload);
+  if (url) {
+    const label = (payload as { quality?: string })?.quality ?? quality;
+    return toStreamResult(url, provider, label);
   }
   return null;
 }
@@ -149,11 +170,8 @@ function gdstudioVersion(): string {
 }
 
 function gdstudioMirrorUrls(env: Env): string[] {
-  return [
-    env.GDSTUDIO_API_URL ?? "https://music.gdstudio.xyz/api.php",
-    "https://music.gdstudio.org/api.php",
-    "https://music-api.gdstudio.org/api.php",
-  ];
+  // Single mirror (was 3) — save subrequests
+  return [env.GDSTUDIO_API_URL ?? "https://music.gdstudio.xyz/api.php"];
 }
 
 function gdstudioSignature(host: string, trackId: string, ts9: string): string {
@@ -221,26 +239,36 @@ function qobuzMirrorAttempts(
   env: Env,
   trackId: string,
   quality: string,
-  gdstudioUrls: string[]
+  _gdstudioUrls: string[]
 ): Array<() => Promise<StreamResult | null>> {
   return [
     () => streamViaCommunityGateway(env, trackId, "qobuz", quality),
-    ...gdstudioAttempts(trackId, quality, gdstudioUrls, "qobuz"),
-    () => streamViaEncryptedCommunity("qobuz", trackId, quality),
     () => streamViaWjhe(trackId, quality),
-    () => streamViaMusicDlPublic(trackId, quality),
+    () => streamViaEncryptedCommunity(env, "qobuz", trackId, quality),
+    () => streamViaMusicDlPublic(env, trackId, quality),
   ];
 }
 
 export async function streamViaEncryptedCommunity(
+  env: Env,
   kind: "qobuz" | "tidal" | "amazon",
   trackId: string,
   quality: string
 ): Promise<StreamResult | null> {
-  const endpoint = await getCommunityDownloadUrl(kind);
+  // The "encrypted request required" relay pool is down when the breaker says so.
+  const providerKind: ProviderId = kind === "amazon" ? "amazon" : kind === "tidal" ? "tidal" : "qobuz";
+  if (isRelayPoolDownEnc(`enc:${providerKind}`)) {
+    console.warn(
+      "VANTA_COMMUNITY_BREAKER",
+      JSON.stringify({ scope: `enc:${providerKind}`, trackId, action: "skip", reason: "relay pool marked down" })
+    );
+    return null;
+  }
+
+  const endpoint = getCommunityDownloadUrl(kind, env);
   if (!endpoint) return null;
 
-  const apiKey = await getCommunityApiKey();
+  const apiKey = getCommunityApiKey(env);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -260,29 +288,61 @@ export async function streamViaEncryptedCommunity(
   });
 
   const url = extractStreamUrl(payload);
-  return url ? toStreamResult(url, kind === "amazon" ? "amazon" : kind) : null;
-}
-
-export async function streamViaAmazonSpotbye(trackId: string, quality: string): Promise<StreamResult | null> {
-  const asin = trackId.match(/(B[0-9A-Z]{9})/i)?.[1] ?? trackId;
-  const endpoints = [
-    "https://amazon.spotbye.qzz.io/api/dl",
-    "https://amazon.spotbye.qzz.io/api/download",
-  ];
-
-  for (const endpoint of endpoints) {
-    const payload = await fetchJson(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": UA },
-      body: JSON.stringify({ id: asin, quality: mapQuality(quality), country: "US" }),
-    });
-    const url = extractStreamUrl(payload);
-    if (url) return toStreamResult(url, "amazon");
+  if (url) {
+    markRelayPoolUpEnc(`enc:${providerKind}`);
+    return toStreamResult(url, kind === "amazon" ? "amazon" : kind);
   }
+  markRelayPoolDownEnc(`enc:${providerKind}`, "encrypted community returned no stream");
   return null;
 }
 
-export type StreamCrossIds = { qobuz?: string; tidal?: string };
+export async function streamViaAmazonSpotbye(trackId: string, quality: string): Promise<StreamResult | null> {
+  if (isRelayPoolDownEnc(`enc:amazon`)) {
+    console.warn(
+      "VANTA_COMMUNITY_BREAKER",
+      JSON.stringify({ scope: "enc:amazon", trackId, action: "skip", reason: "relay pool marked down" })
+    );
+    return null;
+  }
+  const asin = trackId.match(/(B[0-9A-Z]{9})/i)?.[1] ?? trackId;
+  // Single endpoint (was 2) — save subrequests
+  const endpoint = "https://amazon.spotbye.qzz.io/api/dl";
+
+  const payload = await fetchJson(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", "User-Agent": UA },
+    body: JSON.stringify({ id: asin, quality: mapQuality(quality), country: "US" }),
+  });
+  const url = extractStreamUrl(payload);
+  if (url) {
+    markRelayPoolUpEnc(`enc:amazon`);
+    return toStreamResult(url, "amazon");
+  }
+  markRelayPoolDownEnc(`enc:amazon`, "amazon spotbye relay returned no stream");
+  return null;
+}
+
+export type StreamCrossIds = {
+  qobuz?: string;
+  tidal?: string;
+  isrc?: string;
+  deezer?: string;
+  amazon?: string;
+  title?: string;
+  artist?: string;
+  durationSec?: number;
+};
+
+function deezerPublicAttempt(
+  env: Env,
+  provider: ProviderId,
+  trackId: string,
+  quality: string,
+  crossIds: StreamCrossIds
+): () => Promise<StreamResult | null> {
+  const deezerId = crossIds.deezer ?? (provider === "deezer" ? trackId : "");
+  return () => streamViaDeezerByTrackId(env, deezerId, crossIds.isrc, quality);
+}
 
 export async function streamWithPublicFallbacks(
   env: Env,
@@ -292,41 +352,41 @@ export async function streamWithPublicFallbacks(
   crossIds: StreamCrossIds = {}
 ): Promise<StreamResult | null> {
   const gdstudioUrls = gdstudioMirrorUrls(env);
+  const deezerPublic = deezerPublicAttempt(env, provider, trackId, quality, crossIds);
 
   if (provider === "deezer") {
-    const attempts: Array<() => Promise<StreamResult | null>> = [];
+    const attempts: Array<() => Promise<StreamResult | null>> = [deezerPublic];
     if (crossIds.tidal) {
       attempts.push(() => streamViaCommunityGateway(env, crossIds.tidal!, "tidal", quality));
-      attempts.push(() => streamViaEncryptedCommunity("tidal", crossIds.tidal!, quality));
-      attempts.push(...gdstudioAttempts(crossIds.tidal!, quality, gdstudioUrls, "tidal"));
+      attempts.push(() => streamViaEncryptedCommunity(env, "tidal", crossIds.tidal!, quality));
     }
     const qobuzId = crossIds.qobuz;
     if (qobuzId) {
       attempts.push(...qobuzMirrorAttempts(env, qobuzId, quality, gdstudioUrls));
     }
     attempts.push(() => streamViaCommunityGateway(env, trackId, "deezer", quality));
-    attempts.push(...gdstudioAttempts(trackId, quality, gdstudioUrls, "deezer"));
     return raceFirst(attempts);
   }
 
   if (provider === "qobuz") {
     const qobuzId = crossIds.qobuz ?? trackId;
-    return raceFirst(qobuzMirrorAttempts(env, qobuzId, quality, gdstudioUrls));
+    return raceFirst([...qobuzMirrorAttempts(env, qobuzId, quality, gdstudioUrls), deezerPublic]);
   }
 
   if (provider === "tidal") {
     return raceFirst([
       () => streamViaCommunityGateway(env, trackId, "tidal", quality),
-      () => streamViaEncryptedCommunity("tidal", trackId, quality),
-      ...gdstudioAttempts(trackId, quality, gdstudioUrls, "tidal"),
+      () => streamViaEncryptedCommunity(env, "tidal", trackId, quality),
+      deezerPublic,
     ]);
   }
 
   if (provider === "amazon") {
     return raceFirst([
       () => streamViaAmazonSpotbye(trackId, quality),
-      () => streamViaEncryptedCommunity("amazon", trackId, quality),
+      () => streamViaEncryptedCommunity(env, "amazon", trackId, quality),
       () => streamViaCommunityGateway(env, trackId, "amazon", quality),
+      deezerPublic,
     ]);
   }
 
@@ -334,8 +394,14 @@ export async function streamWithPublicFallbacks(
     return raceFirst([
       () => streamViaCommunityGateway(env, trackId, "pandora", quality),
       () => streamViaCommunityGateway(env, trackId, "pandora", quality === "16" ? "24" : quality),
+      deezerPublic,
     ]);
   }
 
   return null;
 }
+
+
+
+
+

@@ -2,7 +2,9 @@ package com.audiophile.musicplayer.search
 
 import com.audiophile.musicplayer.data.canonical.CanonicalAlbum
 import com.audiophile.musicplayer.data.canonical.CanonicalArtist
+import com.audiophile.musicplayer.data.canonical.CanonicalPlaylist
 import com.audiophile.musicplayer.data.canonical.CanonicalTrack
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.VariantClassifier
 import com.audiophile.musicplayer.data.source.isLikelyMusicTrack
@@ -15,7 +17,20 @@ data class UnifiedSearchResponse(
     val songs: List<CanonicalTrack>,
     val albums: List<CanonicalAlbum>,
     val artists: List<CanonicalArtist>,
-    val identityMatch: Boolean
+    val identityMatch: Boolean,
+    val playlists: List<CanonicalPlaylist> = emptyList()
+)
+
+/**
+ * Personal evidence that may break ties for an incomplete or ambiguous query.
+ * These identities only boost real provider/library results; they never create
+ * a metadata-only result or bypass source validation.
+ */
+data class SearchPersonalization(
+    val activeTitle: String? = null,
+    val activeArtist: String? = null,
+    val libraryIdentityKeys: Set<String> = emptySet(),
+    val recentIdentityKeys: Set<String> = emptySet()
 )
 
 /**
@@ -23,6 +38,17 @@ data class UnifiedSearchResponse(
  * Consolidates intent parsing, identity scoring, heuristic ranking, and categorization.
  */
 object UnifiedSearchEngine {
+
+    /** Provider lookups keep the user's text intact. Catalog-derived intent is
+     * resolved from live results instead of a hand-maintained song list. */
+    fun providerQuery(rawQuery: String): String {
+        val trimmed = rawQuery.trim()
+        return if (trimmed.contains(" by ", ignoreCase = true)) {
+            trimmed.replace(Regex("(?i)\\s+by\\s+"), " ").trim()
+        } else {
+            trimmed
+        }
+    }
 
     /**
      * Publicly exposes scoring for a single candidate.
@@ -61,17 +87,28 @@ object UnifiedSearchEngine {
     /**
      * Primary entry point for search processing.
      */
-    fun process(query: String, results: List<CanonicalTrack>): UnifiedSearchResponse {
+    fun process(
+        query: String,
+        results: List<CanonicalTrack>,
+        personalization: SearchPersonalization = SearchPersonalization()
+    ): UnifiedSearchResponse {
         val normalizedQuery = normalize(query)
-        val intent = parseIntent(query)
+        val intent = resolveIntent(query, results, personalization)
 
-        // 1. Enrich results with an "Identity Fallback" if a famous song is recognized but missing from provider hits
-        val searchResults = applyFamousSongFallback(intent, results)
-
-        // 2. Score and Filter candidates
-        val scoredTracks = searchResults
-            .map { it to scoreCandidate(intent, it) }
+        // Rank only real catalog/library hits. Search never fabricates a metadata-only
+        // song that cannot subsequently resolve to audio.
+        val scoredTracks = results
+            .map { track ->
+                val evaluation = scoreCandidate(intent, track)
+                track to evaluation.copy(
+                    finalScore = addScoreSafely(
+                        evaluation.finalScore,
+                        personalizationBonus(query, track, personalization)
+                    )
+                )
+            }
             .sortedByDescending { it.second.finalScore }
+        val bestScore = scoredTracks.firstOrNull()?.second?.finalScore ?: Int.MIN_VALUE
 
         // 3. Separate into categories using Surgical Strict Search (SSS)
         val songs = mutableListOf<CanonicalTrack>()
@@ -81,10 +118,17 @@ object UnifiedSearchEngine {
         val seenSongKeys = mutableSetOf<String>()
 
         for ((track, evaluation) in scoredTracks) {
-            // Always collect unique artists and albums from every track
+            if (!isRelevantResult(intent, track, evaluation, bestScore)) continue
+
+            // Artist/album rails follow the resolved identity, so a song search
+            // does not surface karaoke channels and unrelated cover artists.
             val artistName = track.artist.ifBlank { track.title }.trim()
             val artistKey = normalize(artistName)
-            if (artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
+            val expectedArtist = intent.primaryArtist?.let(::normalize)
+            val artistRelevant = expectedArtist.isNullOrBlank() ||
+                if (intent.songTitle.isNullOrBlank()) artistKey == expectedArtist
+                else artistIdentityMatches(expectedArtist, artistKey)
+            if (artistRelevant && artistKey.isNotBlank() && !artists.containsKey(artistKey)) {
                 // Never promote a track/external recording id into an artist catalog id.
                 artists[artistKey] = CanonicalArtist(
                     name = artistName,
@@ -96,7 +140,7 @@ object UnifiedSearchEngine {
             val albumTitle = track.album?.trim().orEmpty().ifBlank { track.title.trim() }
             val albumArtistName = track.artist.trim()
             val albumKey = normalize("$albumTitle|$albumArtistName")
-            if (albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
+            if (artistRelevant && albumTitle.isNotBlank() && !albums.containsKey(albumKey)) {
                 // Name+artist browse until a real catalog album id exists.
                 albums[albumKey] = CanonicalAlbum(
                     title = albumTitle,
@@ -121,15 +165,15 @@ object UnifiedSearchEngine {
             }
         }
 
-        // 4. Select Top Result
+        // Select Top Result
         val topCandidate = scoredTracks
             .filter { it.second.eligibleForTop }
             .map { it.first }
             .firstOrNull() ?: songs.firstOrNull()
 
-        // Enrich with featured artists if parsed from intent
-        val topResult = topCandidate?.copy(featuredArtists = intent.featuredArtists)
-        val enrichedSongs = songs.map { it.copy(featuredArtists = intent.featuredArtists) }
+        // Enrich with featured artists from the catalog row and the query.
+        val topResult = topCandidate?.copy(featuredArtists = mergeFeaturedArtists(topCandidate, intent.featuredArtists))
+        val enrichedSongs = songs.map { it.copy(featuredArtists = mergeFeaturedArtists(it, intent.featuredArtists)) }
         
         val topScore = scoredTracks.firstOrNull { it.first == topCandidate }?.second?.finalScore ?: 0
         val identityMatch = topScore >= IDENTITY_THRESHOLD
@@ -162,124 +206,67 @@ object UnifiedSearchEngine {
             }
         }
 
-        // Check registry for famous song patterns first — registry knows canonical artist.
-        FamousSongRegistry.resolve(queryForParsing)?.let { resolved ->
-            // The registry gives us the canonical title. Anything left in the query after the title
-            // (minus the featured artists already split out) is likely the primary artist the user typed.
-            val primaryArtist = extractTypedArtist(queryForParsing, resolved.title)
-            val intent = SearchQueryIntent(raw, resolved.title, primaryArtist ?: resolved.artist, featured)
-            return intent
-        }
-
-        // Heuristic: "Song by Artist" or "Artist - Song"
+        // Explicit syntax is the only place parsing assigns an artist without
+        // catalog evidence. Free-form text is resolved against live results in
+        // [inferCatalogIntent], not a title/artist registry.
         if (raw.contains(" by ", ignoreCase = true)) {
-            val parts = raw.split(Regex(" by ", RegexOption.IGNORE_CASE), limit = 2)
+            val parts = queryForParsing.split(Regex(" by ", RegexOption.IGNORE_CASE), limit = 2)
             return SearchQueryIntent(raw, parts[0].trim(), parts[1].trim(), featured)
         }
 
-        if (raw.contains(" - ")) {
-            val parts = raw.split(" - ", limit = 2).map { it.trim() }
+        val explicitBase = queryWithoutFeatureClause(raw)
+        if (explicitBase.contains(" - ")) {
+            val parts = explicitBase.split(" - ", limit = 2).map { it.trim() }
             if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
-                val titleArtistScore = splitQualityScore(parts[1], parts[0])
-                val artistTitleScore = splitQualityScore(parts[0], parts[1])
-                return if (titleArtistScore >= artistTitleScore) {
-                    SearchQueryIntent(raw, parts[0], parts[1], featured)
-                } else {
-                    SearchQueryIntent(raw, parts[1], parts[0], featured)
-                }
-            }
-        }
-
-        // Heuristic: "Title Artist" where the last 1-2 words look like an artist name.
-        // For 3-word queries like "sting desert rose" (Artist + 2-word title), try both
-        // [artist=1, title=2] and [artist=last-1, title=first-2], and prefer the split whose
-        // title matches a famous song or whose artist is the canonical artist for that title.
-        val rawWords = raw.split(Regex("""\s+""")).filter { it.isNotBlank() }
-        if (rawWords.size >= 3) {
-            data class Split(val artist: String, val title: String, val score: Int)
-            val candidates = mutableListOf<Split>()
-            val attemptNs = if (rawWords.size == 3) listOf(1, 2) else listOf(1, 2)
-            for (n in attemptNs) {
-                if (n >= rawWords.size) continue
-                val lastArtist = rawWords.takeLast(n).joinToString(" ")
-                val lastTitle = rawWords.dropLast(n).joinToString(" ")
-                if (lastArtist.length > 1 && lastTitle.length > 1) {
-                    candidates.add(Split(lastArtist, lastTitle, splitQualityScore(lastArtist, lastTitle)))
-                }
-                val firstArtist = rawWords.take(n).joinToString(" ")
-                val firstTitle = rawWords.drop(n).joinToString(" ")
-                if (firstArtist.length > 1 && firstTitle.length > 1) {
-                    candidates.add(Split(firstArtist, firstTitle, splitQualityScore(firstArtist, firstTitle)))
-                }
-            }
-            val best = candidates.maxByOrNull { it.score }
-            if (best != null && best.score >= 0) {
-                return SearchQueryIntent(raw, best.title, best.artist, featured)
+                return SearchQueryIntent(raw, parts[0], parts[1], featured)
             }
         }
 
         return SearchQueryIntent(raw, queryForParsing, null, featured)
     }
 
-    private fun splitQualityScore(artist: String, title: String): Int {
-        var score = 0
-        val normTitle = normalize(title)
-        val normArtist = normalize(artist)
-        // Prefer titles that match a famous song
-        FamousSongRegistry.getArtist(normTitle)?.let { canonicalArtist ->
-            score += 100
-            if (normalize(canonicalArtist) == normArtist || normArtist.contains(normalize(canonicalArtist))) {
-                score += 200
-            }
-        }
-        // Prefer artist on either end; slight preference for short artist names
-        score += 5 - (normArtist.length / 8).coerceAtMost(5)
-        // Penalize artist words that look like title words (numbers, common articles)
-        if (normArtist in setOf("the", "a", "an", "and")) score -= 50
-        return score
-    }
-
-    /**
-     * If the user typed "Down Jay Sean feat Lil Wayne" and the registry says the title is "down",
-     * then "jay sean" is what the user typed as the artist. Returns null if nothing extra remains.
-     */
-    private fun extractTypedArtist(normalizedQuery: String, normalizedTitle: String): String? {
-        val titleWords = normalizedTitle.split(" ").filter { it.isNotBlank() }
-        val queryWords = normalizedQuery.split(" ").filter { it.isNotBlank() }
-        // Find where the title ends inside the query; anything after is typed artist.
-        var titleEnd = -1
-        var titleIdx = 0
-        for ((idx, word) in queryWords.withIndex()) {
-            if (titleIdx < titleWords.size && word == titleWords[titleIdx]) {
-                titleIdx++
-                titleEnd = idx
-                if (titleIdx == titleWords.size) break
-            }
-        }
-        if (titleIdx != titleWords.size) return null
-        val artistWords = queryWords.drop(titleEnd + 1)
-        return artistWords.joinToString(" ").takeIf { it.isNotBlank() }
-    }
-
     // --- Scoring Logic ---
 
     private fun scoreCandidate(intent: SearchQueryIntent, track: CanonicalTrack): Evaluation {
         val title = track.title.trim()
-        val artist = track.artist.trim()
+        val artist = primaryArtist(track.artist)
         if (title.isBlank()) return Evaluation(Int.MIN_VALUE, false)
 
+        val cleanTitle = identityTitle(title, intent.rawQuery)
         val normTitle = normalize(title)
+        val normCleanTitle = normalize(cleanTitle)
         val normArtist = normalize(artist)
         val expectedTitle = intent.songTitle?.let { normalize(it) }
-        val expectedArtist = intent.primaryArtist?.let { normalize(it) }
+        val expectedArtist = intent.primaryArtist?.let { normalize(primaryArtist(it)) }
+
+        val rawNorm = normalize(intent.rawQuery)
+        val queryTokens = rawNorm.split(" ").filter { it.isNotBlank() && it !in setOf("by", "feat", "ft", "featuring", "with") }
+        val titleTokens = (normTitle.split(" ") + normCleanTitle.split(" ")).filter { it.isNotBlank() }.toSet()
+        val artistTokens = normArtist.split(" ").filter { it.isNotBlank() }.toSet()
+        val combinedTokens = titleTokens + artistTokens
+        val allQueryTokensInTrack = queryTokens.isNotEmpty() && queryTokens.all { it in combinedTokens }
+        val combinedArtistTitle = "$normArtist $normTitle"
+        val combinedTitleArtist = "$normTitle $normArtist"
+        val strictCombinedMatch = rawNorm == combinedArtistTitle || rawNorm == combinedTitleArtist
+        val cleanCombinedMatch = !strictCombinedMatch && (rawNorm == "$normArtist $normCleanTitle" || rawNorm == "$normCleanTitle $normArtist")
 
         var score = 0
 
         // Title Score
+        val strictTitleMatch = expectedTitle != null && normTitle == expectedTitle
+        val cleanTitleMatch = !strictTitleMatch && expectedTitle != null && normCleanTitle == expectedTitle
         score += when {
-            expectedTitle != null && normTitle == expectedTitle -> 200
-            expectedTitle != null && normTitle.contains(expectedTitle) -> 60
+            strictCombinedMatch -> 650
+            cleanCombinedMatch -> 560
+            strictTitleMatch -> 500
+            cleanTitleMatch -> 440
+            expectedTitle != null && (normTitle.contains(expectedTitle) || normCleanTitle.contains(expectedTitle) || expectedTitle.contains(normTitle) || expectedTitle.contains(normCleanTitle)) -> 250
+            rawNorm.contains(normTitle) && normTitle.length >= 3 -> 200
+            allQueryTokensInTrack -> 180
             else -> scoreText(intent.rawQuery, title) / 2
+        }
+        if (allQueryTokensInTrack && !strictCombinedMatch && !cleanCombinedMatch && !strictTitleMatch && !cleanTitleMatch) {
+            score += 120
         }
 
         // Resolve requested variant early so title/penalty logic can use it
@@ -307,10 +294,13 @@ object UnifiedSearchEngine {
             else -> false
         }
         val artistOverlap = artistTokenOverlap(expectedArtist, normArtist)
+        val exactArtistMatch = expectedArtist != null && normArtist == expectedArtist
         score += when {
+            exactArtistMatch -> 420
             artistMatch -> 300
             expectedArtist != null && artistOverlap >= 0.5 -> 150
             expectedArtist != null && expectedArtist.contains(normArtist) && normArtist.length > 3 -> 40
+            expectedArtist == null && normArtist.length >= 3 && rawNorm.contains(normArtist) -> 300
             else -> 0
         }
 
@@ -318,20 +308,6 @@ object UnifiedSearchEngine {
         // crush uploaders / tribute / cover channels that happen to match the title.
         if (expectedArtist != null && !artistMatch && artistOverlap < 0.25 && normArtist.isNotBlank()) {
             score -= 500
-        }
-
-        // Famous Registry Bonus — only when the candidate artist is the canonical artist.
-        // This stops SEO titles like "Bad Guy Billie Eilish" by uploader channels from winning.
-        if (expectedTitle != null) {
-            val famousArtist = FamousSongRegistry.getArtist(expectedTitle)
-            if (famousArtist != null) {
-                val normFamousArtist = normalize(famousArtist)
-                if (normArtist.isNotBlank() &&
-                    (normFamousArtist == normArtist || normFamousArtist.contains(normArtist) || normArtist.contains(normFamousArtist))
-                ) {
-                    score += 1000
-                }
-            }
         }
 
         // Variant handling: if the user explicitly asked for a variant, boost tracks that ARE
@@ -358,9 +334,11 @@ object UnifiedSearchEngine {
         val titleNegMarkers = listOf(
             "tribute", "cover", "karaoke", "instrumental", "remix", "8d", "nightcore",
             "speed up", "slowed", "reverb", "tiktok", "ringtone", "dj mix",
-            "acoustic version", "live at", "live from"
+            "acoustic version", "live at", "live from", "live in", "live version", "originally performed",
+            "backing track", "type beat"
         )
-        if (titleNegMarkers.any { it in normTitle }) {
+        val hasLiveMarker = (normTitle.endsWith(" live") || normTitle.contains(" live ")) && requestedVariant != VariantClassifier.VariantType.LIVE
+        if (titleNegMarkers.any { it in normTitle } || hasLiveMarker) {
             score += if (requestedAnyVariant && trackVariant == requestedVariant) 1000 else -260
         }
 
@@ -370,35 +348,41 @@ object UnifiedSearchEngine {
             "hq", "hd", "videos", "audio library", "no copyright", "ncs", "covers",
             "instrumental", "karafun", "sing king", "8d tunes"
         )
-        if (uploaderMarkers.any { it in normArtist }) score -= 400
+        val uploaderLikeArtist = uploaderMarkers.any { it in normArtist }
+        if (uploaderLikeArtist) score -= 400
         if (normArtist.endsWith("vevo") || normArtist.endsWith("topic")) score -= 80
+        if (normArtist.isBlank()) score -= 120
 
-        // Duration Bonus — prefer recordings close to the known studio length when available
-        expectedTitle?.let { FamousSongRegistry.getDuration(it) }?.let { expectedMs ->
-            track.durationMs?.let { actualMs ->
-                if (actualMs > 0) {
-                    val delta = kotlin.math.abs(actualMs - expectedMs)
-                    when {
-                        delta < 8_000L -> score += 80
-                        delta < 15_000L -> score += 40
-                        delta < 30_000L -> score += 15
-                        delta > 60_000L -> score -= 120
-                        delta > 45_000L -> score -= 60
-                    }
-                }
-            }
-        }
-
-        // Provider Priority
+        // Catalog authority comes from the provider result itself: source
+        // priority and complete recording metadata. It never depends on a
+        // hand-maintained title, artist, or duration table.
         score += track.sourcePriority.coerceIn(0, 20)
+        if (!track.externalTrackId.isNullOrBlank()) score += 8
+        if (!track.album.isNullOrBlank()) score += 5
+        if (!track.isrc.isNullOrBlank()) score += 12
+        if ((track.durationMs ?: 0L) > 0L) score += 4
 
         // Eligibility for "Top Result" requires:
         //  - not a rejected variant
         //  - title matches the expected title (or no expected title)
         //  - artist matches the expected artist when one is known
+        val titleMatches = expectedTitle == null ||
+            normTitle == expectedTitle ||
+            normCleanTitle == expectedTitle ||
+            normTitle.contains(expectedTitle) ||
+            normCleanTitle.contains(expectedTitle) ||
+            expectedTitle.contains(normTitle) ||
+            expectedTitle.contains(normCleanTitle) ||
+            allQueryTokensInTrack ||
+            (rawNorm.contains(normTitle) && normTitle.length >= 3)
+        val artistMatchesCandidate = expectedArtist == null || artistMatch || artistOverlap >= 0.5
+
         val eligible = !rejected &&
-            (expectedTitle == null || normTitle.contains(expectedTitle)) &&
-            (expectedArtist == null || artistMatch || artistOverlap >= 0.5 || isFamousArtistMatch(expectedTitle, normArtist))
+            !uploaderLikeArtist &&
+            !isLowAuthorityArtist(artist) &&
+            normArtist.isNotBlank() &&
+            titleMatches &&
+            artistMatchesCandidate
 
         return Evaluation(score, eligible)
     }
@@ -412,14 +396,6 @@ object UnifiedSearchEngine {
         return intersection.size.toFloat() / expectedTokens.size.toFloat()
     }
 
-    private fun isFamousArtistMatch(expectedTitle: String?, normArtist: String): Boolean {
-        if (expectedTitle == null) return false
-        val famousArtist = FamousSongRegistry.getArtist(expectedTitle) ?: return false
-        val normFamousArtist = normalize(famousArtist)
-        return normFamousArtist.isNotBlank() &&
-            (normFamousArtist == normArtist || normFamousArtist.contains(normArtist) || normArtist.contains(normFamousArtist))
-    }
-
     private fun scoreText(query: String, text: String): Int {
         val nq = normalize(query)
         val nt = normalize(text)
@@ -429,6 +405,364 @@ object UnifiedSearchEngine {
             nt.contains(nq) -> 60
             else -> 0
         }
+    }
+
+    private fun inferPersonalizedIntent(
+        query: String,
+        results: List<CanonicalTrack>,
+        personalization: SearchPersonalization
+    ): SearchQueryIntent? {
+        val normalizedQuery = normalize(query)
+        if (normalizedQuery.replace(" ", "").length < 3) return null
+
+        val preferred = results
+            .asSequence()
+            .filter { queryCanDescribe(normalizedQuery, it) }
+            .map { track -> track to personalizationBonus(query, track, personalization) }
+            .filter { (_, bonus) -> bonus >= PERSONALIZED_INTENT_THRESHOLD }
+            .maxByOrNull { (_, bonus) -> bonus }
+            ?.first
+            ?: return null
+
+        return SearchQueryIntent(
+            rawQuery = query.trim(),
+            songTitle = identityTitle(preferred.title, query),
+            primaryArtist = preferred.artist.trim(),
+            featuredArtists = parseIntent(query).featuredArtists
+        )
+    }
+
+    /** Resolve free-form text only from supplied catalog and personal evidence. */
+    fun resolveIntent(
+        query: String,
+        results: List<CanonicalTrack>,
+        personalization: SearchPersonalization = SearchPersonalization()
+    ): SearchQueryIntent = inferPersonalizedIntent(query, results, personalization)
+        ?: inferCatalogIntent(query, results)
+        ?: parseIntent(query)
+
+    private fun personalizationBonus(
+        query: String,
+        track: CanonicalTrack,
+        personalization: SearchPersonalization
+    ): Int {
+        val normalizedQuery = normalize(query)
+        if (!queryCanDescribe(normalizedQuery, track)) return 0
+
+        val key = identityKey(track.title, track.artist)
+        var bonus = 0
+        if (key in personalization.libraryIdentityKeys) bonus += LIBRARY_IDENTITY_BONUS
+        if (key in personalization.recentIdentityKeys) bonus += RECENT_IDENTITY_BONUS
+
+        val activeTitle = personalization.activeTitle?.let(::normalize)
+        val activeArtist = personalization.activeArtist?.let(::normalize)
+        if (!activeTitle.isNullOrBlank() && !activeArtist.isNullOrBlank() &&
+            normalize(track.title) == activeTitle && normalize(track.artist) == activeArtist
+        ) {
+            bonus += ACTIVE_IDENTITY_BONUS
+        }
+        return bonus
+    }
+
+    private fun queryCanDescribe(normalizedQuery: String, track: CanonicalTrack): Boolean {
+        if (normalizedQuery.isBlank()) return false
+        val title = normalize(identityTitle(track.title, normalizedQuery))
+        val artist = normalize(track.artist)
+        return title.startsWith(normalizedQuery) ||
+            artist.startsWith(normalizedQuery) ||
+            "$title $artist".startsWith(normalizedQuery) ||
+            "$artist $title".startsWith(normalizedQuery)
+    }
+
+    private fun addScoreSafely(score: Int, bonus: Int): Int =
+        if (score == Int.MIN_VALUE) Int.MIN_VALUE else score + bonus
+
+    /**
+     * Derive track/artist intent from relevance-ordered catalog results. The
+     * gateway's discovery catalog supplies spelling tolerance and popularity;
+     * this layer independently verifies the character similarity before using
+     * the identity. No song names are embedded here.
+     */
+    private fun inferCatalogIntent(query: String, results: List<CanonicalTrack>): SearchQueryIntent? {
+        val raw = query.trim()
+        val catalogQuery = queryWithoutFeatureClause(raw)
+        val normalizedQuery = normalize(catalogQuery)
+        val compactQuery = normalizedQuery.replace(" ", "")
+        if (compactQuery.length < 3 || results.isEmpty()) return null
+
+        // Explicit title/artist syntax is already authoritative and must not be
+        // overwritten by a catalog's popularity ordering.
+        if (catalogQuery.contains(" by ", ignoreCase = true) || catalogQuery.contains(" - ")) {
+            return parseIntent(raw)
+        }
+
+        data class ArtistIntentCandidate(
+            val displayName: String,
+            val normalizedName: String,
+            val occurrenceCount: Int,
+            val firstIndex: Int
+        )
+
+        val artistMatch = results
+            .take(25)
+            .mapIndexedNotNull { index, track ->
+                val displayName = primaryArtist(track.artist)
+                val normalizedName = normalize(displayName)
+                if (displayName.isBlank() ||
+                    (!normalizedName.startsWith(normalizedQuery) && !normalizedQuery.startsWith(normalizedName) && !normalizedQuery.contains(normalizedName)) ||
+                    isLowAuthorityArtist(displayName)
+                ) {
+                    null
+                } else {
+                    Triple(normalizedName, displayName, index)
+                }
+            }
+            .groupBy { it.first }
+            .map { (normalizedName, matches) ->
+                ArtistIntentCandidate(
+                    displayName = matches.first().second,
+                    normalizedName = normalizedName,
+                    occurrenceCount = matches.size,
+                    firstIndex = matches.minOf { it.third }
+                )
+            }
+            .filter { it.occurrenceCount >= 2 }
+            .sortedWith(
+                compareByDescending<ArtistIntentCandidate> { it.normalizedName == normalizedQuery }
+                    .thenByDescending { it.occurrenceCount }
+                    .thenBy { it.firstIndex }
+            )
+            .firstOrNull()
+
+        val titleMatchCount = results.take(25).count { track ->
+            normalize(identityTitle(track.title, catalogQuery)) == normalizedQuery
+        }
+        if (artistMatch != null && titleMatchCount < 2) {
+            val remainingTitle = if (artistMatch.normalizedName != normalizedQuery) {
+                normalizedQuery.replace(artistMatch.normalizedName, "").trim()
+            } else null
+            return SearchQueryIntent(
+                rawQuery = raw,
+                songTitle = if (remainingTitle.isNullOrBlank()) null else remainingTitle,
+                primaryArtist = artistMatch.displayName,
+                featuredArtists = parseIntent(raw).featuredArtists
+            )
+        }
+
+        data class CatalogCandidate(
+            val track: CanonicalTrack,
+            val title: String,
+            val confidence: Double,
+            val score: Double
+        )
+
+        val candidates = results.take(25).mapIndexed { index, track ->
+            val title = identityTitle(track.title, catalogQuery)
+            val artist = track.artist.trim()
+            val similarity = maxOf(
+                textSimilarity(catalogQuery, title),
+                textSimilarity(catalogQuery, "$title $artist"),
+                textSimilarity(catalogQuery, "$artist $title")
+            )
+            val confidence = maxOf(
+                similarity,
+                identityTokenCoverage(catalogQuery, title, artist)
+            )
+            val orderBonus = maxOf(0, 36 - index * 28)
+            val metadataBonus =
+                (if (track.album.isNullOrBlank()) 0 else 4) +
+                    (if (track.externalTrackId.isNullOrBlank()) 0 else 8) +
+                    (if (track.isrc.isNullOrBlank()) 0 else 30) +
+                    track.sourcePriority.coerceIn(0, 10)
+            val (rejectedVariant, _) = VariantClassifier.isRejectedForStudioIntent(
+                track.title,
+                track.artist,
+                track.album,
+                catalogQuery
+            )
+            val authorityPenalty =
+                (if (isLowAuthorityArtist(artist)) 20 else 0) +
+                    (if (rejectedVariant) 100 else 0)
+            val soundtrackPenalty =
+                if (looksLikeSoundtrackPackaging(track.title, track.album)) 18 else 0
+            val swappedPenalty =
+                if (normalize(artist) == normalizedQuery && normalize(title) != normalizedQuery) 35 else 0
+            CatalogCandidate(
+                track = track,
+                title = title,
+                confidence = confidence,
+                score = confidence * 100.0 + orderBonus + metadataBonus - authorityPenalty - soundtrackPenalty - swappedPenalty
+            )
+        }.sortedByDescending { it.score }
+
+        val best = candidates.firstOrNull() ?: return null
+        val minimumConfidence = if (compactQuery.length <= 5) 0.88 else 0.72
+        if (best.confidence < minimumConfidence || best.title.isBlank() || best.track.artist.isBlank()) return null
+
+        return SearchQueryIntent(
+            rawQuery = raw,
+            songTitle = best.title,
+            primaryArtist = best.track.artist.trim(),
+            featuredArtists = parseIntent(raw).featuredArtists
+        )
+    }
+
+    private fun queryWithoutFeatureClause(query: String): String {
+        val normalized = normalize(query)
+        val markerIndex = FEAT_MARKERS
+            .map(normalized::indexOf)
+            .filter { it > 0 }
+            .minOrNull()
+            ?: return query.trim()
+        return normalized.substring(0, markerIndex).trim()
+    }
+
+    /** Stable identity key shared by repository personalization and ranking. */
+    fun identityKey(title: String, artist: String): String =
+        "${normalize(title)}|${normalize(artist)}"
+
+    private fun textSimilarity(left: String, right: String): Double {
+        val a = normalize(left).replace(" ", "")
+        val b = normalize(right).replace(" ", "")
+        if (a.isBlank() || b.isBlank()) return 0.0
+        if (a == b) return 1.0
+        val longest = maxOf(a.length, b.length)
+        val editSimilarity = 1.0 - levenshteinDistance(a, b).toDouble() / longest.toDouble()
+        val containmentSimilarity = if (a.contains(b) || b.contains(a)) {
+            minOf(a.length, b.length).toDouble() / longest.toDouble()
+        } else {
+            0.0
+        }
+        return maxOf(editSimilarity, containmentSimilarity)
+    }
+
+    private fun identityTokenCoverage(query: String, title: String, artist: String): Double {
+        val queryTokens = normalize(query).split(" ").filter { it.isNotBlank() }.toSet()
+        val titleTokens = normalize(title).split(" ").filter { it.isNotBlank() }.toSet()
+        val artistTokens = normalize(artist).split(" ").filter { it.isNotBlank() }.toSet()
+        if (queryTokens.isEmpty() || titleTokens.isEmpty()) return 0.0
+        val titleCoverage = titleTokens.intersect(queryTokens).size.toDouble() / titleTokens.size.toDouble()
+        if (titleCoverage < 0.5) return 0.0
+        val artistCoverage = if (artistTokens.isEmpty()) {
+            0.0
+        } else {
+            artistTokens.intersect(queryTokens).size.toDouble() / artistTokens.size.toDouble()
+        }
+        return titleCoverage * 0.7 + artistCoverage * 0.3
+    }
+
+    private fun levenshteinDistance(left: String, right: String): Int {
+        if (left == right) return 0
+        if (left.isEmpty()) return right.length
+        if (right.isEmpty()) return left.length
+        var previous = IntArray(right.length + 1) { it }
+        for (row in 1..left.length) {
+            val current = IntArray(right.length + 1)
+            current[0] = row
+            for (column in 1..right.length) {
+                val substitution = previous[column - 1] +
+                    if (left[row - 1] == right[column - 1]) 0 else 1
+                current[column] = minOf(previous[column] + 1, current[column - 1] + 1, substitution)
+            }
+            previous = current
+        }
+        return previous[right.length]
+    }
+
+    private fun identityTitle(title: String, query: String): String {
+        val requestedVariant = resolveRequestedVariant(query)
+        val preserveVariant = requestedVariant != VariantClassifier.VariantType.UNKNOWN
+        val withoutSubtitles = if (preserveVariant) {
+            title
+        } else {
+            title
+                .replace(Regex("""\s*[\[(][^\])]+[\])]"""), " ")
+                .replace(Regex("""(?i)\s*-\s*(music from|from|original motion picture|soundtrack|inspired by).*$"""), " ")
+        }
+        val releaseWords = setOf(
+            "remaster", "remastered", "deluxe", "edition", "version", "edit",
+            "mono", "stereo", "explicit", "clean", "audio", "video", "official"
+        )
+        return normalize(withoutSubtitles)
+            .split(" ")
+            .filterNot { it in releaseWords }
+            .joinToString(" ")
+            .replace(Regex("""\b(feat|featuring|ft)\b.*$"""), "")
+            .trim()
+    }
+
+    private fun looksLikeSoundtrackPackaging(title: String, album: String?): Boolean {
+        val blob = "${title.lowercase()} ${album.orEmpty().lowercase()}"
+        return listOf("from ", "soundtrack", "motion picture", "original score", " ost").any { it in blob }
+    }
+
+    private fun mergeFeaturedArtists(track: CanonicalTrack, intentFeatured: List<String>): List<String> {
+        return (track.featuredArtists + DisplayMetadataCleaner.extractFeaturedArtists(track.title, track.artist) + intentFeatured)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+    }
+
+    private fun isLowAuthorityArtist(artist: String): Boolean {
+        val normalized = normalize(artist)
+        return listOf(
+            "karaoke", "tribute", "cover band", "covers", "kids bop", "kidz bop",
+            "instrumental", "rain sounds", "rainforest sounds", "music box", "lyrics",
+            "backing track", "the backing tracks", "originally performed",
+            "tabata", "workout hits", "fitness beats", "style pack", "party tyme",
+            "sound a like", "sing along", "composerlyricist", "musicpublisher"
+        ).any(normalized::contains)
+    }
+
+    private fun primaryArtist(artist: String): String {
+        val split = DisplayMetadataCleaner.splitArtistCredits(artist)
+        if (split.primary.isNotBlank()) return split.primary
+        val first = artist.split(",").firstOrNull()?.trim().orEmpty()
+        return first.replace(Regex("""(?i)\s+(feat\.?|featuring|ft\.?)\b.*$"""), "").trim()
+    }
+
+    private fun artistIdentityMatches(expected: String, actual: String): Boolean {
+        val left = normalize(primaryArtist(expected))
+        val right = normalize(primaryArtist(actual))
+        if (left == right) return true
+        if (left.length > 3 && right.contains(left)) return true
+        if (right.length > 3 && left.contains(right)) return true
+        return textSimilarity(left, right) >= 0.9
+    }
+
+    private fun isRelevantResult(
+        intent: SearchQueryIntent,
+        track: CanonicalTrack,
+        evaluation: Evaluation,
+        bestScore: Int
+    ): Boolean {
+        if (evaluation.finalScore == Int.MIN_VALUE) return false
+        if (bestScore != Int.MIN_VALUE && evaluation.finalScore < bestScore - 700) return false
+
+        val rawNorm = normalize(intent.rawQuery)
+        val titleNorm = normalize(identityTitle(track.title, intent.rawQuery))
+        val actualArtist = normalize(track.artist)
+
+        // Query token coverage check: if track matches all query words across title + artist, it is ALWAYS relevant
+        val queryTokens = rawNorm.split(" ").filter { it.isNotBlank() }
+        val trackTokens = (titleNorm.split(" ") + actualArtist.split(" ")).filter { it.isNotBlank() }.toSet()
+        if (queryTokens.isNotEmpty() && queryTokens.all { it in trackTokens }) {
+            return true
+        }
+
+        val expectedArtist = intent.primaryArtist?.let(::normalize)
+        if (!expectedArtist.isNullOrBlank() && !artistIdentityMatches(expectedArtist, actualArtist) && !rawNorm.contains(actualArtist)) return false
+
+        val expectedTitle = intent.songTitle
+        if (!expectedTitle.isNullOrBlank()) {
+            val similarity = textSimilarity(expectedTitle, titleNorm)
+            val combinedArtistTitle = "$actualArtist $titleNorm"
+            val combinedTitleArtist = "$titleNorm $actualArtist"
+            val combinedSim = maxOf(textSimilarity(rawNorm, combinedArtistTitle), textSimilarity(rawNorm, combinedTitleArtist))
+            return evaluation.eligibleForTop || similarity >= 0.50 || combinedSim >= 0.55 || rawNorm.contains(titleNorm)
+        }
+
+        return expectedArtist.isNullOrBlank() || artistIdentityMatches(expectedArtist, actualArtist)
     }
 
     // --- Categorization ---
@@ -456,12 +790,16 @@ object UnifiedSearchEngine {
 
     // --- Utils ---
 
-    private fun normalize(value: String): String =
-        value.lowercase()
-            .replace(Regex("""[^\p{L}\p{N}\s]+"""), "")
+    private fun normalize(value: String): String {
+        val folded = java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}+"), "")
+        return folded.lowercase()
+            .replace("&", " and ")
+            .replace(Regex("""[^\p{L}\p{N}\s]+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .normalizeDigitWords()
             .trim()
+    }
 
     private fun String.normalizeDigitWords(): String {
         var result = this
@@ -481,24 +819,6 @@ object UnifiedSearchEngine {
             .trim()
     }
 
-    private fun applyFamousSongFallback(intent: SearchQueryIntent, results: List<CanonicalTrack>): List<CanonicalTrack> {
-        val title = intent.songTitle ?: return results
-        val artist = intent.primaryArtist ?: FamousSongRegistry.getArtist(normalize(title)) ?: return results
-        
-        val hasExact = results.any { normalize(it.title) == normalize(title) && normalize(it.artist).contains(normalize(artist)) }
-        if (hasExact) return results
-
-        val fallback = CanonicalTrack(
-            title = title.split(" ").joinToString(" ") { if (it.isNotEmpty()) it.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() } else it },
-            artist = artist.split(" ").joinToString(" ") { if (it.isNotEmpty()) it.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() } else it },
-            album = title,
-            durationMs = FamousSongRegistry.getDuration(normalize(title)),
-            sourcePriority = 10,
-            sourceStatus = SearchItemStatus.METADATA_ONLY
-        )
-        return listOf(fallback) + results
-    }
-
     data class Evaluation(val finalScore: Int, val eligibleForTop: Boolean)
 
     data class SearchQueryIntent(
@@ -509,273 +829,11 @@ object UnifiedSearchEngine {
         val hasExpectedTitle: Boolean = !songTitle.isNullOrBlank()
     )
 
-    /**
-     * Replaces FamousSongHints with a more flexible internal registry.
-     */
-    private object FamousSongRegistry {
-        private val data = mapOf(
-            "blinding lights" to ("The Weeknd" to 200_000L),
-            "bad guy" to ("Billie Eilish" to 194_000L),
-            "stayin alive" to ("Bee Gees" to 285_000L),
-            "shape of you" to ("Ed Sheeran" to 233_000L),
-            "flowers" to ("Miley Cyrus" to 200_000L),
-            "anti hero" to ("Taylor Swift" to 200_000L),
-            "bohemian rhapsody" to ("Queen" to 354_000L),
-            "hotel california" to ("Eagles" to 390_000L),
-            "billie jean" to ("Michael Jackson" to 294_000L),
-            "piano man" to ("Billy Joel" to 336_000L),
-            "down" to ("Jay Sean" to 212_000L),
-            "victory lap five" to ("Fred Again" to 237_000L),
-            "victory lap 5" to ("Fred Again" to 237_000L),
-            "desert rose" to ("Sting" to 287_000L),
-            "all of the lights" to ("Kanye West" to 310_000L),
-            "stronger" to ("Kanye West" to 311_000L),
-            "gold digger" to ("Kanye West" to 208_000L),
-            "heartless" to ("Kanye West" to 211_000L),
-            "runaway" to ("Kanye West" to 453_000L),
-            "power" to ("Kanye West" to 292_000L),
-            "jesus walks" to ("Kanye West" to 203_000L),
-            "touch the sky" to ("Kanye West" to 236_000L),
-            "ultralight beam" to ("Kanye West" to 320_000L),
-            "famous" to ("Kanye West" to 196_000L),
-            "no church in the wild" to ("Jay-Z" to 276_000L),
-            "ni**as in paris" to ("Jay-Z" to 215_000L),
-            "empire state of mind" to ("Jay-Z" to 276_000L),
-            "99 problems" to ("Jay-Z" to 213_000L),
-            "big pimpin" to ("Jay-Z" to 284_000L),
-            "dead presidents ii" to ("Jay-Z" to 262_000L),
-            "sicko mode" to ("Travis Scott" to 313_000L),
-            "goosebumps" to ("Travis Scott" to 243_000L),
-            "highest in the room" to ("Travis Scott" to 175_000L),
-            "antidote" to ("Travis Scott" to 266_000L),
-            "buttefly effect" to ("Travis Scott" to 199_000L),
-            "stargazing" to ("Travis Scott" to 270_000L),
-            "m.a.a.d city" to ("Kendrick Lamar" to 352_000L),
-            "humble" to ("Kendrick Lamar" to 177_000L),
-            "dna" to ("Kendrick Lamar" to 185_000L),
-            "alright" to ("Kendrick Lamar" to 219_000L),
-            "swimming pools" to ("Kendrick Lamar" to 259_000L),
-            "money trees" to ("Kendrick Lamar" to 421_000L),
-            "king kunta" to ("Kendrick Lamar" to 234_000L),
-            "LOYALTY." to ("Kendrick Lamar" to 206_000L),
-            "element" to ("Kendrick Lamar" to 207_000L),
-            "rude boy" to ("Rihanna" to 222_000L),
-            "umbrella" to ("Rihanna" to 276_000L),
-            "diamonds" to ("Rihanna" to 225_000L),
-            "work" to ("Rihanna" to 219_000L),
-            "needed me" to ("Rihanna" to 191_000L),
-            "love on the brain" to ("Rihanna" to 224_000L),
-            "stay" to ("Rihanna" to 247_000L),
-            "we found love" to ("Rihanna" to 235_000L),
-            "fourfiveseconds" to ("Rihanna" to 187_000L),
-            "single ladies" to ("Beyonce" to 199_000L),
-            "crazy in love" to ("Beyonce" to 235_000L),
-            "halo" to ("Beyonce" to 261_000L),
-            "irreplaceable" to ("Beyonce" to 274_000L),
-            "love on top" to ("Beyonce" to 267_000L),
-            "formation" to ("Beyonce" to 219_000L),
-            "drunk in love" to ("Beyonce" to 233_000L),
-            "sorry" to ("Beyonce" to 232_000L),
-            "if i were a boy" to ("Beyonce" to 250_000L),
-            "hello" to ("Adele" to 295_000L),
-            "someone like you" to ("Adele" to 285_000L),
-            "rolling in the deep" to ("Adele" to 228_000L),
-            "set fire to the rain" to ("Adele" to 242_000L),
-            "easy on me" to ("Adele" to 224_000L),
-            "send my love" to ("Adele" to 224_000L),
-            "royals" to ("Lorde" to 190_000L),
-            "team" to ("Lorde" to 196_000L),
-            "green light" to ("Lorde" to 234_000L),
-            "yellow flicker beat" to ("Lorde" to 232_000L),
-            "riders on the storm" to ("The Doors" to 266_000L),
-            "light my fire" to ("The Doors" to 428_000L),
-            "break on through" to ("The Doors" to 146_000L),
-            "people are strange" to ("The Doors" to 130_000L),
-            "california love" to ("2Pac" to 285_000L),
-            "dear mama" to ("2Pac" to 280_000L),
-            "changes" to ("2Pac" to 270_000L),
-            "hit em up" to ("2Pac" to 272_000L),
-            "juicy" to ("The Notorious B.I.G." to 300_000L),
-            "big poppa" to ("The Notorious B.I.G." to 247_000L),
-            "mo money mo problems" to ("The Notorious B.I.G." to 271_000L),
-            "hypnotize" to ("The Notorious B.I.G." to 230_000L),
-            "nuthin but a g thang" to ("Dr. Dre" to 249_000L),
-            "still dre" to ("Dr. Dre" to 270_000L),
-            "the next episode" to ("Dr. Dre" to 161_000L),
-            "forget about dre" to ("Dr. Dre" to 222_000L),
-            "in da club" to ("50 Cent" to 233_000L),
-            "candy shop" to ("50 Cent" to 209_000L),
-            "many men" to ("50 Cent" to 256_000L),
-            "window shopper" to ("50 Cent" to 180_000L),
-            "lose yourself" to ("Eminem" to 326_000L),
-            "stan" to ("Eminem" to 404_000L),
-            "without me" to ("Eminem" to 290_000L),
-            "the real slim shady" to ("Eminem" to 284_000L),
-            "not afraid" to ("Eminem" to 248_000L),
-            "rap god" to ("Eminem" to 363_000L),
-            "till i collapse" to ("Eminem" to 298_000L),
-            "mockingbird" to ("Eminem" to 251_000L),
-            "love the way you lie" to ("Eminem" to 263_000L),
-            "godzilla" to ("Eminem" to 210_000L),
-            "the box" to ("Roddy Ricch" to 198_000L),
-            "rockstar" to ("Post Malone" to 218_000L),
-            "circles" to ("Post Malone" to 215_000L),
-            "sunflower" to ("Post Malone" to 158_000L),
-            "congratulations" to ("Post Malone" to 224_000L),
-            "better now" to ("Post Malone" to 223_000L),
-            "psycho" to ("Post Malone" to 221_000L),
-            "wow" to ("Post Malone" to 165_000L),
-            "white iverson" to ("Post Malone" to 249_000L),
-            "as it was" to ("Harry Styles" to 167_000L),
-            "watermelon sugar" to ("Harry Styles" to 174_000L),
-            "sign of the times" to ("Harry Styles" to 340_000L),
-            "adore you" to ("Harry Styles" to 207_000L),
-            "golden" to ("Harry Styles" to 209_000L),
-            "levitating" to ("Dua Lipa" to 203_000L),
-            "dont start now" to ("Dua Lipa" to 183_000L),
-            "new rules" to ("Dua Lipa" to 209_000L),
-            "one kiss" to ("Dua Lipa" to 196_000L),
-            "physical" to ("Dua Lipa" to 193_000L),
-            "break my heart" to ("Dua Lipa" to 221_000L),
-            "savage love" to ("Jason Derulo" to 171_000L),
-            "wap" to ("Cardi B" to 187_000L),
-            "bodak yellow" to ("Cardi B" to 224_000L),
-            "i like it" to ("Cardi B" to 253_000L),
-            "money" to ("Cardi B" to 183_000L),
-            "up" to ("Cardi B" to 166_000L),
-            "truth hurts" to ("Lizzo" to 173_000L),
-            "good as hell" to ("Lizzo" to 159_000L),
-            "about damn time" to ("Lizzo" to 191_000L),
-            "say my name" to ("Destiny's Child" to 257_000L),
-            "survivor" to ("Destiny's Child" to 242_000L),
-            "bootylicious" to ("Destiny's Child" to 216_000L),
-            "cater 2 u" to ("Destiny's Child" to 260_000L),
-            "independent women" to ("Destiny's Child" to 222_000L),
-            "no scrubs" to ("TLC" to 206_000L),
-            "waterfalls" to ("TLC" to 268_000L),
-            "creep" to ("TLC" to 223_000L),
-            "unpretty" to ("TLC" to 257_000L),
-            "lemme borrow that top" to ("Kesha" to 183_000L),
-            "tik tok" to ("Kesha" to 200_000L),
-            "we r who we r" to ("Kesha" to 215_000L),
-            "take it off" to ("Kesha" to 216_000L),
-            "your love is my drug" to ("Kesha" to 189_000L),
-            "party in the usa" to ("Miley Cyrus" to 202_000L),
-            "wrecking ball" to ("Miley Cyrus" to 221_000L),
-            "we cant stop" to ("Miley Cyrus" to 231_000L),
-            "the climb" to ("Miley Cyrus" to 234_000L),
-            "seven rings" to ("Ariana Grande" to 179_000L),
-            "thank u next" to ("Ariana Grande" to 207_000L),
-            "positions" to ("Ariana Grande" to 172_000L),
-            "34+35" to ("Ariana Grande" to 173_000L),
-            "into you" to ("Ariana Grande" to 244_000L),
-            "dangerous woman" to ("Ariana Grande" to 235_000L),
-            "god is a woman" to ("Ariana Grande" to 196_000L),
-            "no tears left to cry" to ("Ariana Grande" to 205_000L),
-            "breathin" to ("Ariana Grande" to 198_000L),
-            "side to side" to ("Ariana Grande" to 226_000L),
-            "problem" to ("Ariana Grande" to 193_000L),
-            "bang bang" to ("Ariana Grande" to 199_000L),
-            "toxic" to ("Britney Spears" to 199_000L),
-            "oops i did it again" to ("Britney Spears" to 211_000L),
-            "...baby one more time" to ("Britney Spears" to 211_000L),
-            "gimme more" to ("Britney Spears" to 250_000L),
-            "womanizer" to ("Britney Spears" to 224_000L),
-            "circus" to ("Britney Spears" to 192_000L),
-            "slave 4 u" to ("Britney Spears" to 206_000L),
-            "till the world ends" to ("Britney Spears" to 237_000L),
-            "poker face" to ("Lady Gaga" to 237_000L),
-            "bad romance" to ("Lady Gaga" to 294_000L),
-            "just dance" to ("Lady Gaga" to 242_000L),
-            "born this way" to ("Lady Gaga" to 260_000L),
-            "shallow" to ("Lady Gaga" to 215_000L),
-            "telephone" to ("Lady Gaga" to 218_000L),
-            "paparazzi" to ("Lady Gaga" to 207_000L),
-            "applause" to ("Lady Gaga" to 212_000L),
-            "million reasons" to ("Lady Gaga" to 205_000L),
-            "hotline bling" to ("Drake" to 267_000L),
-            "gods plan" to ("Drake" to 198_000L),
-            "one dance" to ("Drake" to 174_000L),
-            "passionfruit" to ("Drake" to 269_000L),
-            "started from the bottom" to ("Drake" to 280_000L),
-            "take care" to ("Drake" to 276_000L),
-            "hold on were going home" to ("Drake" to 227_000L),
-            "too good" to ("Drake" to 263_000L),
-            "nice for what" to ("Drake" to 210_000L),
-            "controlla" to ("Drake" to 245_000L),
-            "life is good" to ("Drake" to 238_000L),
-            "laugh now cry later" to ("Drake" to 261_000L),
-            "back to back" to ("Drake" to 198_000L),
-            "the motto" to ("Drake" to 186_000L),
-            "despacito" to ("Luis Fonsi" to 229_000L),
-            "havana" to ("Camila Cabello" to 217_000L),
-            "señorita" to ("Shawn Mendes" to 191_000L),
-            "treat you better" to ("Shawn Mendes" to 187_000L),
-            "stitches" to ("Shawn Mendes" to 207_000L),
-            "theres nothing holdin me back" to ("Shawn Mendes" to 202_000L),
-            "in my blood" to ("Shawn Mendes" to 211_000L),
-            "wonder" to ("Shawn Mendes" to 171_000L),
-            "spirit in the sky" to ("Norman Greenbaum" to 240_000L),
-            "everybody wants to rule the world" to ("Tears for Fears" to 251_000L),
-            "shout" to ("Tears for Fears" to 393_000L),
-            "mad world" to ("Tears for Fears" to 218_000L),
-            "head over heels" to ("Tears for Fears" to 304_000L),
-            "sweet child o mine" to ("Guns N Roses" to 356_000L),
-            "blinding lights" to ("The Weeknd" to 200_000L),
-            "el paso" to ("Marty Robbins" to 257_000L),
-            "the less i know the better" to ("Tame Impala" to 216_000L),
-            "victory lap" to ("Nipsey Hussle" to 222_000L),
-        )
+    private const val LIBRARY_IDENTITY_BONUS = 120
+    private const val RECENT_IDENTITY_BONUS = 180
+    private const val ACTIVE_IDENTITY_BONUS = 420
+    private const val PERSONALIZED_INTENT_THRESHOLD = LIBRARY_IDENTITY_BONUS + RECENT_IDENTITY_BONUS
 
-        private fun levenshtein(s1: String, s2: String): Int {
-            val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
-            for (i in 0..s1.length) dp[i][0] = i
-            for (j in 0..s2.length) dp[0][j] = j
-            for (i in 1..s1.length) {
-                for (j in 1..s2.length) {
-                    val cost = if (s1[i-1] == s2[j-1]) 0 else 1
-                    dp[i][j] = minOf(
-                        dp[i-1][j] + 1,
-                        dp[i][j-1] + 1,
-                        dp[i-1][j-1] + cost
-                    )
-                }
-            }
-            return dp[s1.length][s2.length]
-        }
-
-        fun resolve(normalizedQuery: String): ResolvedSong? {
-            val nq = normalizedQuery.lowercase().trim()
-            data[nq]?.let { return ResolvedSong(nq, it.first) }
-            // Partial match: query starts with a known title, e.g. "down jay sean".
-            data.keys.forEach { title ->
-                if (nq.startsWith("$title ") || nq == title) {
-                    return ResolvedSong(title, data.getValue(title).first)
-                }
-            }
-            // Fuzzy match (Levenshtein distance <= 2) for typo tolerance
-            var bestKey: String? = null
-            var bestDist = Int.MAX_VALUE
-            data.keys.forEach { title ->
-                val dist = levenshtein(nq, title)
-                if (dist <= 2 && dist < bestDist) {
-                    bestKey = title
-                    bestDist = dist
-                }
-            }
-            bestKey?.let { key ->
-                return ResolvedSong(key, data.getValue(key).first)
-            }
-            return null
-        }
-
-        fun getArtist(title: String): String? = data[normalize(title)]?.first
-        fun getDuration(title: String): Long? = data[normalize(title)]?.second
-
-        data class ResolvedSong(val title: String, val artist: String)
-
-        private fun normalize(v: String) = v.lowercase().replace(Regex("[^a-z0-9\\s]"), "").trim()
-    }
     private fun resolveRequestedVariant(query: String?): VariantClassifier.VariantType {
         if (query.isNullOrBlank()) return VariantClassifier.VariantType.UNKNOWN
         val q = query.lowercase()

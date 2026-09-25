@@ -20,6 +20,8 @@ data class NowPlayingState(
     val album: String? = null,
     val isrc: String? = null,
     val canonicalTrackId: String? = null,
+    val canonicalArtistId: String? = null,
+    val canonicalAlbumId: String? = null,
     val artworkUrl: String? = null,
     val isFavorite: Boolean = false,
     val isPlaying: Boolean = false,
@@ -42,7 +44,10 @@ data class NowPlayingState(
     val preferredExternalTrackId: String? = null,
     val streamUrl: String? = null,
     val userQuery: String? = null,
-    val featuredArtists: List<String> = emptyList()
+    val featuredArtists: List<String> = emptyList(),
+    /** True when the active ExoPlayer media has a video track (music video / muxed A/V). */
+    val hasVideo: Boolean = false,
+    val acousticness: Double? = null
 ) {
     val phase: PlaybackPhase
         get() = when {
@@ -85,7 +90,9 @@ data class NowPlayingState(
             preferredExternalTrackId: String? = null,
             userQuery: String? = null,
             isFavorite: Boolean = false,
-            canonicalTrackId: String? = null
+            canonicalTrackId: String? = null,
+            canonicalArtistId: String? = null,
+            canonicalAlbumId: String? = null
         ): NowPlayingState {
             val bestSource = identitySource(track)
                 ?: track.sources
@@ -100,6 +107,8 @@ data class NowPlayingState(
                 album = track.track.albumName,
                 isrc = track.track.isrc,
                 canonicalTrackId = canonicalTrackId,
+                canonicalArtistId = canonicalArtistId,
+                canonicalAlbumId = canonicalAlbumId,
                 artworkUrl = track.track.coverArtUrl,
                 isFavorite = isFavorite,
                 isPlaying = false,
@@ -119,7 +128,12 @@ data class NowPlayingState(
                 preferredProviderId = preferredProviderId ?: bestSource?.externalProviderId,
                 preferredExternalTrackId = preferredExternalTrackId ?: bestSource?.externalTrackId,
                 streamUrl = bestSource?.streamUrl?.takeIf { it.isNotBlank() },
-                userQuery = userQuery
+                userQuery = userQuery,
+                acousticness = com.audiophile.musicplayer.radio.sonic.AudioFeatureExtractor.estimateFromMetadata(
+                    track.track.title,
+                    track.track.artist,
+                    emptyList<String>()
+                ).acousticness
             )
         }
 
@@ -136,15 +150,33 @@ data class NowPlayingState(
         ): NowPlayingState {
             val trackId = track.track.trackId.toString()
             val sameTrack = previous?.trackId == trackId
-            val identity = identitySource(track)
+            // Never let a higher-bitrate alternate source overwrite the chosen preferred identity.
+            val preferredProvider = previous?.takeIf { sameTrack }?.preferredProviderId?.takeIf { it.isNotBlank() }
+            val preferredExternal = previous?.takeIf { sameTrack }?.preferredExternalTrackId?.takeIf { it.isNotBlank() }
+            val matchedPreferred = if (preferredProvider != null && preferredExternal != null) {
+                track.sources.firstOrNull {
+                    it.externalProviderId.equals(preferredProvider, ignoreCase = true) &&
+                        it.externalTrackId == preferredExternal
+                }
+            } else if (preferredProvider != null) {
+                track.sources.firstOrNull {
+                    it.externalProviderId.equals(preferredProvider, ignoreCase = true) &&
+                        !it.externalTrackId.isNullOrBlank()
+                }
+            } else {
+                null
+            }
+            val identity = matchedPreferred ?: identitySource(track)
             return NowPlayingState(
                 trackId = trackId,
                 title = track.track.title,
                 artist = track.track.artist,
                 album = track.track.albumName,
-                isrc = track.track.isrc?.takeIf { it.isNotBlank() }
-                    ?: previous?.takeIf { sameTrack }?.isrc,
+                isrc = previous?.takeIf { sameTrack }?.isrc?.takeIf { it.isNotBlank() }
+                    ?: track.track.isrc?.takeIf { it.isNotBlank() },
                 canonicalTrackId = previous?.takeIf { sameTrack }?.canonicalTrackId,
+                canonicalArtistId = previous?.takeIf { sameTrack }?.canonicalArtistId,
+                canonicalAlbumId = previous?.takeIf { sameTrack }?.canonicalAlbumId,
                 artworkUrl = track.track.coverArtUrl,
                 isFavorite = previous?.takeIf { sameTrack }?.isFavorite ?: false,
                 isPlaying = false,
@@ -156,13 +188,19 @@ data class NowPlayingState(
                 queueSize = queueSize,
                 explicit = track.track.explicit,
                 qualityInfo = qualityInfo,
-                preferredProviderId = identity?.externalProviderId
-                    ?: previous?.takeIf { sameTrack }?.preferredProviderId,
-                preferredExternalTrackId = identity?.externalTrackId
-                    ?: previous?.takeIf { sameTrack }?.preferredExternalTrackId,
-                streamUrl = identity?.streamUrl?.takeIf { it.isNotBlank() }
-                    ?: previous?.takeIf { sameTrack }?.streamUrl,
-                userQuery = previous?.takeIf { sameTrack }?.userQuery
+                preferredProviderId = preferredProvider
+                    ?: identity?.externalProviderId,
+                preferredExternalTrackId = preferredExternal
+                    ?: identity?.externalTrackId,
+                streamUrl = previous?.takeIf { sameTrack }?.streamUrl?.takeIf { it.isNotBlank() }
+                    ?: identity?.streamUrl?.takeIf { it.isNotBlank() },
+                userQuery = previous?.takeIf { sameTrack }?.userQuery,
+                acousticness = previous?.takeIf { sameTrack }?.acousticness
+                    ?: com.audiophile.musicplayer.radio.sonic.AudioFeatureExtractor.estimateFromMetadata(
+                        track.track.title,
+                        track.track.artist,
+                        emptyList<String>()
+                    ).acousticness
             )
         }
 

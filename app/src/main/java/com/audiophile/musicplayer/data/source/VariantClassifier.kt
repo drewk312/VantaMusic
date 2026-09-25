@@ -33,8 +33,12 @@ object VariantClassifier {
     private val coverMarkers = listOf(
         "cover version", "cover by", "tribute to", "made famous by", "originally performed by",
         "in the style of", "as made famous", "renditions", "rendition", "translations",
-        "symphony orchestra", "orchestra performs", "performs the"
+        "symphony orchestra", "orchestra performs", "performs the",
+        "choreography", "dance cover", "dance tutorial",
+        " drum cover", "guitar cover", "violin cover", "(cover", "cover)", " cover -"
     )
+
+    private val byArtistReuploadPattern = Regex("""(?i)\s+by\s+(.+)$""")
     private val liveMarkers = listOf(
         "live at", "live from", "live version", "live session", "mtv unplugged", "tiny desk",
         "performs live", "full concert", "live performance"
@@ -44,6 +48,52 @@ object VariantClassifier {
         "lofi", "tiktok version", "workout remix", "dj mix"
     )
     private val acousticMarkers = listOf("acoustic version", "acoustic cover", "unplugged")
+
+    /**
+     * Workout / fitness / multi-style pack variants. These are not studio recordings and
+     * must stay out of Song Radio / catalog unless the user explicitly searched for them.
+     */
+    private val workoutStylePackMarkers = listOf(
+        "tabata",
+        "hiit",
+        "style pack",
+        "workout mix",
+        "workout version",
+        "workout routine",
+        "full body workout",
+        "fitness mix",
+        "fitness version",
+        "cardio mix",
+        "cardio version",
+        "gym mix",
+        "gym version",
+        "running mix",
+        "exercise mix",
+        "bpm workout",
+        "for workout",
+        "for running",
+        "for the gym"
+    )
+
+    private val stylePackPatterns = listOf(
+        Regex("""\bin\s+\d+\s+styles?\b"""),
+        Regex("""\bin\s+\d+\s+versions?\b"""),
+        Regex("""\b\d+\s+styles?\b"""),
+        Regex("""\b\d+\s+versions?\b"""),
+        Regex("""\bstyles?\s+of\b"""),
+        Regex("""\bin\s+the\s+styles?\s+of\b""")
+    )
+
+    /**
+     * True for Tabata / HIIT / "in N Styles" / fitness pack titles that should be
+     * rejected for studio-intent radio and catalog unless explicitly requested.
+     */
+    fun isWorkoutOrStylePackVariant(title: String?, artist: String?, album: String? = null): Boolean {
+        val haystack = VocalRecordingClassifier.haystack(title, artist, album)
+        if (haystack.isBlank()) return false
+        if (matchesAny(haystack, workoutStylePackMarkers)) return true
+        return stylePackPatterns.any { it.containsMatchIn(haystack) }
+    }
 
     fun classify(
         title: String?,
@@ -58,6 +108,14 @@ object VariantClassifier {
 
         if (VocalRecordingClassifier.isTributeOrNonVocalArtist(artist)) {
             return Classification(VariantType.COVER, 0.95f, "tribute_artist")
+        }
+
+        if (isWorkoutOrStylePackVariant(title, artist, album)) {
+            return Classification(VariantType.REMIX, 0.95f, "variant_workout_style_pack")
+        }
+
+        if (isByArtistReupload(title, artist)) {
+            return Classification(VariantType.COVER, 0.92f, "variant_by_artist_reupload")
         }
 
         val type = when {
@@ -98,7 +156,9 @@ object VariantClassifier {
             VariantType.PIANO -> "piano" in q
             VariantType.COVER -> "cover" in q || "tribute" in q
             VariantType.LIVE -> "live" in q
-            VariantType.REMIX -> "remix" in q || "slowed" in q || "sped" in q || "nightcore" in q
+            VariantType.REMIX ->
+                "remix" in q || "slowed" in q || "sped" in q || "nightcore" in q ||
+                    "tabata" in q || "hiit" in q || "workout" in q || "styles" in q
             VariantType.ACOUSTIC -> "acoustic" in q || "unplugged" in q
             VariantType.STUDIO_VOCAL, VariantType.UNKNOWN -> true
         }
@@ -110,6 +170,11 @@ object VariantClassifier {
         album: String?,
         userQuery: String?
     ): Pair<Boolean, String?> {
+        if (isWorkoutOrStylePackVariant(title, artist, album) &&
+            !userAllowsWorkoutOrStylePack(userQuery)
+        ) {
+            return true to "variant_workout_style_pack"
+        }
         val classification = classify(title, artist, album, userQuery)
         if (classification.variantType == VariantType.STUDIO_VOCAL || classification.variantType == VariantType.UNKNOWN) {
             return false to null
@@ -120,6 +185,45 @@ object VariantClassifier {
         return true to (classification.rejectionReason ?: "variant_not_requested")
     }
 
+    private fun userAllowsWorkoutOrStylePack(userQuery: String?): Boolean {
+        if (userQuery.isNullOrBlank()) return false
+        val q = userQuery.lowercase()
+        return listOf("tabata", "hiit", "workout", "fitness", "cardio", "styles", "style pack")
+            .any { it in q }
+    }
+
     private fun matchesAny(haystack: String, markers: List<String>): Boolean =
         markers.any { marker -> marker in haystack }
+
+    /**
+     * YouTube-style "Song by Artist" titles uploaded under a different channel/artist
+     * are cover/reupload inventory for studio-intent flows.
+     */
+    fun isByArtistReupload(title: String?, artist: String?): Boolean {
+        val t = title.orEmpty().trim()
+        val a = artist.orEmpty().lowercase().trim()
+        if (t.isBlank() || a.isBlank()) return false
+        val lowerTitle = t.lowercase()
+
+        // Production, soundtrack, and credit phrases must never be treated as "Song by Artist" covers
+        val creditSignals = listOf(
+            "inspired by", "music from", "motion picture", "soundtrack",
+            "produced by", "written by", "composed by", "arranged by",
+            "conducted by", "performed by", "recorded by", "released by", "the film"
+        )
+        if (creditSignals.any { lowerTitle.contains(it) }) return false
+
+        val match = byArtistReuploadPattern.find(t) ?: return false
+        val byArtist = match.groupValues[1]
+            .lowercase()
+            .replace(Regex("""[\(\[\{].*$"""), "")
+            .replace(Regex("""[^\p{L}\p{N}\s&]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        if (byArtist.length < 3) return false
+        if (byArtist.contains("motion picture") || byArtist.contains("soundtrack") || byArtist.contains("film")) {
+            return false
+        }
+        return !a.contains(byArtist) && !byArtist.contains(a)
+    }
 }

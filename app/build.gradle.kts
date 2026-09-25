@@ -1,7 +1,6 @@
 import java.util.Properties
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
@@ -27,7 +26,6 @@ fun configValue(name: String): String =
 fun buildConfigString(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-val musicKitAuthAar = file("libs/musickitauth-release-1.1.2.aar")
 val stationBackendUrl = configValue("STATION_BACKEND_URL")
 val releaseStoreFile = configValue("VANTA_RELEASE_STORE_FILE")
 val releaseStorePassword = configValue("VANTA_RELEASE_STORE_PASSWORD")
@@ -55,14 +53,14 @@ android {
         applicationId = "com.audiophile.musicplayer"
         minSdk = 26 // Requires Oreo or newer for modern audio routing
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 6
+        versionName = "1.02"
 
         buildConfigField("String", "STATION_BACKEND_URL", buildConfigString(stationBackendUrl))
         buildConfigField("String", "TORBOX_BASE_URL", buildConfigString(configValue("TORBOX_BASE_URL")))
-        buildConfigField("boolean", "MUSICKIT_AUTH_AVAILABLE", musicKitAuthAar.exists().toString())
-        manifestPlaceholders["musicKitAuthEnabled"] = musicKitAuthAar.exists().toString()
-
+        buildConfigField("String", "DONATE_URL", buildConfigString(configValue("VANTA_DONATE_URL").ifBlank { "https://ko-fi.com/drewk312" }))
+        buildConfigField("String", "KOFI_URL", buildConfigString(configValue("VANTA_KOFI_URL").ifBlank { "https://ko-fi.com/drewk312" }))
+        buildConfigField("String", "GATEWAY_API_KEY", buildConfigString(configValue("VANTA_GATEWAY_API_KEY")))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
@@ -94,6 +92,9 @@ android {
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -101,6 +102,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -109,17 +111,50 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         viewBinding = true
         compose = true
         buildConfig = true
     }
 
+    androidComponents {
+        onVariants(selector().all()) { variant ->
+            variant.outputs.forEach { output ->
+                output.outputFileName.set("vanta.apk")
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            keepDebugSymbols.clear()
+        }
+        resources {
+            excludes += listOf(
+                "META-INF/*.version",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "**/*.proto",
+                "**/*.properties"
+            )
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        allWarningsAsErrors.set(true)
+        freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }
 
@@ -158,12 +193,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // Hilt
-    implementation("com.google.dagger:hilt-android:2.55")
-    ksp("com.google.dagger:hilt-compiler:2.55")
+    implementation("com.google.dagger:hilt-android:2.60.1")
+    ksp("com.google.dagger:hilt-compiler:2.60.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // Media3 (ExoPlayer)
-    val media3_version = "1.8.1"
+    val media3_version = "1.10.0"
     implementation("androidx.media3:media3-exoplayer:$media3_version")
     implementation("androidx.media3:media3-session:$media3_version")
     implementation("androidx.media3:media3-ui:$media3_version")
@@ -172,7 +207,7 @@ dependencies {
     implementation("androidx.media3:media3-datasource-okhttp:$media3_version")
 
     // Room Database
-    val room_version = "2.6.1"
+    val room_version = "2.8.4"
     implementation("androidx.room:room-runtime:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
     ksp("androidx.room:room-compiler:$room_version")
@@ -182,12 +217,6 @@ dependencies {
 
     // Encrypted credential storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-    // Official Apple MusicKit authentication SDK (provided by Apple as an AAR).
-    // It obtains a per-listener Music User Token; VANTA never asks users to paste one.
-    if (musicKitAuthAar.exists()) {
-        implementation(files(musicKitAuthAar))
-    }
 
     // Palette (artwork color extraction)
     implementation("androidx.palette:palette-ktx:1.0.0")
@@ -205,5 +234,8 @@ dependencies {
     implementation(project(":shared"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,26 +59,28 @@ fun BottomNavBar(
         Triple(AppRoute.Library, "Library", Icons.Rounded.LibraryMusic),
         Triple(AppRoute.Search, "Search", Icons.Rounded.Search)
     )
-    val shape = RoundedCornerShape(34.dp)
+    val shape = RoundedCornerShape(30.dp)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .glassSurfaceElevated(shape = shape, surfaceAlpha = 0.96f)
+            .glassSurfaceElevated(shape = shape, surfaceAlpha = 0.80f)
             .drawBehind {
-                val goldLineHeight = 1.5.dp.toPx()
+                val specularHeight = 1.dp.toPx()
                 drawRect(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
-                            AppAccent.copy(alpha = 0.0f),
-                            AppAccent.copy(alpha = 0.50f),
-                            AppAccent.copy(alpha = 0.0f)
+                            Color.Transparent,
+                            AppAuroraViolet.copy(alpha = 0.28f),
+                            Color.White.copy(alpha = 0.62f),
+                            AppAuroraCyan.copy(alpha = 0.34f),
+                            Color.Transparent
                         ),
-                        startX = size.width * 0.15f,
-                        endX = size.width * 0.85f
+                        startX = size.width * 0.08f,
+                        endX = size.width * 0.92f
                     ),
                     topLeft = Offset(0f, 0f),
-                    size = androidx.compose.ui.geometry.Size(size.width, goldLineHeight)
+                    size = androidx.compose.ui.geometry.Size(size.width, specularHeight)
                 )
             }
     ) {
@@ -85,14 +88,14 @@ fun BottomNavBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(VantaChrome.bottomNavHeight)
-                .padding(horizontal = 6.dp, vertical = 6.dp),
+                .padding(horizontal = 7.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             tabs.forEach { (route, label, icon) ->
                 val selected = route == currentRoute
                 val tint by animateColorAsState(
-                    targetValue = if (selected) AppAccent else AppTextSecondary,
+                    targetValue = if (selected) AppAccent else AppTextMuted,
                     animationSpec = tween(VantaMotion.chromeFadeMs, easing = VantaMotion.easeInOutCozy),
                     label = "navTint"
                 )
@@ -100,7 +103,8 @@ fun BottomNavBar(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(20.dp))
+                        .semantics { this.selected = selected }
+                        .clip(RoundedCornerShape(19.dp))
                         .clickable(
                             onClickLabel = label,
                             role = Role.Tab,
@@ -110,8 +114,18 @@ fun BottomNavBar(
                             }
                         )
                         .background(
-                            if (selected) AppAccent.copy(alpha = 0.18f) else Color.Transparent,
-                            RoundedCornerShape(20.dp)
+                            brush = if (selected) {
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        AppAccent.copy(alpha = 0.13f),
+                                        AppAccent.copy(alpha = 0.09f),
+                                        AppAccent.copy(alpha = 0.06f)
+                                    )
+                                )
+                            } else {
+                                Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
+                            },
+                            shape = RoundedCornerShape(19.dp)
                         )
                         .semantics { contentDescription = if (selected) "$label selected" else label }
                         .padding(vertical = 6.dp, horizontal = 2.dp),
@@ -122,14 +136,14 @@ fun BottomNavBar(
                         imageVector = icon,
                         contentDescription = null,
                         tint = tint,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = label,
                         color = tint,
-                        fontSize = 12.sp,
-                        lineHeight = 14.sp,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -141,5 +155,3 @@ fun BottomNavBar(
         }
     }
 }
-
-

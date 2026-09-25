@@ -15,6 +15,10 @@ object StreamingStationQueryPlanner {
         seed.seedArtists.take(8).forEach { artist ->
             if (artist.isNotBlank()) {
                 base += artist.trim()
+            }
+        }
+        seed.seedArtists.take(8).forEach { artist ->
+            if (artist.isNotBlank()) {
                 base += "$artist top songs"
                 base += "$artist greatest hits"
             }
@@ -24,22 +28,34 @@ object StreamingStationQueryPlanner {
             StreamingStationKind.SONG_SIMILAR -> {
                 val title = seed.seedTitle.orEmpty()
                 val artist = seed.seedArtist.orEmpty()
-                if (title.isNotBlank() && artist.isNotBlank()) {
-                    base += "$artist $title"
+                if (artist.isNotBlank()) {
+                    // Artist / similarity anchors only — never bare title tokens.
+                    base += artist
+                    base += "$artist top songs"
                     base += "artists like $artist"
                     base += "bands like $artist"
                     base += "$artist similar artists"
                     base += "$artist deep cuts"
+                    base += "$artist essential songs"
+                    if (title.isNotBlank()) {
+                        base += "$artist $title"
+                    }
                 }
             }
             StreamingStationKind.SONG -> {
                 val title = seed.seedTitle.orEmpty()
                 val artist = seed.seedArtist.orEmpty()
-                if (title.isNotBlank() && artist.isNotBlank()) {
-                    base += "$artist $title"
-                    base += "songs like $title $artist"
+                if (artist.isNotBlank()) {
+                    base += artist
+                    base += "$artist top songs"
                     base += "artists like $artist"
+                    base += "$artist similar artists"
+                    base += "$artist deep cuts"
                     base += "$artist album tracks"
+                    if (title.isNotBlank()) {
+                        // Exact identity for seed recall — not "songs like $title" OR-token search.
+                        base += "$artist $title"
+                    }
                 }
             }
             StreamingStationKind.ARTIST -> {
@@ -69,6 +85,18 @@ object StreamingStationQueryPlanner {
 
         seed.queryPhrases.filter { it.isNotBlank() }.forEach { phrase ->
             if (seed.kind == StreamingStationKind.FREE_TEXT) {
+                return@forEach
+            }
+            // Song radio: never expand title phrases into free-text token searches.
+            if (SongRadioRelatedness.isSongRadioKind(seed.kind)) {
+                val artist = seed.seedArtist.orEmpty()
+                val lower = phrase.lowercase()
+                if (lower.startsWith("songs like") || lower.contains(" similar ")) {
+                    return@forEach
+                }
+                if (artist.isNotBlank() && lower.contains(artist.lowercase())) {
+                    base += phrase.trim()
+                }
                 return@forEach
             }
             if (seed.seedArtists.isNotEmpty() &&
@@ -127,12 +155,25 @@ object StreamingStationQueryPlanner {
                 }
             }
             2 -> {
+                if (genreUsesArtistSeeds) {
+                    seed.seedArtists.take(8).forEach { artist ->
+                        queries += artist
+                        queries += "$artist top songs"
+                        queries += "$artist greatest hits"
+                    }
+                }
                 discoveredArtists.distinct().take(8).forEach { artist ->
                     queries += "artists like $artist"
                 }
                 appendPrimaryExpansionQueries(queries, seed, pass, taste)
             }
             else -> {
+                if (genreUsesArtistSeeds) {
+                    seed.seedArtists.take(8).forEach { artist ->
+                        queries += artist
+                        queries += "$artist deep cuts"
+                    }
+                }
                 discoveredArtists.distinct().take(6).forEach { artist ->
                     queries += "$artist deep cuts"
                 }
@@ -308,6 +349,7 @@ object StreamingStationQueryPlanner {
                 val lower = query.lowercase()
                 when {
                     seedArtist != null && lower == seedArtist -> 100
+                    seedArtists.contains(lower) -> 90
                     seedArtists.any { lower.startsWith(it) || lower.contains(" $it") } -> 80
                     lower.contains("essential") || lower.contains("greatest") || lower.contains("top songs") -> 60
                     lower.contains("deep cut") || lower.contains("similar") -> 50

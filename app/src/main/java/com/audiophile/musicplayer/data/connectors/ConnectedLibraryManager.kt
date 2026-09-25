@@ -17,6 +17,7 @@ import com.audiophile.musicplayer.data.repository.LocalLibraryRepository
 import com.audiophile.musicplayer.data.repository.TrackRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -36,9 +37,12 @@ class ConnectedLibraryManager(
     private val prefs: SharedPreferences = context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE)
 ) {
 
+    private val importMutex = kotlinx.coroutines.sync.Mutex()
+
     /** Import the connected library for the given provider and persist tracks. */
     suspend fun importLibrary(provider: ConnectedLibraryProvider): ConnectedLibraryImportResult =
         withContext(Dispatchers.IO) {
+            importMutex.withLock {
             val account = buildAccount(provider)
             val localCatalog = trackRepository.getAllTracks()
             val importManager = createImportManager(provider)
@@ -49,14 +53,16 @@ class ConnectedLibraryManager(
                 gatewayResults = { emptyList() }
             )
             if (result.summary.errors.isEmpty()) {
-                persistImport(provider)
                 val saved = persistImportedTracks(provider, result.importedTracks, result.providerLinks)
+                persistImportedPlaylists(provider, result.importedPlaylists, result.importedTracks, saved)
+                persistImport(provider)
                 Log.i(
                     "VANTA_CONNECTOR_PERSIST",
                     "provider=$provider saved=${saved.size} tracks"
                 )
             }
             result
+            }
         }
 
     /** Sync a VANTA like to all connected providers that have like-sync enabled. */
@@ -196,67 +202,56 @@ class ConnectedLibraryManager(
         provider: ConnectedLibraryProvider,
         importedTracks: List<ImportedLibraryTrack>,
         providerLinks: List<ProviderTrackLink>
-    ): List<Long> {
-        val sourceType = when (provider) {
-            ConnectedLibraryProvider.SPOTIFY -> SourceType.SPOTIFY
-            ConnectedLibraryProvider.APPLE_MUSIC -> SourceType.APPLE_MUSIC
-        }
-        val songs = mutableListOf<LocalSongEntity>()
+    ): Map<String, Long> {
+        val ids = mutableMapOf<String, Long>()
         val now = System.currentTimeMillis()
-
-        importedTracks.forEach { track ->
+        for (track in importedTracks.distinctBy { it.providerTrackId }) {
             val existing = localLibraryRepository.findSongByTitleArtist(track.title, track.artist)
-            if (existing != null) {
-                return@forEach
+            val id = existing?.id ?: localLibraryRepository.saveSongs(listOf(LocalSongEntity(
+                title = track.title, artist = track.artist, album = track.album,
+                durationMs = track.durationMs, artworkUrl = track.artworkUrl, isrc = track.isrc,
+                explicit = track.explicit, sourceType = provider.sourceType(), importSource = provider.displayName(),
+                externalIdsJson = JSONObject().apply {
+                    put("${provider.name.lowercase()}Id", track.providerTrackId)
+                    track.isrc?.let { put("isrc", it) }
+                }.toString(), dateAdded = track.addedAt ?: now, createdAt = now, updatedAt = now
+            ))).single()
+            ids[track.providerTrackId] = id
+        }
+        val links = importedTracks.distinctBy { it.providerTrackId }.mapNotNull { track ->
+            ids[track.providerTrackId]?.let { id ->
+                ProviderTrackLink(id = "${provider.name}:${track.providerTrackId}", provider = provider,
+                    providerTrackId = track.providerTrackId, isrc = track.isrc, vantaLocalTrackId = id,
+                    matchConfidence = 1f, linkedAt = now)
             }
-            val externalIds = mutableMapOf<String, String>()
-            track.isrc?.let { externalIds["isrc"] = it }
-            externalIds["${provider.name.lowercase()}Id"] = track.providerTrackId
-            val song = LocalSongEntity(
-                title = track.title,
-                artist = track.artist,
-                album = track.album,
-                durationMs = track.durationMs,
-                artworkUrl = track.artworkUrl,
-                isrc = track.isrc,
-                explicit = track.explicit,
-                sourceType = sourceType,
-                importSource = provider.displayName(),
-                externalIdsJson = JSONObject(externalIds).toString(),
-                dateAdded = track.addedAt ?: now,
-                createdAt = now,
-                updatedAt = now
-            )
-            songs += song
         }
-
-        val savedIds = if (songs.isNotEmpty()) {
-            localLibraryRepository.saveSongs(songs)
-        } else {
-            emptyList()
-        }
-
-        persistProviderLinks(providerLinks + buildFallbackLinks(provider, savedIds, importedTracks))
-        return savedIds
+        persistProviderLinks((loadProviderLinks() + providerLinks + links)
+            .associateBy { it.provider to it.providerTrackId }.values.toList())
+        return ids
     }
 
-    private fun buildFallbackLinks(
+    private suspend fun persistImportedPlaylists(
         provider: ConnectedLibraryProvider,
-        savedIds: List<Long>,
-        importedTracks: List<ImportedLibraryTrack>
-    ): List<ProviderTrackLink> {
-        return savedIds.mapNotNull { id ->
-            val track = importedTracks.getOrNull(savedIds.indexOf(id)) ?: return@mapNotNull null
-            ProviderTrackLink(
-                id = "${provider.name}:$id:${System.currentTimeMillis()}",
-                provider = provider,
-                providerTrackId = track.providerTrackId,
-                isrc = track.isrc,
-                vantaLocalTrackId = id,
-                matchConfidence = 1.0f,
-                linkedAt = System.currentTimeMillis()
-            )
+        playlists: List<ImportedPlaylist>,
+        tracks: List<ImportedLibraryTrack>,
+        songIds: Map<String, Long>
+    ) {
+        val existing = localLibraryRepository.playlistsSnapshot()
+        for (playlist in playlists.distinctBy { it.providerPlaylistId }) {
+            val key = "${provider.name}_playlist_${playlist.providerPlaylistId}"
+            val savedId = prefs.getLong(key, -1L)
+            val id = existing.firstOrNull { it.id == savedId }?.id
+                ?: localLibraryRepository.createPlaylist(playlist.name, "Imported from ${provider.displayName()}", playlist.artworkUrl, provider.sourceType())
+                    .also { created -> prefs.edit { putLong(key, created) } }
+            val members = tracks.filter { playlist.providerPlaylistId in it.playlistIds }
+                .mapNotNull { songIds[it.providerTrackId] }.distinct()
+            localLibraryRepository.replaceImportedPlaylistSongs(id, members)
         }
+    }
+
+    private fun ConnectedLibraryProvider.sourceType() = when (this) {
+        ConnectedLibraryProvider.SPOTIFY -> SourceType.SPOTIFY
+        ConnectedLibraryProvider.APPLE_MUSIC -> SourceType.APPLE_MUSIC
     }
 
     private fun persistImport(provider: ConnectedLibraryProvider) {

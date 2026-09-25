@@ -55,9 +55,16 @@ private fun clampSwatchColor(rgb: Int): Color {
         AndroidColor.blue(rgb),
         hsl
     )
+    // Near-grayscale covers (film strips, B&W art) must stay charcoal —
+    // forcing saturation invents muddy olive greens that fight the artwork.
+    if (hsl[1] < 0.12f) {
+        hsl[1] = 0.04f
+        hsl[2] = hsl[2].coerceIn(0.08f, 0.28f)
+        return Color(ColorUtils.HSLToColor(hsl))
+    }
     normalizeLuxuryHue(hsl)
-    hsl[1] = hsl[1].coerceIn(0.22f, 0.78f)
-    hsl[2] = hsl[2].coerceIn(0.12f, 0.48f)
+    hsl[1] = hsl[1].coerceIn(0.18f, 0.72f)
+    hsl[2] = hsl[2].coerceIn(0.10f, 0.42f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
@@ -69,23 +76,24 @@ private fun luxuryAccentColor(color: Color): Color {
         (color.blue * 255).toInt().coerceIn(0, 255),
         hsl
     )
+    // Keep cream / silver accents from B&W covers instead of inventing green.
+    if (hsl[1] < 0.12f) {
+        hsl[1] = 0.08f
+        hsl[2] = hsl[2].coerceIn(0.42f, 0.72f)
+        return Color(ColorUtils.HSLToColor(hsl))
+    }
     normalizeLuxuryHue(hsl)
-    hsl[1] = hsl[1].coerceIn(0.28f, 0.72f)
+    hsl[1] = hsl[1].coerceIn(0.24f, 0.68f)
     hsl[2] = hsl[2].coerceIn(0.30f, 0.68f)
     return Color(ColorUtils.HSLToColor(hsl))
 }
 
 private fun normalizeLuxuryHue(hsl: FloatArray) {
+    // Only nudge neon greens; leave other hues faithful to the cover.
     val original = hsl[0]
-    val target = when (original) {
-        in 70f..170f -> 38f   // greens toward amber gold
-        in 170f..270f -> 32f   // blues toward warm amber
-        in 270f..335f -> 350f  // magentas toward warm rose
-        else -> original
-    }
-    // Blend 60% toward the warm target so cover art still reads as itself,
-    // but VANTA never looks cold or neon.
-    hsl[0] = (original * 0.40f + target * 0.60f)
+    if (original !in 70f..160f) return
+    val target = 38f
+    hsl[0] = (original * 0.55f + target * 0.45f)
 }
 
 private fun extractAppleMusicPalette(bitmap: Bitmap): ArtworkGradientColors? {

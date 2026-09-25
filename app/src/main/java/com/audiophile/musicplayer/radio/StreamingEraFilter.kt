@@ -41,16 +41,40 @@ object StreamingEraFilter {
         return 0f
     }
 
+    private val modernTraps = listOf(
+        "karaoke",
+        "tribute",
+        "cover version",
+        "re-recorded",
+        "lounge version"
+    )
+
     fun passesEraGate(
         seed: StreamingStationSeed,
         title: String,
         artist: String,
         album: String?
     ): Boolean {
-        if (seed.eraStart == null || seed.eraEnd == null) return true
-        // Only hard-reject wrong decades for era-locked stations.
-        if (seed.kind != StreamingStationKind.ERA) return true
+        val start = seed.eraStart ?: return true
+        val end = seed.eraEnd ?: return true
+
+        val haystack = "$title $artist ${album.orEmpty()}".lowercase()
+        if (modernTraps.any { haystack.contains(it) }) return false
+
+        val year = inferYear(haystack)
+        if (year != null && (year < start - 2 || year > end + 2)) {
+            return false
+        }
+
         return eraFitScore(seed, title, artist, album) >= -12f
+    }
+
+    fun passesEraGate(trackYear: Int, trackTitle: String, spec: com.audiophile.musicplayer.radio.sonic.SonicStationSpec): Boolean {
+        if (trackYear !in spec.eraStart..spec.eraEnd) return false
+        val lower = trackTitle.lowercase()
+        val traps = listOf("remix", "karaoke", "tribute", "cover version", "re-recorded", "lounge version")
+        if (traps.any { lower.contains(it) }) return false
+        return true
     }
 
     private fun containsWrongEraCompilation(haystack: String, start: Int, end: Int): Boolean {

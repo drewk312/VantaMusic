@@ -35,7 +35,7 @@ class MediaSessionTrustPolicy(
         controller: MediaSession.ControllerInfo
     ): TrustLevel {
         val appPackage = context.packageName
-        val controllerPackage = controller.packageName?.trim().orEmpty()
+        val controllerPackage = controller.packageName.trim()
 
         if (controller.uid == Process.myUid()) {
             return TrustLevel.SELF
@@ -105,8 +105,8 @@ class MediaSessionTrustPolicy(
 
         val baseCommands = when (level) {
             TrustLevel.SELF,
-            TrustLevel.TRUSTED_LIBRARY -> MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
-            TrustLevel.TRUSTED_TRANSPORT,
+            TrustLevel.TRUSTED_LIBRARY,
+            TrustLevel.TRUSTED_TRANSPORT -> MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
             TrustLevel.LIMITED -> MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
             TrustLevel.REJECTED -> error("Rejected controllers cannot receive session commands")
         }
@@ -141,8 +141,8 @@ class MediaSessionTrustPolicy(
 
         Log.d(
             TAG,
-            "accept level=$level package=${controller.packageName} uid=${controller.uid} " +
-                "sessionCommands=${if (canAccessLibrary(level)) "library" else "transport"} " +
+                "accept level=$level package=${controller.packageName} uid=${controller.uid} " +
+                "sessionCommands=${if (canBrowseLibrary(level)) "library-read" else "transport"} " +
                 "playerCommands=${if (level == TrustLevel.SELF || level == TrustLevel.TRUSTED_LIBRARY) "full" else "transport"}"
         )
 
@@ -176,6 +176,14 @@ class MediaSessionTrustPolicy(
 
         fun canAccessLibrary(level: TrustLevel): Boolean =
             level == TrustLevel.SELF || level == TrustLevel.TRUSTED_LIBRARY
+
+        /**
+         * Trusted system transport clients may inspect the catalog so Android can
+         * surface resumable media, but they are still denied queue mutation and
+         * VANTA custom commands by [canAccessLibrary] and their command grant.
+         */
+        fun canBrowseLibrary(level: TrustLevel): Boolean =
+            canAccessLibrary(level) || level == TrustLevel.TRUSTED_TRANSPORT
 
         internal fun transportPlayerCommands(): Player.Commands {
             return Player.Commands.Builder()

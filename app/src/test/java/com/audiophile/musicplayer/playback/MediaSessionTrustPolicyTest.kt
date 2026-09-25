@@ -16,6 +16,16 @@ class MediaSessionTrustPolicyTest {
     }
 
     @Test
+    fun trustedSystemTransportCanBrowseButCannotMutateLibrary() {
+        assertTrue(MediaSessionTrustPolicy.canBrowseLibrary(MediaSessionTrustPolicy.TrustLevel.SELF))
+        assertTrue(MediaSessionTrustPolicy.canBrowseLibrary(MediaSessionTrustPolicy.TrustLevel.TRUSTED_LIBRARY))
+        assertTrue(MediaSessionTrustPolicy.canBrowseLibrary(MediaSessionTrustPolicy.TrustLevel.TRUSTED_TRANSPORT))
+        assertFalse(MediaSessionTrustPolicy.canBrowseLibrary(MediaSessionTrustPolicy.TrustLevel.LIMITED))
+        assertFalse(MediaSessionTrustPolicy.canBrowseLibrary(MediaSessionTrustPolicy.TrustLevel.REJECTED))
+        assertFalse(MediaSessionTrustPolicy.canAccessLibrary(MediaSessionTrustPolicy.TrustLevel.TRUSTED_TRANSPORT))
+    }
+
+    @Test
     fun transportControllersCannotMutateTheQueueOrShuffleMode() {
         val commands = MediaSessionTrustPolicy.transportPlayerCommands()
 

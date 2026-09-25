@@ -96,12 +96,21 @@ class LocalLibraryRepository(
         )
     }
 
+    suspend fun replaceImportedPlaylistSongs(playlistId: Long, songIds: List<Long>) = withContext(Dispatchers.IO) {
+        libraryDao.replacePlaylistMembership(playlistId, songIds)
+    }
+
     suspend fun addSongsToPlaylist(playlistId: Long, songIds: List<Long>) = withContext(Dispatchers.IO) {
+        val existing = libraryDao.getPlaylistSongs(playlistId).map { it.id }
         libraryDao.insertPlaylistSongs(
-            songIds.mapIndexed { index, songId ->
+            (existing + songIds).distinct().mapIndexed { index, songId ->
                 PlaylistSongCrossRef(playlistId = playlistId, songId = songId, position = index)
             }
         )
+    }
+
+    suspend fun likeSongs(songIds: List<Long>) = withContext(Dispatchers.IO) {
+        songIds.distinct().chunked(500).forEach { libraryDao.likeSongs(it) }
     }
 
     suspend fun playlistSongsSnapshot(playlistId: Long): List<LocalSongEntity> = withContext(Dispatchers.IO) {

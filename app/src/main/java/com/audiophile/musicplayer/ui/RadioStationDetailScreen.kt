@@ -30,10 +30,15 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,9 +67,12 @@ fun RadioStationDetailScreen(
     onShuffleStation: () -> Unit = onStartStation,
     onPlayPreviewTrack: (UnifiedTrackWithSources) -> Unit,
     miniPlayerVisible: Boolean = false,
-    bottomNavVisible: Boolean = true
+    bottomNavVisible: Boolean = true,
+    selectedDiscoveryMode: com.audiophile.musicplayer.radio.RadioDiscoveryMode = com.audiophile.musicplayer.radio.RadioDiscoveryMode.HYBRID_MIX,
+    onDiscoveryModeSelected: (com.audiophile.musicplayer.radio.RadioDiscoveryMode) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    var expandedOptions by remember { mutableStateOf(false) }
     val bottomPadding = appOverlayBottomPadding(
         miniPlayerVisible = miniPlayerVisible,
         bottomNavVisible = bottomNavVisible
@@ -117,16 +125,39 @@ fun RadioStationDetailScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Icon(
-                imageVector = Icons.Filled.MoreVert,
-                contentDescription = "Options",
-                tint = AppTextSecondary,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable { }
-                    .padding(8.dp)
-            )
+            Box {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "Options",
+                    tint = AppTextSecondary,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .clickable { expandedOptions = true }
+                        .padding(8.dp)
+                )
+                DropdownMenu(
+                    expanded = expandedOptions,
+                    onDismissRequest = { expandedOptions = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Play station") },
+                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                        onClick = {
+                            expandedOptions = false
+                            onStartStation()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Shuffle station") },
+                        leadingIcon = { Icon(Icons.Filled.Shuffle, contentDescription = null) },
+                        onClick = {
+                            expandedOptions = false
+                            onShuffleStation()
+                        }
+                    )
+                }
+            }
         }
 
         // Description + chips
@@ -220,7 +251,18 @@ fun RadioStationDetailScreen(
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(14.dp))
+
+        // Station Discovery Mode Selector (Favorites / Hybrid / Deep Discovery)
+        StationTuningSelector(
+            selectedMode = selectedDiscoveryMode,
+            onModeSelected = onDiscoveryModeSelected,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+        )
+
+        Spacer(Modifier.height(14.dp))
 
         // Tracks / empty / loading
         Column(modifier = Modifier.fillMaxWidth()) {

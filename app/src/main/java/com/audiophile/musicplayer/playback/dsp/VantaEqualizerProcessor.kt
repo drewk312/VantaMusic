@@ -1,5 +1,6 @@
 package com.audiophile.musicplayer.playback.dsp
 
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
@@ -11,268 +12,249 @@ import kotlin.math.roundToInt
 
 private const val BLOCK_SIZE = 4096
 
+interface VantaDspEngine {
+    fun applyConfig(config: VantaEqualizerConfig)
+    fun processDeinterleaved(left: FloatArray, right: FloatArray, offset: Int, frameCount: Int)
+    fun getSpectrumMagnitudes(): FloatArray?
+    fun destroy()
+}
+
 @UnstableApi
-class VantaEqualizerProcessor : BaseAudioProcessor() {
-
-    @Volatile
-    var config: VantaEqualizerConfig = VantaEqualizerConfig()
-        set(value) {
-            field = value
-            configDirty = true
-        }
-
-    @Volatile
-    var configDirty = false
-
-    @Volatile
-    var spectrumListener: ((FloatArray) -> Unit)? = null
-
-    private var currentEncoding = C.ENCODING_INVALID
-    private var currentSampleRate = 44_100
-    private var currentChannelCount = 2
-    private var isSupportedFormat = true
-    private val nativeLock = Any()
-    @Volatile private var native: VantaEqualizerNative? = null
-    @Volatile private var nativeFailed = false
-
-    private val scratchL = FloatArray(BLOCK_SIZE)
-    private val scratchR = FloatArray(BLOCK_SIZE)
-
-    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        currentEncoding = inputAudioFormat.encoding
-        currentSampleRate = inputAudioFormat.sampleRate
-        currentChannelCount = inputAudioFormat.channelCount
-        isSupportedFormat = (currentChannelCount == 1 || currentChannelCount == 2) &&
-            (currentEncoding == C.ENCODING_PCM_16BIT || currentEncoding == C.ENCODING_PCM_FLOAT)
-        if (!isSupportedFormat) return inputAudioFormat
-
-        ensureNativeEngine()
-        synchronized(nativeLock) {
-            native?.applyConfig(config)
-            configDirty = native == null
-        }
-        return AudioProcessor.AudioFormat(
-            currentSampleRate, 2, C.ENCODING_PCM_FLOAT
-        )
-    }
-
-    override fun queueInput(inputBuffer: ByteBuffer) {
-        val remaining = inputBuffer.remaining()
-        if (remaining == 0) return
-        val inputStart = inputBuffer.position()
-
-        if (!isSupportedFormat) {
-            val output = replaceOutputBuffer(remaining)
-            output.put(inputBuffer)
-            output.flip()
-            return
-        }
-
-        val enc = currentEncoding
-        val channels = currentChannelCount
-        val bytesPerFrame = (if (enc == C.ENCODING_PCM_FLOAT) 4 else 2) * channels
-        val frameCount = remaining / bytesPerFrame
-        if (frameCount <= 0) return
-
-        val outputBytes = frameCount * 8
-        val output = replaceOutputBuffer(outputBytes)
-        val outputGain = computeOutputGain()
-
-        try {
-            val inOrder = inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
-            val outOrder = output.order(ByteOrder.LITTLE_ENDIAN)
-
-            var offset = 0
-            while (offset < frameCount) {
-                val chunk = minOf(scratchL.size, frameCount - offset)
-                readInputChunk(inOrder, enc, channels, chunk)
-
-                if (shouldBypassEffects()) {
-                    // A/B bypass: copy deinterleaved input straight through.
-                } else {
-                    if (configDirty) {
-                        synchronized(nativeLock) {
-                            native?.applyConfig(config)
-                            if (native != null) configDirty = false
-                        }
-                    }
-                    synchronized(nativeLock) {
-                        native?.processDeinterleaved(scratchL, scratchR, 0, chunk)
-                    }
-                }
-
-                for (i in 0 until chunk) {
-                    outOrder.putFloat(scratchL[i] * outputGain)
-                    outOrder.putFloat(scratchR[i] * outputGain)
-                }
-                offset += chunk
-            }
-
-            synchronized(nativeLock) {
-                native?.getSpectrumMagnitudes()?.let { mags ->
-                    spectrumListener?.invoke(mags)
-                }
-            }
-
-            output.flip()
-        } catch (e: Exception) {
-            if (e is java.util.concurrent.CancellationException) throw e
-            android.util.Log.e("VANTA_DSP", "VantaEqualizer failed; bypassing", e)
-            bypassOutput(output, inputBuffer, inputStart, remaining, enc)
-            nativeFailed = true
-            synchronized(nativeLock) {
-                native?.destroy()
-                native = null
-            }
-        }
-        inputBuffer.position(inputBuffer.limit())
-    }
-
-    private fun shouldBypassEffects(): Boolean {
-        return config.eqBypassEnabled || (
-            !config.eqEnabled && !config.spatialEnabled && !config.crossfeedEnabled &&
-            !config.reverbEnabled && !config.convolverEnabled && !config.tubeEnabled &&
-            !config.bassCannonEnabled && !config.trebleEnabled &&
-            !config.loudnessNormalizationEnabled
-        )
-    }
-
-    private fun computeOutputGain(): Float {
-        val replay = if (config.loudnessNormalizationEnabled) dbToLinear(config.replayGainDb) else 1f
-        val headroom = if (config.autoHeadroomEnabled) {
-            val maxBoost = config.eqBands.maxOrNull()?.coerceAtLeast(0f) ?: 0f
-            // Pull the master gain down by the largest positive EQ boost to reduce inter-sample clipping.
-            dbToLinear(-maxBoost)
-        } else 1f
-        return (replay * headroom).coerceIn(0.01f, 2f)
-    }
-
-    private fun dbToLinear(db: Float): Float = 10f.pow(db / 20f)
-
-    private fun readInputChunk(
-        inOrder: ByteBuffer,
-        enc: Int,
-        channels: Int,
-        chunk: Int
-    ) {
-        if (enc == C.ENCODING_PCM_FLOAT) {
-            if (channels == 2) {
-                for (i in 0 until chunk) {
-                    scratchL[i] = inOrder.getFloat()
-                    scratchR[i] = inOrder.getFloat()
-                }
-            } else {
-                for (i in 0 until chunk) {
-                    val v = inOrder.getFloat()
-                    scratchL[i] = v
-                    scratchR[i] = v
-                }
-            }
-        } else {
-            if (channels == 2) {
-                for (i in 0 until chunk) {
-                    scratchL[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                    scratchR[i] = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                }
-            } else {
-                for (i in 0 until chunk) {
-                    val v = inOrder.getShort() / Short.MAX_VALUE.toFloat()
-                    scratchL[i] = v
-                    scratchR[i] = v
-                }
-            }
-        }
-    }
-
-    private fun bypassOutput(
-        output: ByteBuffer,
-        inputBuffer: ByteBuffer,
-        inputStart: Int,
-        remaining: Int,
-        enc: Int
-    ) {
-        output.clear()
-        if (enc == C.ENCODING_PCM_FLOAT) {
-            output.put(inputBuffer.duplicate().apply {
-                position(inputStart)
-                limit(inputStart + remaining)
-            })
-        } else {
-            val dup = inputBuffer.duplicate()
-            dup.position(inputStart)
-            dup.limit(inputStart + remaining)
-            while (dup.hasRemaining()) {
-                output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
-                output.putFloat(dup.getShort() / Short.MAX_VALUE.toFloat())
-            }
-        }
-        output.flip()
-    }
-
+class VantaEqualizerProcessor(
+    private val engineFactory: (Int, Float) -> VantaDspEngine? = { size, rate -> VantaEqualizerNative.create(size, rate) }
+) : BaseAudioProcessor() {
+    @Volatile var config = VantaEqualizerConfig()
+        set(value) { field = value; configDirty = true }
+    @Volatile var configDirty = false
+    @Volatile var spectrumListener: ((FloatArray) -> Unit)? = null
     /**
-     * Public entry point to force the current config into the native engine immediately.
-     * PlaybackService calls this when the user toggles EQ/spatial audio so the change is
-     * audible even if the audio pipeline is currently paused and not feeding buffers.
+     * Set per-track by the playback engine. When the active track is genuine
+     * Dolby Atmos / spatial / multi-channel, the stereo DSP chain must NOT
+     * touch the mix: processing it corrupts or silences playback. The stream
+     * is routed to the platform Dolby/spatializer path untouched instead.
      */
-    fun flushAndApplyConfig() {
-        onFlush()
-    }
+    @Volatile var spatialTrackBypass = false
+    @Volatile var isCurrentTrackSpatial = false
+    private var encoding = C.ENCODING_INVALID
+    private var sampleRate = 44_100
+    private var channels = 2
+    private var supported = false
+    private val nativeLock = Any()
+    private var native: VantaDspEngine? = null
+    private var appliedConfig: VantaEqualizerConfig? = null
+    private var nativeFailed = false
+    private val left = FloatArray(BLOCK_SIZE)
+    private val right = FloatArray(BLOCK_SIZE)
 
-    override fun onFlush() {
-        if (nativeFailed) {
-            ensureNativeEngine()
-        }
+    override fun onConfigure(format: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         synchronized(nativeLock) {
-            native?.applyConfig(config)
-            if (native != null) configDirty = false
+            // Filter histories and sample-rate converters belong to one format only.
+            if (sampleRate != format.sampleRate || encoding != format.encoding || channels != format.channelCount) releaseEngine()
+            encoding = format.encoding; sampleRate = format.sampleRate; channels = format.channelCount
+            supported = channels in 1..2 && isVantaPcmEncoding(encoding)
+            nativeFailed = false
         }
+        return format
     }
 
-    override fun onReset() {
-        currentEncoding = C.ENCODING_INVALID
-    }
-
-    fun forceApply() {
-        if (nativeFailed) ensureNativeEngine()
-        synchronized(nativeLock) {
-            native?.applyConfig(config)
-            if (native != null) configDirty = false
+    override fun queueInput(input: ByteBuffer) = synchronized(nativeLock) {
+        if (!input.hasRemaining()) return@synchronized
+        val snapshot = config
+        val effective = snapshot.forAudioProcessing()
+        val isSpatial = isCurrentTrackSpatial
+        if (!supported || spatialTrackBypass || snapshot.eqBypassEnabled || !effective.hasEnabledEffects(isSpatial)) {
+            passthrough(input)
+            return@synchronized
         }
-    }
-
-    fun release() {
-        synchronized(nativeLock) {
-            native?.destroy()
-            native = null
-        }
-        nativeFailed = false
-    }
-
-    fun getSpectrum(): FloatArray? {
-        synchronized(nativeLock) {
-            return native?.getSpectrumMagnitudes()
-        }
-    }
-
-    private fun ensureNativeEngine() {
+        // Initialize here, not just in onConfigure: users can enable EQ mid-song.
         if (native == null && !nativeFailed) {
-            try {
-                val newNative = VantaEqualizerNative.create(BLOCK_SIZE, currentSampleRate.toFloat())
-                synchronized(nativeLock) {
-                    native = newNative
-                }
-                if (newNative == null) nativeFailed = true
-            } catch (e: Exception) {
-                if (e is java.util.concurrent.CancellationException) throw e
-                android.util.Log.e("VANTA_DSP", "Failed to create native equalizer engine", e)
-                nativeFailed = true
+            native = try { engineFactory(BLOCK_SIZE, sampleRate.toFloat()) }
+            catch (error: Exception) {
+                Log.e("VANTA_DSP", "Effects unavailable; preserving original PCM", error)
+                null
             }
+            nativeFailed = native == null
+            appliedConfig = null
+        }
+        val engine = native
+        if (engine == null || nativeFailed) {
+            passthrough(input)
+            return@synchronized
+        }
+        val start = input.position()
+        val bytes = input.remaining()
+        val bytesPerFrame = bytesPerSample() * channels
+        if (bytes % bytesPerFrame != 0) {
+            passthrough(input)
+            return@synchronized
+        }
+        val output = replaceOutputBuffer(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        try {
+            if (effective != appliedConfig) {
+                engine.applyConfig(effective)
+                appliedConfig = effective
+                Log.i("VANTA_DSP", "effects_applied rate=$sampleRate encoding=$encoding eq=${effective.eqEnabled} spatial=${effective.spatialEnabled}")
+            }
+            configDirty = false
+            val gain = effective.inputHeadroomGain(isSpatial)
+            input.order(ByteOrder.LITTLE_ENDIAN)
+            var frames = bytes / bytesPerFrame
+            while (frames > 0) {
+                val count = minOf(BLOCK_SIZE, frames)
+                for (i in 0 until count) {
+                    left[i] = readSample(input) * gain
+                    right[i] = if (channels == 2) readSample(input) * gain else left[i]
+                }
+                engine.processDeinterleaved(left, right, 0, count)
+                for (i in 0 until count) {
+                    check(left[i].isFinite() && right[i].isFinite()) { "Non-finite DSP output" }
+                    writeSample(output, left[i])
+                    if (channels == 2) writeSample(output, right[i])
+                }
+                frames -= count
+            }
+            output.flip()
+            engine.getSpectrumMagnitudes()?.let { spectrumListener?.invoke(it) }
+        } catch (error: Exception) {
+            if (error is java.util.concurrent.CancellationException) throw error
+            Log.e("VANTA_DSP", "Effects failed; preserving original PCM", error)
+            input.position(start)
+            output.clear(); output.put(input); output.flip()
+            releaseEngine(); nativeFailed = true
         }
     }
 
-    private fun toPcm16(value: Float): Short =
-        (value.coerceIn(-1f, 1f) * Short.MAX_VALUE)
-            .roundToInt()
-            .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-            .toShort()
+    private fun bytesPerSample(): Int = when (encoding) {
+        C.ENCODING_PCM_FLOAT, C.ENCODING_PCM_32BIT -> 4
+        C.ENCODING_PCM_24BIT -> 3
+        else -> 2
+    }
+    private fun readSample(input: ByteBuffer): Float = when (encoding) {
+        C.ENCODING_PCM_FLOAT -> input.float
+        C.ENCODING_PCM_32BIT -> input.int / 2147483648f
+        C.ENCODING_PCM_24BIT -> readPcm24(input)
+        else -> input.short / 32768f
+    }
+    private fun writeSample(output: ByteBuffer, sample: Float) {
+        val bounded = sample.coerceIn(-1f, 1f)
+        when (encoding) {
+            C.ENCODING_PCM_FLOAT -> output.putFloat(bounded)
+            C.ENCODING_PCM_32BIT -> output.putInt(
+                (bounded * 2147483648f).roundToInt().coerceIn(Int.MIN_VALUE, Int.MAX_VALUE)
+            )
+            C.ENCODING_PCM_24BIT -> writePcm24(output, bounded)
+            else -> output.putShort((bounded * 32768f).roundToInt().coerceIn(-32768, 32767).toShort())
+        }
+    }
+    private fun passthrough(input: ByteBuffer) {
+        replaceOutputBuffer(input.remaining()).apply { put(input); flip() }
+    }
+    // UI changes only publish configuration. Native work stays on the audio thread.
+    fun flushAndApplyConfig() { forceApply() }
+    fun forceApply() { configDirty = true }
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onFlush() = synchronized(nativeLock) { releaseEngine(); nativeFailed = false }
+    override fun onReset() = synchronized(nativeLock) { releaseEngine(); encoding = C.ENCODING_INVALID; supported = false }
+    fun release() = synchronized(nativeLock) { releaseEngine(); nativeFailed = false }
+    fun getSpectrum(): FloatArray? = synchronized(nativeLock) { native?.getSpectrumMagnitudes() }
+    private fun releaseEngine() { native?.destroy(); native = null; appliedConfig = null }
+}
+
+internal fun isVantaPcmEncoding(encoding: Int): Boolean =
+    encoding == C.ENCODING_PCM_16BIT ||
+        encoding == C.ENCODING_PCM_24BIT ||
+        encoding == C.ENCODING_PCM_32BIT ||
+        encoding == C.ENCODING_PCM_FLOAT
+
+private fun readPcm24(input: ByteBuffer): Float {
+    val b0 = input.get().toInt() and 0xFF
+    val b1 = input.get().toInt() and 0xFF
+    val b2 = input.get().toInt() and 0xFF
+    var packed = b0 or (b1 shl 8) or (b2 shl 16)
+    if (packed and 0x800000 != 0) packed = packed or -0x1000000
+    return packed / 8_388_608f
+}
+
+private fun writePcm24(output: ByteBuffer, sample: Float) {
+    val packed = (sample.coerceIn(-1f, 1f) * 8_388_608f).roundToInt().coerceIn(-8_388_608, 8_388_607)
+    output.put((packed and 0xFF).toByte())
+    output.put(((packed shr 8) and 0xFF).toByte())
+    output.put(((packed shr 16) and 0xFF).toByte())
+}
+
+internal fun VantaEqualizerConfig.forAudioProcessing(): VantaEqualizerConfig {
+    val gains = List(VantaEqualizerConfig.BAND_COUNT) { index ->
+        val base = if (eqEnabled) eqBands.getOrElse(index) { 0f }.takeIf { it.isFinite() } ?: 0f else 0f
+        val treble = if (trebleEnabled && index >= 20) minOf(index - 19, 6) * trebleBoostAmount.coerceIn(0f, 1f) else 0f
+        (base + treble).coerceIn(-12f, 12f)
+    }
+    return copy(eqEnabled = eqEnabled || trebleEnabled, eqBands = gains,
+        crossfeedEnabled = spatialEnabled && crossfeedEnabled,
+        reverbEnabled = spatialEnabled && reverbEnabled)
+}
+
+/**
+ * Phone speakers (Fold / thin dual-speaker phones) distort when Immersive widening,
+ * bass cannon, tube drive, or hot EQ boosts hit the tiny amps. Keep the user's
+ * headphone settings stored, but process a safer profile while the built-in
+ * speaker is the active route.
+ */
+fun VantaEqualizerConfig.forBuiltInSpeaker(): VantaEqualizerConfig {
+    val softenedBands = eqBands.mapIndexed { index, gain ->
+        val capped = gain.coerceIn(-12f, 3f)
+        // Sub/bass energy is what Fold speakers clip on first.
+        if (index <= 6) minOf(capped, 1.5f) else capped
+    }
+    return copy(
+        spatialEnabled = false,
+        immersiveMode = VantaImmersiveMode.OFF,
+        stereoWidenLevel = 0f,
+        crossfeedEnabled = false,
+        reverbEnabled = false,
+        convolverEnabled = false,
+        tubeEnabled = false,
+        bassCannonEnabled = false,
+        trebleEnabled = false,
+        limiterEnabled = true,
+        autoHeadroomEnabled = true,
+        eqBands = softenedBands,
+        // Extra fixed headroom so hot lossless masters don't slam the amp.
+        replayGainDb = (if (loudnessNormalizationEnabled) replayGainDb else 0f) - 6f,
+        loudnessNormalizationEnabled = true
+    )
+}
+
+/**
+ * USB DACs: skip VANTA's stereo DSP so PCM is not re-EQed / widened before the
+ * device. Android still may resample to the USB endpoint rate — true WASAPI-style
+ * exclusive bit-perfect is not available — but this is the closest app-side path.
+ */
+fun VantaEqualizerConfig.forUsbPassthrough(): VantaEqualizerConfig =
+    copy(eqBypassEnabled = true)
+
+internal fun VantaEqualizerConfig.hasEnabledEffects(isSpatialTrack: Boolean = false) =
+    eqEnabled || spatialEnabled || tubeEnabled || bassCannonEnabled ||
+    autoEqEnabled || convolverEnabled || loudnessNormalizationEnabled || isSpatialTrack
+
+internal fun VantaEqualizerConfig.inputHeadroomGain(isSpatialTrack: Boolean = false): Float {
+    val boost = if (autoHeadroomEnabled && eqEnabled) eqBands.maxOrNull()?.coerceAtLeast(0f) ?: 0f else 0f
+    val replay = if (loudnessNormalizationEnabled) {
+        if (isSpatialTrack) {
+            // Dolby Atmos / Spatial tracks are mixed lower (~-18 LUFS) per broadcast standard.
+            // Sound Check matches them with normalized stereo FLAC by applying +2.5 dB makeup headroom.
+            2.5f
+        } else {
+            // Commercial stereo masters are hot (-9 to -12 LUFS). Pull them down to target level.
+            replayGainDb.takeIf { it.isFinite() }?.coerceIn(-30f, 6f) ?: -7.5f
+        }
+    } else {
+        if (isSpatialTrack) {
+            // When Sound Check is disabled, still provide +3.0 dB clean makeup gain so Atmos
+            // doesn't sound excessively quiet next to commercial stereo tracks.
+            3.0f
+        } else {
+            0f
+        }
+    }
+    return 10f.pow((replay - boost) / 20f)
 }

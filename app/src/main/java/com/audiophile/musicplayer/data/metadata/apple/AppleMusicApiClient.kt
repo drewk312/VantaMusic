@@ -61,6 +61,12 @@ class AppleMusicApiClient(
     suspend fun fetchLibrarySongs(offset: Int, limit: Int = 100): AppleMusicSongsResponse =
         libraryApi.getLibrarySongs(offset, limit)
 
+    suspend fun fetchLibraryPlaylists(offset: Int, limit: Int = 100): AppleMusicPlaylistResponse =
+        libraryApi.getLibraryPlaylists(offset, limit)
+
+    suspend fun fetchLibraryPlaylistTracks(id: String, offset: Int, limit: Int = 100): AppleMusicSongsResponse =
+        libraryApi.getLibraryPlaylistTracks(id, offset, limit)
+
     suspend fun addTrackToLibrary(ids: List<String>) =
         libraryApi.addTracksToLibrary(ids)
 }
@@ -103,6 +109,12 @@ private interface AppleMusicCatalogApi {
 }
 
 private interface AppleMusicLibraryApiInternal {
+    @GET("v1/me/library/playlists")
+    suspend fun getLibraryPlaylists(@Query("offset") offset: Int, @Query("limit") limit: Int): AppleMusicPlaylistResponse
+
+    @GET("v1/me/library/playlists/{id}/tracks")
+    suspend fun getLibraryPlaylistTracks(@Path("id") id: String, @Query("offset") offset: Int, @Query("limit") limit: Int): AppleMusicSongsResponse
+
     @GET("v1/me/library/songs")
     suspend fun getLibrarySongs(
         @Query("offset") offset: Int,

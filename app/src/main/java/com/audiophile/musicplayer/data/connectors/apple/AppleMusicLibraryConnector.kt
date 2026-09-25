@@ -38,31 +38,44 @@ class AppleMusicLibraryConnector(
             ?: throw IllegalStateException("Missing user token in scopes")
 
         val client = clientFactory(devToken, userToken)
-        val response = client.fetchLibrarySongs(offset = offset)
-
-        val tracks = response.data.map { res ->
-            ImportedLibraryTrack(
-                id = UUID.randomUUID().toString(),
-                provider = ConnectedLibraryProvider.APPLE_MUSIC,
-                providerTrackId = res.id,
-                title = res.attributes?.name ?: "Unknown",
-                artist = res.attributes?.artistName ?: "Unknown",
-                album = res.attributes?.albumName,
-                durationMs = res.attributes?.durationInMillis,
-                isrc = res.attributes?.isrc,
-                artworkUrl = res.attributes?.artwork?.sizedUrl(),
-                explicit = res.attributes?.contentRating == "explicit",
+        val songs = if (request.importSavedTracks) client.fetchLibrarySongs(offset) else null
+        val playlistsPage = if (request.importPlaylists) client.fetchLibraryPlaylists(offset) else null
+        val tracks = songs?.data.orEmpty().map { it.toImportedTrack() }.toMutableList()
+        val playlists = playlistsPage?.data.orEmpty().map { playlist ->
+            val playlistTracks = mutableListOf<ImportedLibraryTrack>()
+            if (request.importPlaylistTracks) {
+                var trackOffset = 0
+                do {
+                    val page = client.fetchLibraryPlaylistTracks(playlist.id, trackOffset)
+                    playlistTracks += page.data.map { it.toImportedTrack(listOf(playlist.id)) }
+                    trackOffset += page.data.size
+                } while (!page.next.isNullOrBlank() && page.data.isNotEmpty())
+            }
+            tracks += playlistTracks
+            com.audiophile.musicplayer.data.connectors.ImportedPlaylist(
+                id = "apple:${playlist.id}", provider = provider, providerPlaylistId = playlist.id,
+                name = playlist.attributes?.name ?: "Apple Music playlist",
+                ownerName = playlist.attributes?.curatorName,
+                trackCount = playlistTracks.size, artworkUrl = playlist.attributes?.artwork?.sizedUrl(),
                 importedAt = System.currentTimeMillis()
             )
         }
-
-        val nextCursor = if (response.data.isNotEmpty()) (offset + response.data.size).toString() else null
-
         return ConnectedLibraryImportPage(
-            tracks = tracks,
-            nextCursor = nextCursor
+            tracks = tracks, playlists = playlists,
+            nextCursor = if (!songs?.next.isNullOrBlank() || !playlistsPage?.next.isNullOrBlank()) (offset + 100).toString() else null
         )
     }
+
+    private fun com.audiophile.musicplayer.data.metadata.apple.AppleMusicSongResource.toImportedTrack(
+        playlistIds: List<String> = emptyList()
+    ) = ImportedLibraryTrack(
+        id = "apple:$id", provider = provider, providerTrackId = id,
+        title = attributes?.name ?: "Unknown", artist = attributes?.artistName ?: "Unknown",
+        album = attributes?.albumName, durationMs = attributes?.durationInMillis,
+        isrc = attributes?.isrc, artworkUrl = attributes?.artwork?.sizedUrl(),
+        explicit = attributes?.contentRating == "explicit", playlistIds = playlistIds,
+        importedAt = System.currentTimeMillis()
+    )
 
     override suspend fun findProviderTrackByIdentity(
         account: ConnectedLibraryAccount,

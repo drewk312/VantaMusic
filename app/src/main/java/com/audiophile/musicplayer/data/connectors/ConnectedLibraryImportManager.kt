@@ -45,6 +45,7 @@ class ConnectedLibraryImportManager(
         do {
             val page = runCatching { client.fetchLibraryPage(account, request, cursor) }
                 .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
                     val reason = it.message ?: it.javaClass.simpleName
                     errors += reason
                     Log.w("VANTA_CONNECTOR_IMPORT_ERROR", "provider=${account.provider} reason=${ConnectedLibraryLogRedactor.redact(reason)}")
@@ -72,6 +73,7 @@ class ConnectedLibraryImportManager(
             guard += 1
         } while (cursor != null && guard < MAX_IMPORT_PAGES)
 
+        if (cursor != null && guard >= MAX_IMPORT_PAGES) errors += "Library exceeded the import page limit"
         val summary = summary(account.provider, importedTracks, importedPlaylists, links, errors, nowMs)
         Log.i(
             "VANTA_CONNECTOR_IMPORT",

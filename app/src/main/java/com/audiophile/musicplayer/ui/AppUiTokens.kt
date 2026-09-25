@@ -27,42 +27,54 @@ import androidx.compose.ui.unit.sp
 
 // ============================================================
 // VANTA design tokens
-// Premium dark music app — cozy luxury, butter-smooth chrome
+// Dark liquid glass: near-black ink, spectral light, artwork-first surfaces.
 // ============================================================
 
-// Warm velvet dark palette
+// Obsidian canvas
 val AppBackground = VantaDesignSystem.Background
-val AppBackgroundTop = Color(0xFF18141C)
-val AppBackgroundBottom = Color(0xFF0F0C13)
-val AppBackgroundGlow = Color(0xFF2A2233)
+val AppBackgroundTop = Color(0xFF191817)
+val AppBackgroundBottom = Color(0xFF08090B)
+val AppBackgroundGlow = Color(0xFF554633)
 
 // Chrome — floating mini player & navigation
-val AppChrome = VantaDesignSystem.Background.copy(alpha = 0.98f)
-val AppChromeElevated = VantaDesignSystem.Surface
-val AppChromeBorder = Color(0xFFFFFFFF).copy(alpha = 0.08f)
+val AppChrome = Color(0xF0101113)
+val AppChromeElevated = Color(0xF01D1E21)
+val AppChromeBorder = Color.White.copy(alpha = 0.15f)
 
-// Surfaces — warm gray layers
+// Surfaces — cool neutral layers that let artwork carry the color
 val AppSurface = VantaDesignSystem.Surface
-val AppSurfaceRaised = Color(0xFF1D1A22)
-val AppSurfaceVariant = Color(0xFF26222B)
+val AppSurfaceRaised = Color(0xFF202124)
+val AppSurfaceVariant = Color(0xFF292A2D)
 val AppCard = AppSurface
-val AppOutline = Color(0xFFFFFFFF).copy(alpha = 0.07f)
+val AppOutline = Color.White.copy(alpha = 0.09f)
 
-// Text — warm ivory hierarchy
+// Text
 val AppText = VantaDesignSystem.PrimaryText
 val AppTextSecondary = VantaDesignSystem.SecondaryText
 val AppTextMuted = VantaDesignSystem.MutedText
 
-// Accent — champagne gold
-val AppAccent = VantaDesignSystem.AccentGold
-val AppAccentSoft = VantaDesignSystem.AccentGold.copy(alpha = 0.12f)
-val AppAccentSecondary = Color(0xFFE8C8A3)
-val AppAccentGlow = VantaDesignSystem.AccentGold.copy(alpha = 0.30f)
+// Spectral accents used sparingly in chrome and state
+val AppAccent = VantaDesignSystem.AccentIris
+val AppAccentSoft = AppAccent.copy(alpha = 0.14f)
+val AppAccentSecondary = VantaDesignSystem.AccentIce
+val AppAccentGlow = AppAccent.copy(alpha = 0.34f)
+val AppAuroraViolet = Color(0xFFB99D78)
+val AppAuroraCyan = Color(0xFF90AAAA)
+val AppAuroraRose = Color(0xFFC79F9A)
+val AppGlassHighlight = Color.White.copy(alpha = 0.20f)
+val AppGlassLowlight = Color(0xFF090B12).copy(alpha = 0.74f)
 
 // Semantic
 val AppSuccess = Color(0xFF3DDC97)
 val AppWarning = Color(0xFFFFD166)
 val AppError = Color(0xFFFF7B7B)
+
+// NowPlaying fallbacks — used when a track has no artwork to react to.
+// Warm ember/umber tones that keep the artwork-first language intact.
+val VantaFallbackAccent = Color(0xFFB8A77F)
+val VantaFallbackUmber = Color(0xFF1A1218)
+val VantaFallbackUmberDark = Color(0xFF0D0A0C)
+val VantaLyricsBackdrop = Color(0xFF0C0B0D)
 
 val AppDestructive = AppError
 val AppCardRaised = AppSurfaceRaised
@@ -136,8 +148,8 @@ object VantaType {
 // Spacing
 // ============================================================
 object VantaSpacing {
-    val screenHorizontal = 24.dp
-    val sectionVertical = 32.dp
+    val screenHorizontal = 20.dp
+    val sectionVertical = 28.dp
     val itemGap = 12.dp
     val cardGap = 16.dp
     val gridGap = 12.dp
@@ -147,21 +159,21 @@ object VantaSpacing {
 }
 
 object VantaRadius {
-    val card = 18.dp
-    val largeCard = 26.dp
-    val artwork = 14.dp
-    val miniPlayer = 20.dp
-    val button = 14.dp
+    val card = 22.dp
+    val largeCard = 30.dp
+    val artwork = 16.dp
+    val miniPlayer = 24.dp
+    val button = 18.dp
     val pill = 50
     val searchField = 30.dp
-    val chrome = 30.dp
+    val chrome = 34.dp
 }
 
 object VantaChrome {
-    val miniPlayerHeight = 64.dp
-    val bottomNavHeight = 68.dp
-    val overlayHorizontal = 16.dp
-    val overlayGap = 6.dp
+    val miniPlayerHeight = 72.dp
+    val bottomNavHeight = 70.dp
+    val overlayHorizontal = 12.dp
+    val overlayGap = 8.dp
 }
 
 // ============================================================
@@ -229,37 +241,44 @@ fun Modifier.vantaCard(
 
 fun Modifier.glassSurface(
     shape: RoundedCornerShape = RoundedCornerShape(VantaRadius.card),
-    borderAlpha: Float = 0.12f,
-    surfaceAlpha: Float = 0.92f
+    borderAlpha: Float = 0.16f,
+    surfaceAlpha: Float = 0.78f
 ): Modifier = this
     .clip(shape)
-    .background(AppChrome.copy(alpha = surfaceAlpha))
-    .border(0.5.dp, AppChromeBorder.copy(alpha = borderAlpha), shape)
+    .background(
+        Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.10f * surfaceAlpha),
+                AppChromeElevated.copy(alpha = surfaceAlpha),
+                AppChrome.copy(alpha = surfaceAlpha)
+            ),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        )
+    )
+    .border(
+        0.75.dp,
+        Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = borderAlpha + 0.08f),
+                AppAuroraCyan.copy(alpha = borderAlpha * 0.55f),
+                AppAuroraViolet.copy(alpha = borderAlpha * 0.75f),
+                Color.White.copy(alpha = borderAlpha * 0.35f)
+            ),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        ),
+        shape
+    )
 
 fun Modifier.glassSurfaceElevated(
     shape: RoundedCornerShape = RoundedCornerShape(VantaRadius.card),
     surfaceAlpha: Float = 0.94f
 ): Modifier = this
-    .shadow(6.dp, shape, ambientColor = Color.Black.copy(alpha = 0.5f), spotColor = AppAccentGlow.copy(alpha = 0.08f))
+    .shadow(10.dp, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f))
     .clip(shape)
-    .background(
-        Brush.verticalGradient(
-            colors = listOf(
-                AppChromeElevated.copy(alpha = surfaceAlpha),
-                AppChrome.copy(alpha = surfaceAlpha - 0.04f)
-            )
-        )
-    )
-    .border(
-        width = 0.5.dp,
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                AppAccent.copy(alpha = 0.18f),
-                AppChromeBorder.copy(alpha = 0.10f)
-            )
-        ),
-        shape = shape
-    )
+    .background(Brush.verticalGradient(listOf(AppSurfaceRaised.copy(alpha = surfaceAlpha.coerceAtLeast(0.92f)), AppChrome)))
+    .border(0.5.dp, Color.White.copy(alpha = 0.13f), shape)
 
 fun Modifier.luxuryCard(
     shape: RoundedCornerShape = RoundedCornerShape(VantaRadius.card)
@@ -287,25 +306,7 @@ fun Modifier.luxuryCard(
 fun Modifier.velvetChrome(
     shape: RoundedCornerShape = RoundedCornerShape(VantaRadius.chrome)
 ): Modifier = this
-    .clip(shape)
-    .background(
-        Brush.verticalGradient(
-            colors = listOf(
-                AppChromeElevated,
-                AppChrome
-            )
-        )
-    )
-    .border(
-        width = 0.5.dp,
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                AppAccent.copy(alpha = 0.14f),
-                Color.White.copy(alpha = 0.04f)
-            )
-        ),
-        shape = shape
-    )
+    .glassSurfaceElevated(shape = shape, surfaceAlpha = 0.84f)
 
 @Composable
 fun VantaAppBackground(modifier: Modifier = Modifier) {
@@ -314,24 +315,44 @@ fun VantaAppBackground(modifier: Modifier = Modifier) {
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(AppBackgroundTop, AppBackground, AppBackgroundBottom)
+                    colors = listOf(AppBackgroundTop, AppBackground, AppBackgroundBottom),
+                    endY = 1600f
                 )
             )
             .drawBehind {
-                // Soft centered ambient glow — no hard edges, no side panels
-                val centerX = size.width * 0.5f
-                val centerY = size.height * 0.18f
+                // Large, low-alpha light fields create depth beneath translucent chrome.
+                val violetCenter = Offset(size.width * 0.12f, size.height * 0.10f)
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            AppBackgroundGlow.copy(alpha = 0.12f),
+                            AppAuroraViolet.copy(alpha = 0.22f),
                             Color.Transparent
                         ),
-                        center = Offset(centerX, centerY),
-                        radius = size.width * 0.90f
+                        center = violetCenter,
+                        radius = size.width * 0.78f
                     ),
-                    radius = size.width * 0.90f,
-                    center = Offset(centerX, centerY)
+                    radius = size.width * 0.78f,
+                    center = violetCenter
+                )
+                val cyanCenter = Offset(size.width * 0.92f, size.height * 0.30f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(AppAuroraCyan.copy(alpha = 0.10f), Color.Transparent),
+                        center = cyanCenter,
+                        radius = size.width * 0.66f
+                    ),
+                    radius = size.width * 0.66f,
+                    center = cyanCenter
+                )
+                val roseCenter = Offset(size.width * 0.18f, size.height * 0.92f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(AppAuroraRose.copy(alpha = 0.07f), Color.Transparent),
+                        center = roseCenter,
+                        radius = size.width * 0.72f
+                    ),
+                    radius = size.width * 0.72f,
+                    center = roseCenter
                 )
             }
     )

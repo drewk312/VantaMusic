@@ -40,16 +40,16 @@ fun VantaSectionHeader(
             text = title,
             style = VantaType.sectionTitle
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
-                .width(42.dp)
-                .height(2.dp)
+                .width(24.dp)
+                .height(1.dp)
                 .background(
                     Brush.horizontalGradient(
                         colors = listOf(
-                            AppAccent,
-                            AppAccent.copy(alpha = 0.15f)
+                            AppAccent.copy(alpha = 0.65f),
+                            AppAccent.copy(alpha = 0.08f)
                         )
                     )
                 )
@@ -159,6 +159,15 @@ fun VantaCompactQualityChip(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    if (qualityInfo != null && spatialIdentityKind(qualityInfo) != null) {
+        SpatialIdentityTag(
+            qualityInfo = qualityInfo,
+            modifier = modifier,
+            size = SpatialTagSize.Compact,
+            onClick = onClick
+        )
+        return
+    }
     val label = qualityInfo?.bestQualityLabel()?.trim()?.takeIf { it.isNotEmpty() } ?: return
     val lower = label.lowercase()
     val bitrate = Regex("""\d+\s*kbps""", RegexOption.IGNORE_CASE).find(label)?.value

@@ -59,9 +59,27 @@ export function streamCacheTtl(env: Env): number {
   return seconds(env, "STREAM_CACHE_TTL_SECONDS", 300);
 }
 
+/** KV free tier can reject writes for the rest of the UTC day. */
+export function kvWritesEnabled(env: Env): boolean {
+  const value = env.KV_WRITES_ENABLED?.trim().toLowerCase();
+  return value !== "false" && value !== "0" && value !== "off";
+}
+
 /** Stable cache key for a stream request. */
 export function streamCacheKey(trackId: string, provider: string | undefined, quality: string): string {
   return `stream:${trackId}:${provider ?? "auto"}:${quality}`;
+}
+
+/** Normalize upstream expiry timestamps that may be seconds or milliseconds. */
+export function streamExpiresAtMs(expiresAt: number | undefined): number | null {
+  if (!expiresAt || !Number.isFinite(expiresAt) || expiresAt < 0) return null;
+  const year3000EpochSeconds = 32_503_680_000;
+  return expiresAt < year3000EpochSeconds ? expiresAt * 1000 : expiresAt;
+}
+
+export function isStreamExpired(stream: StreamResult, nowMs = Date.now()): boolean {
+  const expiresAtMs = streamExpiresAtMs(stream.expiresAt);
+  return expiresAtMs != null && expiresAtMs <= nowMs;
 }
 
 /** Read a cached stream result, respecting the upstream expiry timestamp. */
@@ -71,7 +89,7 @@ export async function getCachedStream(env: Env, key: string): Promise<StreamResu
     const value = await env.CACHE.get(key);
     if (!value) return null;
     const parsed = JSON.parse(value) as StreamResult;
-    if (parsed.expiresAt && parsed.expiresAt * 1000 < Date.now()) {
+    if (isStreamExpired(parsed)) {
       return null;
     }
     return parsed;
@@ -83,7 +101,7 @@ export async function getCachedStream(env: Env, key: string): Promise<StreamResu
 
 /** Write a stream result to KV. TTL is capped between 1s and 24h. */
 export async function putCachedStream(env: Env, key: string, result: StreamResult, ttl: number): Promise<void> {
-  if (!env.CACHE) return;
+  if (!env.CACHE || !kvWritesEnabled(env)) return;
   try {
     const safeTtl = Math.min(Math.max(1, Math.floor(ttl)), 86_400);
     await env.CACHE.put(key, JSON.stringify(result), { expirationTtl: safeTtl });

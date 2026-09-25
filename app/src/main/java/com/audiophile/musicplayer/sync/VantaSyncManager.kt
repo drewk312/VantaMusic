@@ -181,10 +181,11 @@ class VantaSyncManager(
 
     companion object {
         private fun createGatewayApi(context: Context): VantaGatewayApi? {
-            val baseUrl = BuildConfig.STATION_BACKEND_URL?.takeIf { it.isNotBlank() } ?: return null
+            val baseUrl = BuildConfig.STATION_BACKEND_URL.takeIf { it.isNotBlank() } ?: return null
             return try {
                 val client = okhttp3.OkHttpClient.Builder()
                     .addInterceptor(FirebaseIdTokenInterceptor())
+                    .addInterceptor(com.audiophile.musicplayer.playback.GatewayApiKeyInterceptor)
                     .build()
                 Retrofit.Builder()
                     .baseUrl(baseUrl)

@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.core.content.edit
 
 data class AiDjUiState(
@@ -110,6 +112,12 @@ class AiDjViewModel @Inject constructor(
     private val playCountsThisSession = mutableMapOf<Long, Int>()
     private var lastPlaybackSignal: PlaybackSignalSnapshot? = null
 
+    // Look-ahead DJ voice spool. Scripts + synthesized audio are primed as soon as
+    // a track joins the upcoming queue (minutes of buffer, not a 15s countdown) so
+    // a transition never blocks on LLM + TTS. Keyed by trackId.
+    private val scriptSpool = HashMap<Long, DjCommentary>()
+    private val voiceSpool = HashMap<Long, String>()
+
     private data class PlaybackSignalSnapshot(
         val trackId: Long,
         val title: String,
@@ -129,7 +137,7 @@ class AiDjViewModel @Inject constructor(
         _state.update {
             it.copy(
                 isPulseAiActive = pulseAiBrain.isConfigured(),
-                djVoiceEnabled = false,
+                djVoiceEnabled = pulseVoiceEngine.isPremiumConfigured(),
                 companionMode = savedMode
             )
         }
@@ -186,7 +194,7 @@ class AiDjViewModel @Inject constructor(
         }
     }
 
-    private fun applyCommentary(commentary: DjCommentary, speak: Boolean = false) {
+    private fun applyCommentary(commentary: DjCommentary, speak: Boolean = false, audioPath: String? = null) {
         if (commentary.isSilent) {
             _state.update {
                 it.copy(
@@ -203,6 +211,43 @@ class AiDjViewModel @Inject constructor(
                 commentaryFromPulseAi = commentary.fromPulseAi,
                 isGeneratingCommentary = false
             )
+        }
+        if (speak && _state.value.djVoiceEnabled) {
+            if (audioPath != null) {
+                playerController.speakDjVoice(audioPath)
+                return
+            }
+            viewModelScope.launch {
+                val result = withContext(Dispatchers.IO) { pulseVoiceEngine.synthesize(commentary.text) }
+                if (result != null) playerController.speakDjVoice(result.filePath)
+            }
+        }
+    }
+
+    /**
+     * Look-ahead priming: as soon as a track enters the upcoming DJ queue its
+     * commentary script is generated and synthesized (minutes of buffer, not a
+     * 15-second countdown). If a primed beat isn't ready by transition time the
+     * cold path still speaks/skips without ever blocking playback.
+     */
+    private fun primeVoiceSpool(tracks: List<UnifiedTrackWithSources>) {
+        if (!_state.value.djVoiceEnabled || tracks.isEmpty()) return
+        val session = _state.value.session.currentSession ?: return
+        if (isStationListeningStyle(session.listeningStyle)) return
+        val listener = buildListenerContext(session.mode)
+        val segmentIndex = session.segments.size
+        viewModelScope.launch {
+            for (t in tracks.take(3)) {
+                val tid = t.track.trackId
+                if (tid in scriptSpool || tid in voiceSpool) continue
+                val commentary = runCatching {
+                    narrationGenerator.generateTrackCommentary(t, listener, segmentIndex)
+                }.getOrDefault(DjCommentary.Silent)
+                scriptSpool[tid] = commentary
+                if (commentary.isSilent) continue
+                val result = withContext(Dispatchers.IO) { pulseVoiceEngine.synthesize(commentary.text) }
+                if (result != null) voiceSpool[tid] = result.filePath
+            }
         }
     }
 
@@ -306,17 +351,20 @@ class AiDjViewModel @Inject constructor(
             if (pulseActive && shouldNarrate) {
                 _state.update { it.copy(isGeneratingCommentary = true) }
                 val listener = buildListenerContext(mode)
-                val commentary = narrationGenerator.generateTrackCommentary(
-                    currentTrack,
-                    listener,
-                    segmentIndex
-                )
+                val commentary = scriptSpool.remove(currentTrackId)
+                    ?: narrationGenerator.generateTrackCommentary(
+                        currentTrack,
+                        listener,
+                        segmentIndex
+                    )
                 _state.update { it.copy(isGeneratingCommentary = false) }
                 if (!commentary.isSilent) {
                     tracksSinceNarration = 0
+                    val primedAudio = voiceSpool.remove(currentTrackId)
                     applyCommentary(
                         commentary,
-                        speak = !isStationListeningStyle(session.listeningStyle) && _state.value.djVoiceEnabled
+                        speak = !isStationListeningStyle(session.listeningStyle) && _state.value.djVoiceEnabled,
+                        audioPath = primedAudio
                     )
                 } else {
                     tracksSinceNarration++
@@ -391,6 +439,7 @@ class AiDjViewModel @Inject constructor(
                 }
                 if (newSegment != null && newSegment.tracks.isNotEmpty()) {
                     playerController.appendDjTracks(newSegment.tracks)
+                    primeVoiceSpool(newSegment.tracks)
                 }
             }
         }
@@ -421,6 +470,7 @@ class AiDjViewModel @Inject constructor(
                         newSegment.tracks.forEach { track ->
                             playerController.addToOriginalQueue(track)
                         }
+                        primeVoiceSpool(newSegment.tracks)
                     }
                 }
             } catch (e: Exception) {
@@ -432,6 +482,8 @@ class AiDjViewModel @Inject constructor(
     }
 
     fun startPulseLive() {
+        if (_state.value.session.isLoading) return
+        _state.update { it.copy(session = it.session.copy(isLoading = true), statusMessage = "Finding music for your Live DJ…") }
         viewModelScope.launch {
             try {
                 _state.update { state ->
@@ -441,7 +493,10 @@ class AiDjViewModel @Inject constructor(
                 personaMemory.incrementSession()
                 val profile = _state.value.session.tasteProfile
                 val listener = buildListenerContext(AiDjMode.DAILY_DJ)
-                val session = sessionManager.startPulseLiveSession(profile, listener)
+                val session = kotlinx.coroutines.withTimeout(60_000) {
+                    val freshProfile = sessionManager.buildTasteProfile()
+                    sessionManager.startPulseLiveSession(freshProfile, listener)
+                }
                 beginSession(session, AiDjMode.DAILY_DJ, listener)
             } catch (e: Exception) {
                 Log.e("AiDjViewModel", "startPulseLive failed", e)
@@ -455,7 +510,7 @@ class AiDjViewModel @Inject constructor(
         }
     }
 
-    /** Legacy library-only jukebox. Prefer [com.audiophile.musicplayer.ui.MainViewModel.startStreamingStation] for Pandora-style stations. */
+    /** Legacy library-only jukebox. Prefer [com.audiophile.musicplayer.ui.MainViewModel.startStreamingStation] for streaming stations. */
     fun startJukeboxStation(stationId: String, style: PulseListeningStyle = PulseListeningStyle.ENDLESS_JUKEBOX) {
         val sessionState = _state.value.session
         if (sessionState.isStarted && sessionState.currentSession?.stationId == stationId) {
@@ -1357,6 +1412,8 @@ class AiDjViewModel @Inject constructor(
         tracksSinceNarration = 0
         playCountsThisSession.clear()
         lastPlaybackSignal = null
+        scriptSpool.clear()
+        voiceSpool.clear()
         _state.update {
             AiDjUiState(
                 session = AiDjSessionUiState(
@@ -1370,17 +1427,16 @@ class AiDjViewModel @Inject constructor(
         }
     }
 
-    /** Reset to mode picker when returning to the Radio tab with an active DJ session. */
+    /** Returning to Radio resumes the active session; only an explicit exit resets it. */
     fun prepareFreshEntry() {
-        if (!_state.value.session.isStarted) return
-        resetSession()
+        refreshPulseAiStatus()
     }
 
     fun refreshMix() {
         val session = _state.value.session.currentSession
         if (session?.stationId != null) {
             spokenSegmentIndices.clear()
-            startJukeboxStation(session.stationId ?: return, session.listeningStyle)
+            startJukeboxStation(session.stationId, session.listeningStyle)
             return
         }
         val mode = _state.value.selectedMode ?: AiDjMode.DAILY_DJ
@@ -1422,7 +1478,11 @@ class AiDjViewModel @Inject constructor(
     }
 
     fun speakCurrentCommentary() {
-        // Text-first DJ: commentary is already visible in the UI.
+        val text = _state.value.liveCommentary?.takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { pulseVoiceEngine.synthesize(text) }
+            if (result != null) playerController.speakDjVoice(result.filePath)
+        }
     }
 
     fun savedStationIds(): List<String> = stationMemory.savedStationIds()
@@ -1435,4 +1495,3 @@ class AiDjViewModel @Inject constructor(
         super.onCleared()
     }
 }
-

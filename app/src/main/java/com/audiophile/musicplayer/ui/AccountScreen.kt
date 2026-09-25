@@ -252,22 +252,79 @@ private fun ProfileTab(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (profile.isCloudAuthenticated) {
+        if (profile.displayName.isNotBlank() || profile.isCloudAuthenticated) {
             SignedInHeader(profile = profile)
-            Text(
-                text = "Music services are managed securely in Settings.",
-                color = AppTextSecondary,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(
-                onClick = onSignOut,
-                colors = ButtonDefaults.textButtonColors(contentColor = AppDestructive)
+            
+            // Edit display name section
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(AppSurface)
+                    .border(0.5.dp, AppOutline, RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Sign out", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Curator Profile",
+                    color = AppText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedTextField(
+                    value = displayNameInput,
+                    onValueChange = { if (it.length <= 32) onDisplayNameChange(it) },
+                    label = { Text("Curator Name", color = AppTextMuted) },
+                    placeholder = { Text("Curator", color = AppTextMuted.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (displayNameInput.isNotBlank()) onCompleteOnboarding() }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = AppText,
+                        unfocusedTextColor = AppText,
+                        cursorColor = AppAccent,
+                        focusedBorderColor = AppAccent,
+                        unfocusedBorderColor = AppSurfaceRaised,
+                        focusedContainerColor = AppSurfaceRaised,
+                        unfocusedContainerColor = AppSurfaceRaised
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (displayNameInput.trim() != profile.displayName.trim() && displayNameInput.isNotBlank()) {
+                    Button(
+                        onClick = onCompleteOnboarding,
+                        colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackgroundTop),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Save Name", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            if (profile.isCloudAuthenticated) {
+                Text(
+                    text = "Music services are managed securely in Settings.",
+                    color = AppTextSecondary,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = onSignOut,
+                    colors = ButtonDefaults.textButtonColors(contentColor = AppDestructive)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Sign out", fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                Text(
+                    text = "Local Audiophile Vault active. All data stays private on this device.",
+                    color = AppTextMuted,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
             }
         } else {
             AnonymousOnboarding(
@@ -283,6 +340,9 @@ private fun ProfileTab(
 
 @Composable
 private fun SignedInHeader(profile: AccountManager.UserProfile) {
+    val cleanName = remember(profile.displayName) {
+        profile.displayName.replace('_', ' ').trim().ifBlank { "Curator" }
+    }
     val avatarColor = remember(profile.avatarSeed) {
         val index = profile.avatarSeed.hashCode().let { (it and Int.MAX_VALUE) % avatarColors.size }
         avatarColors[if (index < 0) 0 else index]
@@ -290,7 +350,7 @@ private fun SignedInHeader(profile: AccountManager.UserProfile) {
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
             modifier = Modifier
@@ -301,18 +361,42 @@ private fun SignedInHeader(profile: AccountManager.UserProfile) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = profile.avatarSeed.ifBlank { "??" },
+                text = cleanName.take(2).uppercase(),
                 color = avatarColor,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold
             )
         }
         Text(
-            text = profile.displayName,
+            text = cleanName,
             color = AppText,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
+        // Curator badge
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppAccent.copy(alpha = 0.15f))
+                .border(1.dp, AppAccent.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(AppAccent)
+            )
+            Text(
+                text = "Vanta Curator",
+                color = AppAccent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp
+            )
+        }
         if (profile.email.isNotBlank()) {
             Text(profile.email, color = AppTextSecondary, fontSize = 14.sp)
         }
@@ -646,7 +730,7 @@ private fun FriendsSection(
                     value = friendCodeInput,
                     onValueChange = { friendCodeInput = it },
                     label = { Text("Friend code", color = AppTextMuted, fontSize = 12.sp) },
-                    placeholder = { Text("vanta_...", color = AppTextMuted.copy(alpha = 0.5f)) },
+                    placeholder = { Text("Enter friend code", color = AppTextMuted.copy(alpha = 0.5f)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
@@ -692,6 +776,7 @@ private fun FriendsSection(
                 )
             } else {
                 feed.friends.forEach { friend ->
+                    val cleanFriendName = friend.displayName.replace('_', ' ').trim()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -710,7 +795,7 @@ private fun FriendsSection(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                friend.avatarSeed.take(2).uppercase(),
+                                cleanFriendName.take(2).uppercase(),
                                 color = AppAccent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -718,8 +803,13 @@ private fun FriendsSection(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(friend.displayName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text(friend.id, color = AppTextMuted, fontSize = 11.sp, maxLines = 1)
+                            Text(cleanFriendName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = friend.friendCode ?: friend.id.replace('_', ' '),
+                                color = AppTextMuted,
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
                         }
                         Text(
                             text = "Remove",

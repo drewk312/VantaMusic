@@ -98,13 +98,55 @@ class NowPlayingStateMiniPlayerTest {
         )
 
         assertEquals("42", state.trackId)
-        assertEquals("US1234567890", state.isrc) // track ISRC wins when present
+        assertEquals("USUM71201234", state.isrc) // previous ISRC wins on same track
         assertTrue(state.isFavorite)
         assertEquals("monochrome.tidal", state.preferredProviderId)
         assertEquals("tidal-123", state.preferredExternalTrackId)
         assertEquals("Genesis Grimes", state.userQuery)
         assertTrue(state.isBuffering)
         assertFalse(state.isPlaying)
+    }
+
+    @Test
+    fun fromTrackChange_doesNotLetHigherBitrateAlternateOverwritePreferred() {
+        val previous = NowPlayingState(
+            trackId = "42",
+            title = "Genesis",
+            artist = "Grimes",
+            preferredProviderId = "monochrome.tidal",
+            preferredExternalTrackId = "tidal-123",
+            streamUrl = "https://example.test/genesis.flac"
+        )
+        val competing = UnifiedTrackWithSources(
+            track = sampleTrackWithSource().track,
+            sources = listOf(
+                TrackSource(
+                    parentTrackId = 42L,
+                    sourceType = SourceType.ADDON,
+                    streamUrl = "https://example.test/deezer.flac",
+                    bitrate = 9999,
+                    externalProviderId = "cloudflare_gateway",
+                    externalTrackId = "deezer:1"
+                ),
+                TrackSource(
+                    parentTrackId = 42L,
+                    sourceType = SourceType.ADDON,
+                    streamUrl = "https://example.test/genesis.flac",
+                    bitrate = 1411,
+                    externalProviderId = "monochrome.tidal",
+                    externalTrackId = "tidal-123"
+                )
+            )
+        )
+        val state = NowPlayingState.fromTrackChange(
+            track = competing,
+            qualityInfo = null,
+            queuePosition = 0,
+            queueSize = 1,
+            previous = previous
+        )
+        assertEquals("monochrome.tidal", state.preferredProviderId)
+        assertEquals("tidal-123", state.preferredExternalTrackId)
     }
 
     @Test

@@ -24,8 +24,8 @@ import kotlin.math.PI
 fun NightCityPulseScene(
     accentColor: Color,
     energy: Float,
-    intensity: Float = 0.5f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    intensity: Float = 0.5f
 ) {
     val transition = rememberInfiniteTransition(label = "nightCityPulse")
     val bassPulse by transition.animateFloat(

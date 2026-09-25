@@ -102,7 +102,7 @@ class PlayerViewModel @Inject constructor(
             if (nowPlaying != null && nowPlaying.artist != null) {
                 container.aiDjRecommendationEngine.recordSkip(
                     trackId = nowPlaying.trackId?.toLongOrNull() ?: 0L,
-                    artist = nowPlaying.artist ?: ""
+                    artist = nowPlaying.artist
                 )
             }
             container.playerController.next()

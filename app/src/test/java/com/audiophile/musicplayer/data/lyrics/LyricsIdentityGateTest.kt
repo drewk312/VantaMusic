@@ -275,6 +275,9 @@ class LyricsIdentityGateTest {
             byIsrc.remove(isrc)
         }
 
+        override suspend fun searchByLyricsContent(query: String): List<LyricsCacheEntity> =
+            byKey.values.filter { it.lyricsJson.contains(query, ignoreCase = true) }
+
         override suspend fun clearAll() {
             byKey.clear()
             byIsrc.clear()

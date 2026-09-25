@@ -1,7 +1,7 @@
 package com.audiophile.musicplayer.ui
 
-import android.net.Uri
 import android.util.Log
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -48,8 +48,8 @@ fun NetworkArtwork(
                 onSuccess = { loaded = true },
                 onError = { e ->
                     loaded = false
-                    val host = runCatching { Uri.parse(url).host }.getOrNull() ?: "unknown"
-                    Log.w("VANTA_UI", "Artwork load failed host=$host: ${e.result.throwable?.javaClass?.simpleName}")
+                    val host = runCatching { url.toUri().host }.getOrNull() ?: "unknown"
+                    Log.w("VANTA_UI", "Artwork load failed host=$host: ${e.result.throwable.javaClass.simpleName}")
                 }
             )
         }

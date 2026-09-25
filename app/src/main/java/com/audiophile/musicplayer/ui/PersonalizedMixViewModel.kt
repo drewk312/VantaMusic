@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import androidx.lifecycle.viewModelScope
+import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixKind
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixManager
 import com.audiophile.musicplayer.discovery.personalized.PersonalizedMixPlayback
@@ -36,6 +37,13 @@ data class PersonalizedMixUiState(
     val statusMessage: String? = null
 )
 
+data class PersonalizedMixDetailState(
+    val kind: PersonalizedMixKind? = null,
+    val title: String = "",
+    val tracks: List<UnifiedTrackWithSources> = emptyList(),
+    val isLoading: Boolean = false
+)
+
 @HiltViewModel
 class PersonalizedMixViewModel @Inject constructor(
     private val manager: PersonalizedMixManager,
@@ -45,6 +53,9 @@ class PersonalizedMixViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(PersonalizedMixUiState())
     val uiState: StateFlow<PersonalizedMixUiState> = _uiState.asStateFlow()
+
+    private val _detailState = MutableStateFlow(PersonalizedMixDetailState())
+    val detailState: StateFlow<PersonalizedMixDetailState> = _detailState.asStateFlow()
 
     init {
         loadHomeCards()
@@ -92,6 +103,30 @@ class PersonalizedMixViewModel @Inject constructor(
             setCardLoading(kind, false)
             loadHomeCards()
         }
+    }
+
+    fun openMixDetail(kind: PersonalizedMixKind) {
+        viewModelScope.launch {
+            _detailState.update {
+                PersonalizedMixDetailState(
+                    kind = kind,
+                    title = registry.get(kind)?.displayName ?: kind.id,
+                    isLoading = true
+                )
+            }
+            var tracks = manager.loadPlayableTracks(kind)
+            if (tracks.isEmpty()) {
+                runCatching { manager.refreshMix(kind) }
+                tracks = manager.loadPlayableTracks(kind)
+            }
+            _detailState.update {
+                it.copy(tracks = tracks, isLoading = false)
+            }
+        }
+    }
+
+    fun closeMixDetail() {
+        _detailState.update { PersonalizedMixDetailState() }
     }
 
     fun clearStatusMessage() {

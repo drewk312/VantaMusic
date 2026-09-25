@@ -2,6 +2,7 @@ package com.audiophile.musicplayer.data.lyrics
 
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
 import com.audiophile.musicplayer.data.canonical.CanonicalIdentityResolver
+import com.audiophile.musicplayer.data.display.DisplayMetadataCleaner
 import com.audiophile.musicplayer.data.source.VocalRecordingClassifier
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -129,6 +130,10 @@ class LyricsRepository(
     private fun buildTitleVariants(title: String): List<String> {
         val variants = mutableListOf<String>()
         val t = title.trim()
+        val displayCleaned = DisplayMetadataCleaner.cleanTitle(t)
+        if (displayCleaned.isNotBlank() && displayCleaned != t) {
+            variants.add(displayCleaned)
+        }
         // Feat-stripped variant first — the most common cause of missed matches.
         val featStripped = t
             .replace(Regex("""\s*[\[(]\s*(?:feat\.?|featuring|ft\.?|with)\s+[^\])]*[\])]""", RegexOption.IGNORE_CASE), "")
@@ -188,8 +193,10 @@ class LyricsRepository(
     }
     
     private fun deserialize(entity: LyricsCacheEntity, durationMs: Long? = null): LyricsData {
-        val type = object : TypeToken<List<LyricsLine>>() {}.type
-        val lines: List<LyricsLine> = gson.fromJson(entity.lyricsJson, type)
+        val type = TypeToken.getParameterized(List::class.java, LyricsLine::class.java).type
+        val lines: List<LyricsLine> = runCatching {
+            gson.fromJson<List<LyricsLine>>(entity.lyricsJson, type)
+        }.getOrNull() ?: emptyList()
         val withEnds = if (entity.isSynced) applyLineEndTimes(lines) else lines
         val normalizedLines = when {
             withEnds.any { it.startTimeMs != null } -> withEnds
@@ -211,5 +218,12 @@ class LyricsRepository(
         if (!isrc.isNullOrBlank()) {
             lyricsCacheDao.deleteLyricsByIsrc(isrc.trim().uppercase())
         }
+    }
+
+    suspend fun searchLyrics(query: String, limit: Int = 8): List<com.audiophile.musicplayer.data.canonical.CanonicalTrack> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 4) return@withContext emptyList()
+        val lrclib = providers.filterIsInstance<LRCLibLyricsProvider>().firstOrNull() ?: LRCLibLyricsProvider()
+        lrclib.searchByLyrics(q, limit)
     }
 }

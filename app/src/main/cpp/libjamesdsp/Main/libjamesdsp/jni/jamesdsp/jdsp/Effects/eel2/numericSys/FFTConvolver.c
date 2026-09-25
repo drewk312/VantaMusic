@@ -883,7 +883,6 @@ void FFTConvolver2x2RefreshImpulseResponse(FFTConvolver2x2 *conv1, FFTConvolver2
 	for (unsigned int i = 0; i < conv1->_segCount; ++i)
 	{
 		unsigned int j, symIdx;
-		conv2->_segmentsLLIRRe[1];
 		float* segmentLLRe = conv2->_segmentsLLIRRe[i];
 		float* segmentLLIm = conv2->_segmentsLLIRIm[i];
 		unsigned int remaining = irLen - (i * conv1->_blockSize);

@@ -11,8 +11,18 @@ import com.audiophile.musicplayer.data.source.SelectedRecordingIdentity
 import com.audiophile.musicplayer.data.source.SourceCandidateRanker
 import com.audiophile.musicplayer.data.source.SourceSearchResult
 import com.audiophile.musicplayer.data.source.SourceIdentityGate
+import com.audiophile.musicplayer.data.source.CloudLibraryHelpers
 import com.audiophile.musicplayer.data.source.canResolveStream
-import com.audiophile.musicplayer.data.source.sourceValidityStatus
+import com.audiophile.musicplayer.data.source.playback.CatalogPlaybackAdapter
+import com.audiophile.musicplayer.data.source.playback.DirectMediaPlaybackAdapter
+import com.audiophile.musicplayer.data.source.playback.FileMediaProbe
+import com.audiophile.musicplayer.data.source.playback.LocalHiResPlaybackAdapter
+import com.audiophile.musicplayer.data.source.playback.MediaProbe
+import com.audiophile.musicplayer.data.source.playback.PlaybackSourceErrorCode
+import com.audiophile.musicplayer.data.source.playback.PlaybackSourceFailure
+import com.audiophile.musicplayer.data.source.playback.PlaybackSourceOutcome
+import com.audiophile.musicplayer.data.source.playback.PlaybackSourceRouter
+import com.audiophile.musicplayer.data.source.playback.RequestedAudioQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,141 +30,289 @@ import kotlinx.coroutines.withContext
  * Resolves a playable stream URL for a [UnifiedTrackWithSources].
  *
  * Resolution order:
- * 1. Use an existing valid stream URL directly (not expired, not soundhelix).
- * 2. Re-resolve via [SourceRegistry] using the stored externalProviderId/Id.
- * 3. Search all providers by title+artist and pick the highest-ranked match.
+ * 1. Local files and direct/self-hosted media (no catalog token required).
+ * 2. Catalog identities (Qobuz/Tidal/Amazon/gateway).
+ * 3. Search catalog providers by title+artist.
  *
- * Returns null if no playable stream can be found.
+ * Catalog auth failures stay structured and never block local hi-res.
  */
 class StreamResolver(
     private val sourceRegistry: SourceRegistry,
     private val trackRepository: TrackRepository,
+    mediaProbe: MediaProbe = FileMediaProbe,
+    private val router: PlaybackSourceRouter = PlaybackSourceRouter(
+        local = LocalHiResPlaybackAdapter(mediaProbe),
+        direct = DirectMediaPlaybackAdapter(),
+        catalog = CatalogPlaybackAdapter(sourceRegistry)
+    )
 ) {
 
-    /** Minimum validity window before a stream URL is considered expired. */
-    private val EXPIRY_BUFFER_MS = 60_000L
-
-    /**
-     * Returns a ready-to-play URL for [track], or null if resolution fails.
-     *
-     * @param timeoutMs Per-source resolution timeout.
-     */
     suspend fun resolve(
         track: UnifiedTrackWithSources,
-        timeoutMs: Long = 15_000L
-    ): ResolvedStream? = withContext(Dispatchers.IO) {
-        val query = "${track.track.title} ${track.track.artist}".trim()
-        val selectedIdentity = SelectedRecordingIdentity(
-            title = track.track.title,
-            artist = track.track.artist,
-            durationMs = track.track.durationMs,
-            isrc = track.track.isrc,
-            userQuery = query
-        )
-        // Search once up front. The result validates persisted provider IDs and
-        // is reused by fallback resolution, keeping one source of identity truth.
-        val catalogCandidates = sourceRegistry.searchAll(query, timeoutMs)
-            .filter { it.status.canResolveStream() }
+        timeoutMs: Long = CloudLibraryHelpers.TAP_PLAY_TOTAL_BUDGET_MS,
+        excludedStreamUrls: Set<String> = emptySet(),
+        excludedProviderIds: Set<String> = emptySet(),
+    ): ResolvedStream? = when (val outcome = resolveWithOutcome(track, timeoutMs, excludedStreamUrls, excludedProviderIds)) {
+        is PlaybackSourceOutcome.Ready -> outcome.stream
+        is PlaybackSourceOutcome.Failed -> null
+    }
 
-        // Step 1: re-resolve via the persisted catalog identity.  A cached CDN
-        // URL only proves that a URL once existed; it does not prove it still
-        // serves the selected recording.  Resolving the provider+track id first
-        // prevents an old/misrouted cached URL from silently playing another song.
-        val identitySource = track.sources
-            .filter {
-            !it.externalProviderId.isNullOrBlank() && !it.externalTrackId.isNullOrBlank()
-            }
-            .maxWithOrNull(compareBy<TrackSource> { playbackSourceQualityRank(it) }.thenBy { it.sourceId })
-        if (identitySource != null) {
-            val providerId = identitySource.externalProviderId ?: return@withContext null
-            val externalId = identitySource.externalTrackId ?: return@withContext null
-            val verifiedCandidate = findVerifiedIdentityCandidate(
-                selected = selectedIdentity.copy(
-                    preferredProviderId = providerId,
-                    preferredExternalTrackId = externalId
-                ),
-                providerId = providerId,
-                externalId = externalId,
-                candidates = catalogCandidates
+    suspend fun resolveWithOutcome(
+        track: UnifiedTrackWithSources,
+        timeoutMs: Long = CloudLibraryHelpers.TAP_PLAY_TOTAL_BUDGET_MS,
+        excludedStreamUrls: Set<String> = emptySet(),
+        excludedProviderIds: Set<String> = emptySet(),
+        requestedQuality: RequestedAudioQuality =
+            SpatialDecoderCapabilities.playableQuality(
+            com.audiophile.musicplayer.data.source.playback.requestedAudioQualityFromPreference(
+                com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY
             )
-            val stream = verifiedCandidate?.let {
-                sourceRegistry.resolveStream(it.providerId, it.id, timeoutMs)
-            }
-            if (stream != null && isValidStream(stream)) {
-                VantaLogger.d(
+            )
+    ): PlaybackSourceOutcome = withContext(Dispatchers.IO) {
+        val query = "${track.track.title} ${track.track.artist}".trim()
+        val failures = mutableListOf<PlaybackSourceFailure>()
+        val startedAtMs = System.currentTimeMillis()
+        fun remainingMs(): Long = CloudLibraryHelpers.remainingTapBudgetMs(startedAtMs, timeoutMs)
+
+        when (
+            val persisted = router.resolvePersisted(
+                track = track,
+                requestedQuality = requestedQuality,
+                excludedStreamUrls = excludedStreamUrls,
+                excludedProviderIds = excludedProviderIds
+            )
+        ) {
+            is PlaybackSourceOutcome.Ready -> {
+                if (isValidStream(persisted.stream, excludedStreamUrls, requestedQuality)) {
+                    VantaLogger.d(
+                        VantaLogger.Tag.STREAM,
+                        "resolve_ready provider=${persisted.stream.providerId} " +
+                            "label=${persisted.stream.sourceLabel} " +
+                            "codec=${persisted.stream.codec} bitDepth=${persisted.stream.bitDepth} " +
+                            "sampleRate=${persisted.stream.sampleRateHz} shortfall=${persisted.qualityShortfall}"
+                    )
+                    persistResolvedIfCatalog(track, persisted.stream)
+                    return@withContext persisted
+                }
+                VantaLogger.w(
                     VantaLogger.Tag.STREAM,
-                    "resolve_identity_ok provider=$providerId id=$externalId"
+                    "resolve_skipped_excluded_stream provider=${persisted.stream.providerId} " +
+                        "host=${VantaLogger.urlHost(persisted.stream.streamUrl)}"
                 )
-                persistStream(track, identitySource, stream)
-                return@withContext stream
             }
+            is PlaybackSourceOutcome.Failed -> {
+                if (persisted.failure.code != PlaybackSourceErrorCode.NOT_FOUND) {
+                    failures += persisted.failure
+                }
+            }
+        }
+
+        val identitySources = track.sources
+            .filter {
+                !it.externalProviderId.isNullOrBlank() &&
+                    !it.externalTrackId.isNullOrBlank() &&
+                    it.externalProviderId !in excludedProviderIds
+            }
+            .sortedWith(
+                compareByDescending<TrackSource> { playbackSourceQualityRank(it, requestedQuality) }
+                    .thenBy { it.sourceId }
+            )
+        val identitySource = identitySources.firstOrNull {
+            !SourceIdentityGate.isSupplementalPlaybackProvider(it.externalProviderId)
+        } ?: identitySources.firstOrNull()
+
+        val searchBudgetMs = remainingMs().coerceAtMost(CloudLibraryHelpers.TAP_PLAY_SEARCH_TIMEOUT_MS)
+        if (searchBudgetMs < 500L) {
             VantaLogger.w(
                 VantaLogger.Tag.STREAM,
-                "resolve_identity_failed provider=$providerId id=$externalId — falling back to cached URL/search"
+                "resolve_search_skipped_budget leftoverMs=${remainingMs()} title='${track.track.title}'"
             )
         }
-
-        // Step 2: use a cached URL only when its catalog identity can no longer
-        // be resolved. Local files are still preferred by their quality rank.
-        val existing = track.sources
-            .filter { isUsable(it) && it.sourceType == SourceType.LOCAL }
-            .maxWithOrNull(compareBy<TrackSource> { playbackSourceQualityRank(it) }.thenBy { it.sourceId })
-        if (existing != null && existing.streamUrl.isNotBlank()) {
-            VantaLogger.d(
-                VantaLogger.Tag.STREAM,
-                "resolve_local_fallback trackId=${track.track.trackId} bitrate=${existing.bitrate} url=${existing.streamUrl.take(60)}"
-            )
-            return@withContext ResolvedStream(
-                streamUrl = existing.streamUrl,
-                bitrateKbps = existing.bitrate ?: 0,
-                expiresAt = existing.expiresAtMs,
-                providerId = existing.externalProviderId ?: existing.sourceType.name.lowercase()
-            )
+        val catalogCandidates = if (searchBudgetMs < 500L) {
+            emptyList()
+        } else {
+            sourceRegistry.searchAll(
+                query,
+                timeoutMs = searchBudgetMs,
+                includeSupplemental = false
+            ).filter { it.status.canResolveStream() }
         }
-
-        // Step 3: search fallback
         val candidates = rankFallbackStreamCandidates(
             track = track,
-            candidates = catalogCandidates
+            candidates = catalogCandidates,
+            requestedQuality = requestedQuality
         )
-            .take(5)
+            .filter { candidate -> candidate.providerId !in excludedProviderIds }
+            .take(3)
 
         for (candidate in candidates) {
-            val stream = sourceRegistry.resolveStream(candidate.providerId, candidate.id, timeoutMs)
-                ?: continue
-            if (!isValidStream(stream)) continue
-            VantaLogger.d(
-                VantaLogger.Tag.STREAM,
-                "resolve_search_ok provider=${candidate.providerId} id=${candidate.id}"
+            val resolveBudgetMs = remainingMs()
+            if (resolveBudgetMs < 500L) break
+            val outcome = sourceRegistry.resolvePlayback(
+                providerId = candidate.providerId,
+                trackId = candidate.id,
+                timeoutMs = resolveBudgetMs,
+                requestedQuality = requestedQuality
             )
-            return@withContext stream
+            when (outcome) {
+                is PlaybackSourceOutcome.Ready -> {
+                    if (!isValidStream(outcome.stream, excludedStreamUrls, requestedQuality)) continue
+                    if (identitySource != null &&
+                        !identitySource.externalProviderId.equals(candidate.providerId, ignoreCase = true)
+                    ) {
+                        VantaLogger.w(
+                            VantaLogger.Tag.STREAM,
+                            "resolve_search_identity_diverged persisted=${identitySource.externalProviderId}:${identitySource.externalTrackId} actual=${candidate.providerId}:${candidate.id} title='${track.track.title}'"
+                        )
+                    }
+                    VantaLogger.d(
+                        VantaLogger.Tag.STREAM,
+                        "resolve_search_ok provider=${candidate.providerId} id=${candidate.id}"
+                    )
+                    val persistIdentity = persistIdentityForResolvedCandidate(
+                        candidateProviderId = candidate.providerId,
+                        candidateTrackId = candidate.id
+                    )
+                    persistStream(
+                        track = track,
+                        providerId = persistIdentity.first,
+                        externalTrackId = persistIdentity.second,
+                        stream = outcome.stream
+                    )
+                    return@withContext outcome
+                }
+                is PlaybackSourceOutcome.Failed -> failures += outcome.failure
+            }
+        }
+
+        val supplementalBudgetMs = remainingMs()
+        val supplementalIdentities = identitySources.filter {
+            SourceIdentityGate.isSupplementalPlaybackProvider(it.externalProviderId)
+        }
+        when (
+            val supplemental = if (supplementalBudgetMs < 500L) {
+                null
+            } else {
+                resolveFromIdentitySources(
+                    track = track,
+                    sources = supplementalIdentities,
+                    timeoutMs = supplementalBudgetMs,
+                    excludedStreamUrls = excludedStreamUrls,
+                    requestedQuality = requestedQuality
+                )
+            }
+        ) {
+            is PlaybackSourceOutcome.Ready -> return@withContext supplemental
+            is PlaybackSourceOutcome.Failed -> {
+                if (supplemental.failure.code != PlaybackSourceErrorCode.NOT_FOUND) {
+                    failures += supplemental.failure
+                }
+            }
+            null -> Unit
         }
 
         VantaLogger.w(
             VantaLogger.Tag.STREAM,
-            "resolve_failed title='${track.track.title}' artist='${track.track.artist}'"
+            "resolve_failed title='${track.track.title}' artist='${track.track.artist}' " +
+                "codes=${failures.map { it.code }.distinct()}"
         )
-        null
+        PlaybackSourceOutcome.Failed(
+            PlaybackSourceRouter.collapseFailures(
+                failures = failures,
+                triedLocalOrDirect = track.sources.any {
+                    it.sourceType == SourceType.LOCAL || PlaybackSourceRouter.isDirectCandidate(it)
+                }
+            )
+        )
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private fun isUsable(source: TrackSource): Boolean {
-        if (source.streamUrl.isBlank()) return false
-        if (source.streamUrl.contains("soundhelix", ignoreCase = true)) return false
-        val expiresAt = source.expiresAtMs ?: return true
-        return expiresAt > System.currentTimeMillis() + EXPIRY_BUFFER_MS
+    private suspend fun resolveFromIdentitySources(
+        track: UnifiedTrackWithSources,
+        sources: List<TrackSource>,
+        timeoutMs: Long,
+        excludedStreamUrls: Set<String>,
+        requestedQuality: RequestedAudioQuality
+    ): PlaybackSourceOutcome? {
+        val failures = mutableListOf<PlaybackSourceFailure>()
+        for (identitySource in sources) {
+            val providerId = identitySource.externalProviderId ?: continue
+            val externalId = identitySource.externalTrackId ?: continue
+            when (
+                val outcome = sourceRegistry.resolvePlayback(
+                    providerId = providerId,
+                    trackId = externalId,
+                    timeoutMs = timeoutMs,
+                    requestedQuality = requestedQuality
+                )
+            ) {
+                is PlaybackSourceOutcome.Ready -> {
+                    if (isValidStream(outcome.stream, excludedStreamUrls, requestedQuality)) {
+                        VantaLogger.d(
+                            VantaLogger.Tag.STREAM,
+                            "resolve_identity_ok provider=$providerId id=$externalId route=direct"
+                        )
+                        persistStream(
+                            track = track,
+                            providerId = identitySource.externalProviderId,
+                            externalTrackId = identitySource.externalTrackId,
+                            stream = outcome.stream
+                        )
+                        return outcome
+                    }
+                }
+                is PlaybackSourceOutcome.Failed -> {
+                    failures += outcome.failure
+                    VantaLogger.w(
+                        VantaLogger.Tag.STREAM,
+                        "resolve_identity_failed provider=$providerId id=$externalId code=${outcome.failure.code}"
+                    )
+                }
+            }
+        }
+        if (failures.isEmpty()) return null
+        return PlaybackSourceOutcome.Failed(
+            PlaybackSourceRouter.collapseFailures(failures, triedLocalOrDirect = false)
+        )
     }
 
-    private fun isValidStream(stream: ResolvedStream): Boolean =
+    private fun isValidStream(
+        stream: ResolvedStream,
+        excludedStreamUrls: Set<String>,
+        requestedQuality: RequestedAudioQuality
+    ): Boolean =
         stream.streamUrl.isNotBlank() &&
-            !stream.streamUrl.contains("soundhelix", ignoreCase = true)
+            (!(requestedQuality == RequestedAudioQuality.LOSSLESS_16 || requestedQuality == RequestedAudioQuality.HI_RES_24) ||
+                (!stream.isDolbyAtmos && !stream.isEclipsaAudio && !stream.isSpatialAudio)) &&
+            SpatialDecoderCapabilities.supportsAtmosStream(stream) &&
+            !stream.streamUrl.contains("soundhelix", ignoreCase = true) &&
+            !CloudLibraryHelpers.isSampleOrPreviewUrl(stream.streamUrl) &&
+            stream.streamUrl !in excludedStreamUrls
+
+    private suspend fun persistResolvedIfCatalog(
+        track: UnifiedTrackWithSources,
+        stream: ResolvedStream
+    ) {
+        val providerId = stream.providerId?.lowercase().orEmpty()
+        if (providerId == "local" || providerId == "direct") return
+        val identity = track.sources.firstOrNull { source ->
+            source.externalProviderId.equals(stream.providerId, ignoreCase = true) &&
+                !source.externalTrackId.isNullOrBlank()
+        } ?: return
+        persistStream(
+            track = track,
+            providerId = identity.externalProviderId,
+            externalTrackId = identity.externalTrackId,
+            stream = stream
+        )
+    }
 
     private suspend fun persistStream(
         track: UnifiedTrackWithSources,
-        identitySource: TrackSource,
+        providerId: String?,
+        externalTrackId: String?,
         stream: ResolvedStream
     ) {
+        if (providerId.isNullOrBlank() || externalTrackId.isNullOrBlank()) return
         try {
             trackRepository.addTrackSource(
                 title = track.track.title,
@@ -164,15 +322,27 @@ class StreamResolver(
                 sourceType = SourceType.ADDON,
                 streamUrl = stream.streamUrl,
                 bitrate = stream.bitrateKbps,
-                externalProviderId = identitySource.externalProviderId,
-                externalTrackId = identitySource.externalTrackId,
+                externalProviderId = providerId,
+                externalTrackId = externalTrackId,
                 expiresAtMs = stream.expiresAt
             )
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
+            VantaLogger.w(VantaLogger.Tag.STREAM, "persist_stream_failed", e)
+        } catch (e: android.database.SQLException) {
+            VantaLogger.w(VantaLogger.Tag.STREAM, "persist_stream_failed", e)
+        } catch (e: IllegalStateException) {
+            VantaLogger.w(VantaLogger.Tag.STREAM, "persist_stream_failed", e)
+        } catch (e: IllegalArgumentException) {
             VantaLogger.w(VantaLogger.Tag.STREAM, "persist_stream_failed", e)
         }
     }
 }
+
+/** Persist the stream that actually resolved, never the failed catalog identity. */
+internal fun persistIdentityForResolvedCandidate(
+    candidateProviderId: String,
+    candidateTrackId: String
+): Pair<String, String> = candidateProviderId to candidateTrackId
 
 internal fun findVerifiedIdentityCandidate(
     selected: SelectedRecordingIdentity,
@@ -190,7 +360,10 @@ internal fun findVerifiedIdentityCandidate(
 
 internal fun rankFallbackStreamCandidates(
     track: UnifiedTrackWithSources,
-    candidates: List<SourceSearchResult>
+    candidates: List<SourceSearchResult>,
+    requestedQuality: RequestedAudioQuality = com.audiophile.musicplayer.data.source.playback.requestedAudioQualityFromPreference(
+        com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY
+    )
 ): List<SourceSearchResult> {
     val query = "${track.track.title} ${track.track.artist}".trim()
     val identity = SelectedRecordingIdentity(
@@ -200,18 +373,43 @@ internal fun rankFallbackStreamCandidates(
         isrc = track.track.isrc,
         userQuery = query
     )
+    val isSpatial = requestedQuality == RequestedAudioQuality.ATMOS ||
+        requestedQuality == RequestedAudioQuality.SONY_360 ||
+        requestedQuality == RequestedAudioQuality.AUTO_SPATIAL ||
+        requestedQuality == RequestedAudioQuality.IAMF
+
     return SourceCandidateRanker.rankSearchResults(identity, candidates)
+        .sortedWith(
+            compareByDescending<SourceSearchResult> { candidate ->
+                if (isSpatial && SourceIdentityGate.isImmersivePlaybackProvider(candidate.providerId)) 1000 else 0
+            }
+        )
+        .partition { !SourceIdentityGate.isSupplementalPlaybackProvider(it.providerId) }
+        .let { (catalog, supplemental) -> catalog + supplemental }
 }
 
-internal fun playbackSourceQualityRank(source: TrackSource): Int {
+internal fun playbackSourceQualityRank(
+    source: TrackSource,
+    requestedQuality: RequestedAudioQuality = com.audiophile.musicplayer.data.source.playback.requestedAudioQualityFromPreference(
+        com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY
+    )
+): Int {
     val bitrate = source.bitrate.takeIf { it > 0 } ?: 0
-    val providerBonus = when (source.externalProviderId?.lowercase()) {
-        "qobuz" -> 80
-        "tidal" -> 70
-        "deezer" -> 40
-        "amazon" -> 35
-        "apple" -> 20
-        else -> 0
+    val providerId = source.externalProviderId?.lowercase().orEmpty()
+    val isSpatialPreferred = requestedQuality == RequestedAudioQuality.ATMOS ||
+        requestedQuality == RequestedAudioQuality.SONY_360 ||
+        requestedQuality == RequestedAudioQuality.AUTO_SPATIAL ||
+        requestedQuality == RequestedAudioQuality.IAMF
+    val providerBonus = when {
+        isSpatialPreferred && "tidal" in providerId -> 160 // #1 PRIORITY FOR DOLBY ATMOS & SONY 360
+        isSpatialPreferred && "amazon" in providerId -> 140 // #1 PRIORITY FOR DOLBY ATMOS & SONY 360
+        "qobuz" in providerId -> 80
+        "tidal" in providerId -> 70
+        "deezer" in providerId -> 40
+        "amazon" in providerId -> 35
+        "apple" in providerId -> 20
+        "youtube" in providerId -> 0
+        else -> SourceIdentityGate.playbackProviderRank(source.externalProviderId, isSpatialPreferred) / 5
     }
     val typeBonus = when (source.sourceType) {
         SourceType.LOCAL -> 100

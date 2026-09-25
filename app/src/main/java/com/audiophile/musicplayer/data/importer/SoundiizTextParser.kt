@@ -71,7 +71,7 @@ object SoundiizTextParser {
             rawLines.any { urlPattern.containsMatchIn(it) } -> "Platform links"
             rawLines.firstOrNull()?.startsWith("{") == true || rawLines.firstOrNull()?.startsWith("[") == true -> "JSON export"
             rawLines.firstOrNull()?.startsWith("<") == true -> "XML export"
-            rawLines.any { it.count { ch -> ch == ',' } >= 2 } -> "CSV-like text"
+            rawLines.any { it.count { ch -> ch == ',' || ch == ';' || ch == '\t' } >= 2 } -> "CSV-like text"
             rawLines.any { " by " in it.lowercase() } -> "Plain text with by"
             rawLines.any { " - " in it } -> "Dash-separated text"
             rawLines.any { "," in it } -> "Comma-separated text"
@@ -327,35 +327,70 @@ object SoundiizTextParser {
             ?.takeIf { it.isNotEmpty() }
     }
 
+    private fun detectDelimiter(lines: List<String>): Char {
+        val sample = lines.take(5).joinToString("\n")
+        val commaCount = sample.count { it == ',' }
+        val semiCount = sample.count { it == ';' }
+        val tabCount = sample.count { it == '\t' }
+        return when {
+            tabCount > commaCount && tabCount > semiCount -> '\t'
+            semiCount > commaCount && semiCount > tabCount -> ';'
+            else -> ','
+        }
+    }
+
     private fun parseCsvBlock(block: String): List<ParsedPlaylistLine>? {
         val lines = block.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
-        if (lines.size < 2 || lines.none { "," in it }) return null
-        val header = splitCsvLine(lines.first()).map { it.lowercase(Locale.US).trim() }
-        val hasHeader = header.any { it in setOf("title", "track", "track name", "song", "song title") } &&
-            header.any { it in setOf("artist", "artist name", "artists") || it.contains("artist") }
+        if (lines.size < 2) return null
+        val delimiter = detectDelimiter(lines)
+        if (lines.none { delimiter in it }) return null
+        val header = splitCsvLine(lines.first(), delimiter).map { it.lowercase(Locale.US).trim().replace("\"", "") }
+        
+        fun isRejectColumn(col: String): Boolean =
+            listOf("id", "uri", "url", "href", "number", "index", "preview", "link", "duration", "time", "bpm", "isrc")
+                .any { col.contains(it) && !col.contains("name") && !col.contains("title") }
+        
+        val titleKeys = listOf("track name", "song name", "song title", "track", "title", "song", "name")
+        val artistKeys = listOf("artist name(s)", "artist name", "artist", "artists", "track artist", "performer")
+        val albumKeys = listOf("album name", "album title", "album", "collection", "collection name")
+        
+        val hasHeader = header.size >= 2 &&
+            header.any { col -> titleKeys.any { k -> col == k || (!isRejectColumn(col) && col.contains(k)) } } &&
+            header.any { col -> artistKeys.any { k -> col == k || col.contains(k) } }
         if (!hasHeader) return null
-        fun indexOf(vararg keys: String): Int = header.indexOfFirst { column -> keys.any { key -> column == key || column.contains(key) } }
-        val titleIndex = indexOf("title", "track", "song")
-        val artistIndex = indexOf("artist")
-        val albumIndex = indexOf("album", "collection")
-        val urlIndex = indexOf("url", "link")
+
+        fun findBestColumn(keys: List<String>): Int {
+            val exact = header.indexOfFirst { col -> keys.any { k -> col == k } }
+            if (exact >= 0) return exact
+            return header.indexOfFirst { col ->
+                !isRejectColumn(col) && keys.any { k -> col.contains(k) }
+            }
+        }
+
+        val titleIndex = findBestColumn(titleKeys)
+        val artistIndex = findBestColumn(artistKeys)
+        val albumIndex = findBestColumn(albumKeys)
+        val urlIndex = header.indexOfFirst { it == "url" || it == "link" || it.contains("spotify uri") || it.contains("apple music link") }
+
+        if (titleIndex < 0 || artistIndex < 0 || titleIndex == artistIndex) return null
+        
         val rows = lines.drop(1).mapNotNull { line ->
-            val fields = splitCsvLine(line)
-            val title = fields.getOrNull(titleIndex)?.trim()?.takeIf { it.isNotBlank() }
-            val artist = fields.getOrNull(artistIndex)?.trim()?.takeIf { it.isNotBlank() }
-            val album = fields.getOrNull(albumIndex)?.trim()?.takeIf { it.isNotBlank() }
+            val fields = splitCsvLine(line, delimiter).map { it.trim().removeSurrounding("\"").trim() }
+            val rawTitle = fields.getOrNull(titleIndex)?.takeIf { it.isNotBlank() }
+            val rawArtist = fields.getOrNull(artistIndex)?.takeIf { it.isNotBlank() }
+            val album = fields.getOrNull(albumIndex)?.takeIf { it.isNotBlank() }
             val url = fields.getOrNull(urlIndex)?.let { urlPattern.find(it)?.value }
-            if (title == null && url == null) null else {
+            if (rawTitle == null && url == null) null else {
                 val parsedUrl = url?.let { parsePlatformUrl(it) }
                 ParsedPlaylistLine(
                     rawLine = line,
-                    title = title ?: parsedUrl?.title,
-                    artist = artist ?: parsedUrl?.artist,
+                    title = rawTitle ?: parsedUrl?.title,
+                    artist = rawArtist ?: parsedUrl?.artist,
                     album = album ?: parsedUrl?.album,
                     sourceUrl = url,
                     sourcePlatform = url?.let { platformName(it) },
                     sourceId = parsedUrl?.sourceId,
-                    preserved = title == null && parsedUrl?.title == null
+                    preserved = rawTitle == null && parsedUrl?.title == null
                 )
             }
         }
@@ -441,7 +476,7 @@ object SoundiizTextParser {
         return null
     }
 
-    private fun splitCsvLine(line: String): List<String> {
+    private fun splitCsvLine(line: String, delimiter: Char = ','): List<String> {
         val result = mutableListOf<String>()
         val current = StringBuilder()
         var inQuotes = false
@@ -454,7 +489,7 @@ object SoundiizTextParser {
                     i++
                 }
                 ch == '"' -> inQuotes = !inQuotes
-                ch == ',' && !inQuotes -> {
+                ch == delimiter && !inQuotes -> {
                     result += current.toString()
                     current.clear()
                 }

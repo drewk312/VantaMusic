@@ -107,13 +107,24 @@ class VantaAudioAnalyzer(
         try {
             visualizer?.enabled = false
             visualizer?.release()
-        } catch (_: Exception) {
+        } catch (_: RuntimeException) {
+        } catch (_: IllegalStateException) {
         }
         visualizer = null
         currentSessionId = -1
         _isActive.value = false
         resetSmoothed()
         Log.d(TAG, "release")
+    }
+
+    /**
+     * Starts the organic pulse emitter used by TV meters / aura when no
+     * Visualizer session or DSP spectrum is available yet. No-op if capture
+     * is already running.
+     */
+    fun ensureFallbackFrames() {
+        if (captureJob?.isActive == true || visualizer != null) return
+        startFallbackFrameEmitter()
     }
 
     private fun processWaveform(waveform: ByteArray): VantaAudioFrame {
@@ -275,6 +286,11 @@ class VantaAudioAnalyzer(
 
     fun updateFromDspSpectrum(magnitudes: FloatArray) {
         if (magnitudes.isEmpty()) return
+        // Real DSP wins — stop the display fallback so meters track audio.
+        if (captureJob != null) {
+            captureJob?.cancel()
+            captureJob = null
+        }
         val bucketCount = 24
         val sourceBands = magnitudes.size
         val buckets = if (sourceBands >= bucketCount) {

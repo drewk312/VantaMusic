@@ -1,7 +1,8 @@
 import type { Env } from "../types";
 import { fetchJson } from "../providers/shared";
 import { searchQobuzPublic } from "../providers/qobuz-api";
-import { healthCacheTtl } from "./cache";
+import { healthCacheTtl, kvWritesEnabled } from "./cache";
+import { searchSoundCloud } from "../providers/soundcloud";
 
 export interface ProviderHealth {
   provider: string;
@@ -16,6 +17,10 @@ async function smokeTest(env: Env, provider: string): Promise<{ ok: boolean; lat
   const start = Date.now();
   try {
     switch (provider) {
+      case "soundcloud": {
+        const tracks = await searchSoundCloud("music", env, 1);
+        return { ok: tracks.length > 0, latencyMs: Date.now() - start };
+      }
       case "deezer": {
         const result = await fetchJson("https://api.deezer.com/search?q=test&limit=1");
         return { ok: Array.isArray((result as { data?: unknown[] })?.data), latencyMs: Date.now() - start };
@@ -39,7 +44,7 @@ async function smokeTest(env: Env, provider: string): Promise<{ ok: boolean; lat
 /** Return cached health status or run smoke tests. */
 export async function checkProviderHealth(env: Env): Promise<ProviderHealth[]> {
   const cacheKey = "health:providers";
-  if (env.CACHE) {
+  if (env.CACHE && kvWritesEnabled(env)) {
     try {
       const cached = await env.CACHE.get(cacheKey, "json") as ProviderHealth[] | null;
       if (cached && cached.length > 0 && Date.now() - cached[0].checkedAt < healthCacheTtl(env) * 1000) {

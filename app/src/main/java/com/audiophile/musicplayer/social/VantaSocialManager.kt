@@ -112,7 +112,7 @@ class VantaSocialManager(
         val event = FriendListeningEvent(
             friendId = profile.vantaUserId,
             friendDisplayName = profile.displayName,
-            trackId = nowPlaying.trackId ?: return,
+            trackId = nowPlaying.trackId,
             title = nowPlaying.title ?: "Unknown",
             artist = nowPlaying.artist ?: "Unknown",
             album = nowPlaying.album,

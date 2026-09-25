@@ -1,6 +1,7 @@
 package com.audiophile.musicplayer.data.lyrics
 
 import android.util.Log
+import com.audiophile.musicplayer.common.AcceptanceTruth
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrack
 import com.audiophile.musicplayer.data.source.VocalRecordingClassifier
 
@@ -66,6 +67,16 @@ class LyricsIdentityGate(
         // 1. Pre-check: skip instrumental/karaoke/tribute tracks entirely
         if (!VocalRecordingClassifier.lyricsExpected(track.title, track.artist, track.albumName, userQuery)) {
             Log.d("VANTA_IDENTITY", "lyrics not expected title='${track.title}' artist='${track.artist}' album='${track.albumName}'")
+            AcceptanceTruth.lyrics(
+                trackId = track.trackId.toString(),
+                title = track.title,
+                artist = track.artist,
+                album = track.albumName,
+                isrc = isrc,
+                provider = null,
+                lyricsMatchMethod = "not_expected",
+                available = false
+            )
             return LyricsIdentity.Unavailable
         }
 
@@ -74,6 +85,16 @@ class LyricsIdentityGate(
 
         if (lyricsData == null) {
             Log.d("VANTA_IDENTITY", "no lyrics found title='${track.title}' artist='${track.artist}' repo returned null")
+            AcceptanceTruth.lyrics(
+                trackId = track.trackId.toString(),
+                title = track.title,
+                artist = track.artist,
+                album = track.albumName,
+                isrc = isrc,
+                provider = null,
+                lyricsMatchMethod = "unavailable",
+                available = false
+            )
             return LyricsIdentity.Unavailable
         }
 
@@ -81,11 +102,39 @@ class LyricsIdentityGate(
         val rejection = crossValidateIdentity(track, lyricsData)
         if (rejection != null) {
             Log.w("VANTA_IDENTITY", "lyrics REJECTED title='${track.title}' reason='$rejection'")
+            AcceptanceTruth.lyrics(
+                trackId = track.trackId.toString(),
+                title = track.title,
+                artist = track.artist,
+                album = track.albumName,
+                isrc = isrc,
+                provider = lyricsData.providerId,
+                lyricsMatchMethod = "rejected:$rejection",
+                available = false
+            )
             return LyricsIdentity.Rejected(rejection)
         }
 
         // 4. Classify confidence level
-        return classifyIdentity(track, lyricsData)
+        val identity = classifyIdentity(track, lyricsData)
+        val method = when (identity) {
+            is LyricsIdentity.ExactSync -> "exact_sync"
+            is LyricsIdentity.HighConfidenceSync -> "high_confidence_sync"
+            is LyricsIdentity.EstimatedTiming -> "estimated_timing"
+            is LyricsIdentity.Unavailable -> "unavailable"
+            is LyricsIdentity.Rejected -> "rejected"
+        }
+        AcceptanceTruth.lyrics(
+            trackId = track.trackId.toString(),
+            title = track.title,
+            artist = track.artist,
+            album = track.albumName,
+            isrc = isrc,
+            provider = lyricsData.providerId,
+            lyricsMatchMethod = method,
+            available = identity.lyricsData != null
+        )
+        return identity
     }
 
     /**
@@ -93,24 +142,9 @@ class LyricsIdentityGate(
      * Returns a rejection reason string, or null if identity passes.
      */
     private fun crossValidateIdentity(track: UnifiedTrack, lyricsData: LyricsData): String? {
-        // Check for variant mismatch: if the playing track title has a variant marker
-        // that the lyrics source doesn't (or vice versa), reject.
-        val trackVariants = extractVariants(track.title)
-        val lyricsSourceTitle = lyricsData.trackKey ?: ""
-        val lyricsVariants = extractVariants(lyricsSourceTitle)
-
-        // If the playing track IS a variant (e.g., "live", "remix") but lyrics
-        // came from a non-variant source, reject — unless user explicitly requested it.
-        for (variant in trackVariants) {
-            if (variant !in lyricsVariants) {
-                // The track is a live/remix/etc but lyrics aren't from that version
-                val trackTitleLower = track.title.lowercase()
-                // Only reject if the variant is actually in the title, not just in metadata
-                if (trackTitleLower.contains(variant)) {
-                    return "variant_mismatch: track has '$variant' but lyrics source does not"
-                }
-            }
-        }
+        // NOTE: lyricsData.trackKey is a hash/ID (e.g. "0" or "c5496f8a..."), NOT a title.
+        // We cannot extract variant markers from it. Variant mismatch detection is skipped
+        // because we have no reliable lyrics source title to compare against.
 
         // Duration cross-check when both values are available
         val trackDuration = track.durationMs

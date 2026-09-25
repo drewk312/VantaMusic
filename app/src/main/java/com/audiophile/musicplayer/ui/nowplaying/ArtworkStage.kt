@@ -3,6 +3,7 @@ package com.audiophile.musicplayer.ui.nowplaying
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -10,6 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,17 +24,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.ui.AppAccent
+import com.audiophile.musicplayer.ui.AppAccentSecondary
 import com.audiophile.musicplayer.ui.AppBackgroundBottom
 import com.audiophile.musicplayer.ui.AppText
 import com.audiophile.musicplayer.ui.NetworkArtwork
+import com.audiophile.musicplayer.ui.preview.ArtworkPlaceholder
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -68,7 +75,11 @@ fun VantaArtworkStage(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     modifier: Modifier = Modifier,
-    artworkSize: Dp? = null
+    artworkSize: Dp? = null,
+    isSquare: Boolean = true,
+    showQualityBadge: Boolean = false,
+    qualityLabel: String? = null,
+    onQualityBadgeClick: (() -> Unit)? = null
 ) {
     Box(modifier = modifier) {
         val artModifier = artworkSize?.let { size -> Modifier.size(size) }
@@ -99,7 +110,11 @@ fun VantaArtworkStage(
                     accentColor = accentColor,
                     isFavorite = isFavorite,
                     onToggleFavorite = onToggleFavorite,
-                    modifier = artModifier
+                    modifier = artModifier,
+                    isSquare = isSquare,
+                    showQualityBadge = showQualityBadge,
+                    qualityLabel = qualityLabel,
+                    onQualityBadgeClick = onQualityBadgeClick
                 )
             }
         }
@@ -139,50 +154,25 @@ fun LuxuryArtworkPlaceholder(
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val seedTone = remember(seed) {
-        val hash = seed.hashCode()
-        val warm = ((hash ushr 8) and 0xFF) / 255f
-        Color(red = 0.10f + warm * 0.035f, green = 0.095f + warm * 0.025f, blue = 0.105f + warm * 0.035f)
-    }
     Box(
-        modifier = modifier.background(
-            Brush.linearGradient(
-                colors = listOf(seedTone, Color(0xFF161316), Color(0xFF09090B)),
-                start = Offset.Zero, end = Offset.Infinite
-            )
-        ),
+        modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val lineColor = Color.White.copy(alpha = 0.035f)
-            val accentLine = accentColor.copy(alpha = 0.08f)
-            for (index in 0..8) {
-                val x = size.width * (index / 8f)
-                drawLine(
-                    color = if (index % 3 == 0) accentLine else lineColor,
-                    start = Offset(x, size.height * 0.02f),
-                    end = Offset(x - size.width * 0.28f, size.height * 0.98f),
-                    strokeWidth = 1.dp.toPx()
-                )
-            }
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = 0.08f), Color.Transparent, Color.Black.copy(alpha = 0.24f))
-                ),
-                size = size,
-                cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
-            )
-        }
-        Box(
-            modifier = Modifier.size(92.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.045f))
-                .border(0.5.dp, Color.White.copy(alpha = 0.08f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.MusicNote, contentDescription = null, tint = AppText.copy(alpha = 0.54f), modifier = Modifier.size(46.dp))
-        }
+        ArtworkPlaceholder(
+            seed = seed,
+            showInitials = true,
+            accentColor = accentColor,
+            modifier = Modifier.fillMaxSize()
+        )
         Box(
             modifier = Modifier.matchParentSize().background(
-                Brush.verticalGradient(listOf(Color.Transparent, AppBackgroundBottom.copy(alpha = 0.28f)))
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.04f),
+                        Color.Transparent,
+                        AppBackgroundBottom.copy(alpha = 0.22f)
+                    )
+                )
             )
         )
     }
@@ -198,11 +188,35 @@ fun MainStageHeroCard(
     accentColor: Color,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSquare: Boolean = true,
+    showQualityBadge: Boolean = false,
+    qualityLabel: String? = null,
+    onQualityBadgeClick: (() -> Unit)? = null
 ) {
+    val corner = if (isSquare) 12.dp else 26.dp
+    val shape = RoundedCornerShape(corner)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .shadow(
+                elevation = 22.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.48f),
+                spotColor = accentColor.copy(alpha = 0.16f)
+            )
+            .clip(shape)
+            .border(
+                width = 0.75.dp,
+                brush = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.34f),
+                        accentColor.copy(alpha = 0.18f),
+                        AppAccentSecondary.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.06f)
+                    )
+                ),
+                shape = shape
+            )
     ) {
         if (hasArtwork && coverArtUrl != null) {
             NetworkArtwork(artworkUrl = coverArtUrl, seed = seed, modifier = Modifier.fillMaxSize())
@@ -214,6 +228,85 @@ fun MainStageHeroCard(
                 Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.12f), Color.Black.copy(alpha = 0.42f)))
             )
         )
+        // Double-tap anywhere on the artwork to love this track — same truth as
+        // the heart controls, with a large center heart flash for feedback.
+        var heartFlashProgress by remember { mutableStateOf(0f) }
+        LaunchedEffect(isFavorite, onToggleFavorite) {
+            if (isFavorite) {
+                heartFlashProgress = 0f
+                animate(0f, 1f, animationSpec = tween(620)) { value, _ -> heartFlashProgress = value }
+            } else {
+                heartFlashProgress = 0f
+            }
+        }
+        if (heartFlashProgress > 0f) {
+            val flashScale = 0.6f + 0.7f * heartFlashProgress
+            val flashAlpha = (1f - heartFlashProgress).coerceIn(0f, 1f)
+            Icon(
+                imageVector = Icons.Filled.Favorite,
+                contentDescription = null,
+                tint = AppAccent.copy(alpha = flashAlpha * 0.92f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(120.dp)
+                    .graphicsLayer { scaleX = flashScale; scaleY = flashScale },
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(onToggleFavorite) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            android.util.Log.d("VANTA_UI_ACTION", "control='nowplaying_doubletap_like' result='${if (isFavorite) "unlike" else "like"}'")
+                            onToggleFavorite()
+                        }
+                    )
+                }
+        )
+        if (showQualityBadge && !qualityLabel.isNullOrBlank() && onQualityBadgeClick != null) {
+            when {
+                com.audiophile.musicplayer.ui.isDolbyAtmosLabel(qualityLabel) -> {
+                    com.audiophile.musicplayer.ui.DolbyAtmosTag(
+                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                        size = com.audiophile.musicplayer.ui.SpatialTagSize.Compact,
+                        onClick = onQualityBadgeClick
+                    )
+                }
+                com.audiophile.musicplayer.ui.isSony360Label(qualityLabel) -> {
+                    com.audiophile.musicplayer.ui.Sony360Tag(
+                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp),
+                        size = com.audiophile.musicplayer.ui.SpatialTagSize.Compact,
+                        onClick = onQualityBadgeClick
+                    )
+                }
+                else -> {
+                    Row(
+                        modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.62f))
+                            .border(0.5.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                            .clickable(onClick = onQualityBadgeClick)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(6.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF72DDF7))
+                        )
+                        androidx.compose.material3.Text(
+                            text = qualityLabel.uppercase(),
+                            color = Color.White.copy(alpha = 0.92f),
+                            fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp),
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            letterSpacing = 0.6.sp
+                        )
+                    }
+                }
+            }
+        }
         Row(
             modifier = Modifier.align(Alignment.TopEnd).padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -221,9 +314,14 @@ fun MainStageHeroCard(
             Icon(
                 imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                tint = if (isFavorite) AppAccent else Color.White.copy(alpha = 0.75f),
-                modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.28f))
-                    .clickable(onClick = onToggleFavorite).padding(9.dp)
+                tint = if (isFavorite) AppAccent else Color.White.copy(alpha = 0.84f),
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xB312141B))
+                    .border(0.75.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+                    .clickable(onClick = onToggleFavorite)
+                    .padding(9.dp)
             )
         }
     }

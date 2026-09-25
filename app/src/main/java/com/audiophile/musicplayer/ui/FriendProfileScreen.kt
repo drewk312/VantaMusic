@@ -176,6 +176,10 @@ private fun FriendProfileHeader(
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
+        val cleanName = remember(friend?.displayName) {
+            friend?.displayName?.replace('_', ' ')?.trim()?.ifBlank { "Friend" } ?: "Friend"
+        }
+
         Box(
             modifier = Modifier
                 .size(100.dp)
@@ -185,7 +189,7 @@ private fun FriendProfileHeader(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = friend?.avatarSeed?.take(2)?.uppercase() ?: "??",
+                text = (friend?.avatarSeed?.takeIf { it.isNotBlank() } ?: cleanName).take(2).uppercase(),
                 color = avatarColor,
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Bold
@@ -195,7 +199,7 @@ private fun FriendProfileHeader(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = friend?.displayName ?: "Unknown",
+            text = cleanName,
             color = AppText,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold

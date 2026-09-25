@@ -22,6 +22,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,34 +46,6 @@ import com.audiophile.musicplayer.data.source.SearchItemStatus
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 
-private fun resolveTrackReleaseYear(
-    track: UnifiedTrackWithSources,
-    albums: List<com.audiophile.musicplayer.data.local.entities.Album>
-): Int? {
-    val albumName = track.track.albumName
-    if (!albumName.isNullOrBlank()) {
-        val matchingAlbum = albums.find {
-            it.album_name.equals(albumName, ignoreCase = true) &&
-            it.artist_name.equals(track.track.artist, ignoreCase = true)
-        }
-        if (matchingAlbum?.release_year != null) {
-            return matchingAlbum.release_year
-        }
-        val yearRegex = Regex("""\b(19|20)\d{2}\b""")
-        val match = yearRegex.find(albumName)
-        if (match != null) {
-            return match.value.toIntOrNull()
-        }
-    }
-    val title = track.track.title
-    val yearRegex = Regex("""\b(19|20)\d{2}\b""")
-    val match = yearRegex.find(title)
-    if (match != null) {
-        return match.value.toIntOrNull()
-    }
-    return null
-}
-
 @Composable
 fun ArtistDetailScreen(
     artistName: String,
@@ -81,6 +57,7 @@ fun ArtistDetailScreen(
     onBack: () -> Unit,
     onPlayArtistRadio: () -> Unit,
     onShuffleTopSongs: () -> Unit,
+    onPlayArtist: () -> Unit = onPlayArtistRadio,
     onNavigateToAlbum: (albumName: String, artistName: String) -> Unit,
     onNavigateToTrackSheet: (track: UnifiedTrackWithSources) -> Unit,
     onPlayCatalogTrack: (CanonicalTrack) -> Unit = {},
@@ -89,352 +66,118 @@ fun ArtistDetailScreen(
     miniPlayerVisible: Boolean = false,
     bottomNavVisible: Boolean = false
 ) {
-    val confirmedPlayableTracks = tracks.filter { it.isConfirmedPlayable() }
-    val confirmedPlayableCount = confirmedPlayableTracks.size
-    val albumNames = tracks.map { it.track.albumName }.filterNotNull().distinct().take(10)
-    val catalogTracks = catalog?.tracks.orEmpty()
-    val allCatalogTracks = remember(catalogTracks, searchTracks) {
-        (catalogTracks + searchTracks).distinctBy { it.title.trim().lowercase() }
+    val allCatalogTracks = remember(catalog, searchTracks) {
+        com.audiophile.musicplayer.search.SearchPresentation.songs(catalog?.tracks.orEmpty() + searchTracks)
     }
-    val hasKnownSongs = tracks.isNotEmpty() || allCatalogTracks.isNotEmpty()
+    val artistAlbums = remember(catalog, allCatalogTracks) {
+        com.audiophile.musicplayer.search.SearchPresentation.albums(catalog?.albums.orEmpty(), allCatalogTracks,
+            com.audiophile.musicplayer.data.canonical.CanonicalArtist(name = artistName))
+    }
+    val localTracks = tracks.distinctBy { it.track.title.trim().lowercase() }
+    val hasSongs = allCatalogTracks.isNotEmpty() || localTracks.isNotEmpty()
+    var showAllAlbums by androidx.compose.runtime.saveable.rememberSaveable(artistName) { mutableStateOf(false) }
+    var showAllSongs by androidx.compose.runtime.saveable.rememberSaveable(artistName) { mutableStateOf(false) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(artistName) { listState.scrollToItem(0) }
 
-    val newestTrack = remember(tracks, albums) {
-        if (tracks.isEmpty()) null
-        else {
-            tracks.maxWithOrNull(
-                compareBy<UnifiedTrackWithSources> {
-                    resolveTrackReleaseYear(it, albums) ?: 0
-                }.thenBy { it.track.trackId }
-            )
+    Column(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding()
+        .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible, bottomNavVisible = bottomNavVisible))) {
+        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = AppText)
+            }
+            Text(artistName, color = AppText, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-    }
-
-    val dedupedTopTracks = remember(tracks, newestTrack) {
-        tracks
-            .filter { newestTrack == null || it.track.trackId != newestTrack.track.trackId }
-            .distinctBy { it.track.title.trim().lowercase() }
-            .sortedBy {
-                val s = it.sourceValidityStatus()
-                when (s) {
-                    SearchItemStatus.LOCAL_PLAYABLE,
-                    SearchItemStatus.VALIDATED_PLAYABLE,
-                    SearchItemStatus.PREVIEW,
-                    SearchItemStatus.DEMO_ONLY -> 0
-                    SearchItemStatus.SOURCE_FOUND -> 1
-                    else -> 2
+        LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds(),
+            verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "artist_header") {
+                Box(Modifier.fillMaxWidth().height(220.dp)) {
+                    NetworkArtwork(artworkUrl = catalog?.artist?.artworkUrl ?: allCatalogTracks.firstOrNull()?.artworkUrl,
+                        seed = artistName, modifier = Modifier.fillMaxSize())
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)))))
+                    Column(Modifier.align(Alignment.BottomStart).padding(24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("ARTIST", color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp,
+                            letterSpacing = 1.8.sp, fontWeight = FontWeight.Bold)
+                        Text(artistName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 32.sp,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
-            .take(10)
-    }
-
-    val actionsShown = when {
-        confirmedPlayableCount > 0 -> "StartRadio,Shuffle"
-        hasKnownSongs -> "StartRadio"
-        else -> "none"
-    }
-    val hiddenActions = if (hasKnownSongs) "none" else "StartRadio,Shuffle"
-
-    Log.w("VANTA_UI_TRUTH",
-        "screen=ArtistDetail " +
-        "title='$artistName' " +
-        "type=artist " +
-        "trackCount=${tracks.size} " +
-        "confirmedPlayableCount=$confirmedPlayableCount " +
-        "actionsShown=$actionsShown " +
-        "hiddenActions=$hiddenActions")
-
-    Log.w("VANTA_DETAIL_TRUTH",
-        "screen=artist " +
-        "artistName='$artistName' " +
-        "trackCount=${tracks.size} " +
-        "playableCount=$confirmedPlayableCount " +
-        "albumCount=${albumNames.size} " +
-        "actionsShown=$actionsShown")
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground)
-            .statusBarsPadding()
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible, bottomNavVisible = bottomNavVisible))
-        ) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp),
-                    contentAlignment = Alignment.BottomStart
-                ) {
-                    NetworkArtwork(
-                        artworkUrl = catalog?.artist?.artworkUrl ?: catalogTracks.firstOrNull()?.artworkUrl,
-                        seed = artistName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.55f),
-                                        Color.Black.copy(alpha = 0.88f)
-                                    )
-                                )
-                            )
-                    )
-
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(16.dp)
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .clickable(onClick = onBack)
-                            .padding(4.dp)
-                    )
-
-                    Column(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)
-                    ) {
-                        Text(
-                            text = DisplayMetadataCleaner.cleanDisplayName(artistName).ifBlank { artistName },
-                            color = Color.White,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (hasKnownSongs) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(
-                                    onClick = onPlayArtistRadio,
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.PlayArrow,
-                                        contentDescription = null,
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        "Start Radio",
-                                        color = Color.Black,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 15.sp
-                                    )
-                                }
-                                if (confirmedPlayableCount > 0) {
-                                    Button(
-                                        onClick = onShuffleTopSongs,
-                                        shape = RoundedCornerShape(24.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = Color.White.copy(alpha = 0.14f)
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Shuffle,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            "Shuffle",
-                                            color = Color.White,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 15.sp
-                                        )
-                                    }
-                                }
+            if (hasSongs) item(key = "artist_actions") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = onPlayArtist, modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppAccent, contentColor = AppBackground)) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Play")
+                    }
+                    androidx.compose.material3.OutlinedButton(onClick = onShuffleTopSongs, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.Shuffle, contentDescription = null, tint = AppAccent, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Shuffle", color = AppAccent)
+                    }
+                    androidx.compose.material3.IconButton(onClick = onPlayArtistRadio) {
+                        Icon(Icons.Filled.Radio, contentDescription = "Artist radio", tint = AppAccent)
+                    }
+                }
+            }
+            if (catalogLoading && !hasSongs) item {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = AppAccent)
+                }
+            }
+            if (artistAlbums.isNotEmpty()) {
+                item(key = "album_heading") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("Albums & singles", color = AppText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Text("${artistAlbums.size} releases", color = AppTextSecondary, fontSize = 12.sp)
+                        }
+                        androidx.compose.material3.TextButton(onClick = { showAllAlbums = !showAllAlbums }) {
+                            Text(if (showAllAlbums) "Show less" else "See all", color = AppAccent)
+                        }
+                    }
+                }
+                if (showAllAlbums) {
+                    itemsIndexed(artistAlbums.chunked(2), key = { rowIndex, _ -> "album_row_$rowIndex" }) { _, row ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            row.forEach { album ->
+                                CatalogAlbumCard(album, onTap = { onNavigateToAlbum(album.title, artistName) })
                             }
+                        }
+                    }
+                } else item(key = "album_shelf") {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        itemsIndexed(artistAlbums.take(6), key = { index, album -> "${album.id ?: album.title}_${album.artist}_$index" }) { _, album ->
+                            CatalogAlbumCard(album, onTap = { onNavigateToAlbum(album.title, artistName) })
                         }
                     }
                 }
             }
-
-            if (catalogLoading && !hasKnownSongs) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = AppAccent, modifier = Modifier.size(30.dp))
-                    }
-                }
-            } else if (!hasKnownSongs) {
-                item {
-                    VantaEmptyState(
-                        title = "Artist Catalog Unavailable",
-                        description = "Artist metadata could not be loaded. Check your connection and try again.",
-                        icon = Icons.Filled.Person,
-                        actionLabel = "Find Matches",
-                        onAction = onPlayArtistRadio
-                    )
-                }
-            }
-
-            if (newestTrack != null) {
-                item {
-                    val resolvedYear = remember(newestTrack, albums) { resolveTrackReleaseYear(newestTrack, albums) }
-                    val display = remember(newestTrack.track) { TrackDisplayResolver.resolve(newestTrack.track) }
-                    val status = newestTrack.sourceValidityStatus()
-                    val qualityLabel = remember(newestTrack.sources, status) {
-                        VantaQualityInfo.fromTrackSource(
-                            source = newestTrack.sources.maxByOrNull { it.bitrate },
-                            status = status
-                        )?.bestQualityLabel()
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "LATEST RELEASE" + (if (resolvedYear != null) " • $resolvedYear" else ""),
-                            color = AppAccent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(AppSurface.copy(alpha = 0.45f))
-                                .border(0.5.dp, AppOutline.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-                                .clickable { onNavigateToTrackSheet(newestTrack) }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(0.5.dp, AppAccent.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                            ) {
-                                NetworkArtwork(
-                                    artworkUrl = display.artworkUrl,
-                                    seed = display.title,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        text = display.title,
-                                        color = AppText,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (display.explicit == true) VantaExplicitBadge()
-                                }
-                                Text(
-                                    text = display.album ?: display.artist,
-                                    color = AppTextSecondary,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                VantaQualityBadge(qualityLabel)
-                            }
-                            // Add to Queue button
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(AppAccent.copy(alpha = 0.12f))
-                                    .border(0.5.dp, AppAccent.copy(alpha = 0.24f), RoundedCornerShape(12.dp))
-                                    .clickable { 
-                                        Log.d("VANTA_DETAIL_ACTION", "action='add_newest_to_queue' trackId=${newestTrack.track.trackId}")
-                                        onAddToQueue(newestTrack)
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text("+ Queue", color = AppAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+            if (hasSongs) {
+                item(key = "song_heading") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(if (showAllSongs) "All songs" else "Top songs", color = AppText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        if (maxOf(allCatalogTracks.size, localTracks.size) > 5) androidx.compose.material3.TextButton(onClick = { showAllSongs = !showAllSongs }) {
+                            Text(if (showAllSongs) "Show less" else "See all", color = AppAccent)
                         }
                     }
                 }
-            }
-
-            if (dedupedTopTracks.isNotEmpty()) {
-                if (allCatalogTracks.isEmpty()) {
-                item {
-                    VantaSectionHeader("Top Songs", modifier = Modifier.padding(horizontal = 24.dp))
-                }
-                itemsIndexed(dedupedTopTracks) { i, track ->
-                    TrackRow(
-                        track = track,
-                        onTap = { onNavigateToTrackSheet(track) },
-                        showIndex = true,
-                        index = i + 1,
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                }
-                }
-            }
-
-            if (allCatalogTracks.isNotEmpty()) {
-                item {
-                    VantaSectionHeader("Songs", modifier = Modifier.padding(horizontal = 24.dp))
-                }
-                itemsIndexed(allCatalogTracks, key = { _, track -> track.isrc ?: "${track.title}|${track.album}" }) { i, track ->
-                    CatalogTrackRow(
-                        track = track,
-                        index = i + 1,
-                        onTap = { onPlayCatalogTrack(track) },
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                }
-            }
-
-            if (catalog?.albums?.isNotEmpty() == true) {
-                item {
-                    VantaSectionHeader("Albums", modifier = Modifier.padding(horizontal = 24.dp))
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(catalog.albums, key = { it.title }) { album ->
-                            CatalogAlbumCard(album = album, onTap = { onNavigateToAlbum(album.title, artistName) })
-                        }
+                if (allCatalogTracks.isNotEmpty()) {
+                    itemsIndexed(if (showAllSongs) allCatalogTracks else allCatalogTracks.take(5), key = { index, track -> "catalog_${track.externalTrackId ?: track.title}_$index" }) { index, track ->
+                        CatalogTrackRow(track, index + 1, onTap = { onPlayCatalogTrack(track) },
+                            onAlbumTap = { track.album?.let { onNavigateToAlbum(it, artistName) } },
+                            modifier = Modifier.padding(horizontal = 24.dp))
+                    }
+                } else {
+                    itemsIndexed(if (showAllSongs) localTracks else localTracks.take(5), key = { index, track -> "local_${track.track.trackId}_$index" }) { _, track ->
+                        TrackRow(track, onTap = { onNavigateToTrackSheet(track) }, modifier = Modifier.padding(horizontal = 24.dp))
                     }
                 }
-            } else if (albumNames.isNotEmpty()) {
-                item {
-                    VantaSectionHeader("Albums", modifier = Modifier.padding(horizontal = 24.dp))
-                }
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(albumNames) { album ->
-                            AlbumCard(album, onNavigateToAlbum)
-                        }
-                    }
-                }
+            } else if (!catalogLoading) item(key = "empty_artist_state") {
+                VantaEmptyState(title = "Could not load this artist", description = "Try again when your connection is available.",
+                    icon = Icons.Filled.Person, actionLabel = "Find music", onAction = onPlayArtistRadio)
             }
         }
     }
@@ -445,21 +188,21 @@ private fun CatalogTrackRow(
     track: CanonicalTrack,
     index: Int,
     onTap: () -> Unit,
+    onAlbumTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val (displayTitle, displayArtist) = remember(track) {
         DisplayMetadataCleaner.computeDisplayTitleArtist(track.title, track.artist)
     }
     Row(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onTap).padding(vertical = 12.dp),
+        modifier = modifier.fillMaxWidth().clickable(onClick = onTap).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("$index", color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.width(24.dp))
         NetworkArtwork(
             artworkUrl = track.artworkUrl,
             seed = displayTitle,
-            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp))
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onAlbumTap)
         )
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -467,7 +210,8 @@ private fun CatalogTrackRow(
                 if (track.explicit == true) VantaExplicitBadge()
             }
             Text(
-                listOfNotNull(track.album?.let { DisplayMetadataCleaner.cleanDisplayName(it).ifBlank { it } }, track.releaseYear?.toString()).joinToString(" • ").ifBlank { displayArtist },
+                track.album?.takeUnless { it.equals(track.title, ignoreCase = true) }
+                    ?.let { DisplayMetadataCleaner.cleanDisplayName(it).ifBlank { it } } ?: displayArtist,
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 14.sp,
                 maxLines = 1,
@@ -483,11 +227,11 @@ private fun CatalogAlbumCard(
     album: com.audiophile.musicplayer.data.canonical.CanonicalAlbum,
     onTap: () -> Unit
 ) {
-    Column(modifier = Modifier.width(160.dp).clickable(onClick = onTap)) {
+    Column(modifier = Modifier.width(138.dp).clickable(onClick = onTap)) {
         NetworkArtwork(
             artworkUrl = album.artworkUrl,
             seed = album.title,
-            modifier = Modifier.size(160.dp).clip(RoundedCornerShape(12.dp))
+            modifier = Modifier.size(138.dp).clip(RoundedCornerShape(12.dp))
         )
         Spacer(Modifier.height(8.dp))
         Text(DisplayMetadataCleaner.cleanDisplayName(album.title).ifBlank { album.title }, color = AppText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 class QobuzGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
         val id = trackId.removePrefix("qobuz:").trim()
         val jobs = buildList {
             if (SpotiFlacEndpoints.QOBUZ_WJHE_STREAM_API_URL.isNotBlank()) {
@@ -39,22 +40,32 @@ class QobuzGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSo
                 })
             }
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
-            ?: withContext(Dispatchers.IO) { super.resolveStream(trackId) }
+        GatewayStreamResolver.firstReadyStream(jobs)
     }
 }
 
 class TidalGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
-        val tidalId = when {
-            trackId.startsWith("tidal:", ignoreCase = true) -> trackId.removePrefix("tidal:").trim()
-            else -> GatewayStreamResolver.resolveTidalTrackIdFromQobuz(trackId.removePrefix("qobuz:").trim())
-                ?: trackId.removePrefix("qobuz:").trim()
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
+        val mappedTidalId = if (trackId.startsWith("tidal:", ignoreCase = true)) {
+            null
+        } else {
+            GatewayStreamResolver.resolveTidalTrackIdFromQobuz(trackId.removePrefix("qobuz:").trim())
         }
+        val tidalId = tidalIdForTidalProvider(trackId, mappedTidalId) ?: return@coroutineScope null
+        android.util.Log.d(
+            "VANTA_TIDAL_ATMOS",
+            "resolveStream trackId=$trackId tidalId=$tidalId " +
+            "quality=${com.audiophile.musicplayer.data.source.external.SpotiFlacEndpoints.PREFERRED_STREAM_QUALITY}"
+        )
         val jobs = buildList {
             config.streamEndpointUrl?.let { endpoint ->
                 add(async(Dispatchers.IO) {
+                    android.util.Log.d(
+                        "VANTA_TIDAL_ATMOS",
+                        "Strategy A: community POST endpoint=${endpoint.take(80)} tidalId=$tidalId"
+                    )
                     GatewayStreamResolver.resolveCommunityStream(
                         this@TidalGatewayMusicSourceProvider,
                         endpoint,
@@ -64,6 +75,10 @@ class TidalGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSo
                 })
             }
             add(async(Dispatchers.IO) {
+                android.util.Log.d(
+                    "VANTA_TIDAL_ATMOS",
+                    "Strategy B: addon GET tidalId=$tidalId baseUrl=$catalogBaseUrl"
+                )
                 GatewayStreamResolver.resolveGetUrlsParallel(
                     this@TidalGatewayMusicSourceProvider,
                     SpotiFlacEndpoints.buildAddonStreamUrls(catalogBaseUrl, tidalId, preferTidal = true),
@@ -71,14 +86,19 @@ class TidalGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSo
                 )
             })
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
-            ?: withContext(Dispatchers.IO) { super.resolveStream(trackId) }
+        val result = GatewayStreamResolver.firstReadyStream(jobs)
+        android.util.Log.d(
+            "VANTA_TIDAL_ATMOS",
+            "resolveStream RESULT: ${if (result != null) "SUCCESS url=${result.streamUrl.take(120)}... isAtmos=${result.isDolbyAtmos}" else "FAILED"}"
+        )
+        result
     }
 }
 
 class PandoraGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
         val id = trackId.removePrefix("pandora:").trim()
         val jobs = buildList {
             config.streamEndpointUrl?.let { endpoint ->
@@ -99,14 +119,14 @@ class PandoraGatewayMusicSourceProvider(config: ExternalSourceConfig) : External
                 )
             })
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
-            ?: withContext(Dispatchers.IO) { super.resolveStream(trackId) }
+        GatewayStreamResolver.firstReadyStream(jobs)
     }
 }
 
 class AmazonGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
         val id = trackId.removePrefix("amazon:").trim()
         val jobs = buildList {
             config.streamEndpointUrl?.let { endpoint ->
@@ -127,14 +147,14 @@ class AmazonGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalS
                 )
             })
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
-            ?: withContext(Dispatchers.IO) { super.resolveStream(trackId) }
+        GatewayStreamResolver.firstReadyStream(jobs)
     }
 }
 
 class AddonGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
         val endpoint = config.streamEndpointUrl?.takeIf { it.isNotBlank() }
             ?: SpotiFlacEndpoints.gatewayStreamEndpoint(config.baseUrl)
         val attempts = GatewayStreamResolver.buildStreamAttempts(trackId)
@@ -161,13 +181,14 @@ class AddonGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSo
                 )
             })
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
+        GatewayStreamResolver.firstReadyStream(jobs)
     }
 }
 
 class DeezerGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalSourceProvider(config) {
     override suspend fun resolveStream(trackId: String): ResolvedStream? = coroutineScope {
         if (!config.enabled) return@coroutineScope null
+        withContext(Dispatchers.IO) { super.resolveStream(trackId) }?.let { return@coroutineScope it }
         val endpoint = config.streamEndpointUrl ?: return@coroutineScope null
         val attempts = GatewayStreamResolver.buildStreamAttempts(trackId)
         val id = trackId.removePrefix("deezer:").trim()
@@ -197,8 +218,7 @@ class DeezerGatewayMusicSourceProvider(config: ExternalSourceConfig) : ExternalS
                 )
             })
         }
-        jobs.mapNotNull { runCatching { it.await() }.getOrNull() }.maxByOrNull { it.bitrateKbps }
-            ?: withContext(Dispatchers.IO) { super.resolveStream(trackId) }
+        GatewayStreamResolver.firstReadyStream(jobs)
     }
 }
 

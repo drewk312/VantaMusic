@@ -3,6 +3,7 @@ package com.audiophile.musicplayer.data.repository
 import android.util.Log
 import com.audiophile.musicplayer.data.local.dao.TrackDao
 import com.audiophile.musicplayer.data.source.ContentPurityFilter
+import com.audiophile.musicplayer.data.source.isMusicContentAllowed
 import com.audiophile.musicplayer.data.source.SelectedRecordingIdentity
 import com.audiophile.musicplayer.data.source.SourceRegistry
 import com.audiophile.musicplayer.data.source.SourceIdentityGate
@@ -64,6 +65,10 @@ class TrackRepository(private val trackDao: TrackDao) {
         externalTrackId: String? = null,
         expiresAtMs: Long? = null
     ): Long = withContext(Dispatchers.IO) {
+        if (ContentPurityFilter.isClearlyNonMusicContent(title, artist, album, durationMs)) {
+            Log.w("VANTA_DB_TRUTH", "blocked_non_music_ingest title='$title' artist='$artist'")
+            return@withContext -1L
+        }
         val normalizedExpiresAtMs = normalizeSourceExpiry(streamUrl, expiresAtMs, externalProviderId)
         trackDao.findSourceByStreamUrl(streamUrl)?.let { existingSource ->
             trackDao.updateTrackMetadataIfMissing(
@@ -241,7 +246,9 @@ class TrackRepository(private val trackDao: TrackDao) {
     }
 
     suspend fun getRecentlyPlayed(limit: Int = 20): List<UnifiedTrackWithSources> = withContext(Dispatchers.IO) {
-        trackDao.getRecentlyPlayedWithSources(limit)
+        trackDao.getRecentlyPlayedWithSources(limit.coerceAtLeast(20) * 3)
+            .filter { it.isMusicContentAllowed() }
+            .take(limit)
     }
 
     suspend fun getRecentTrackIds(limit: Int = 10): List<Long> = withContext(Dispatchers.IO) {
@@ -252,7 +259,7 @@ class TrackRepository(private val trackDao: TrackDao) {
      * Retrieves all deduplicated tracks with their sources.
      */
     suspend fun getAllTracks(): List<UnifiedTrackWithSources> = withContext(Dispatchers.IO) {
-        trackDao.getAllTracksWithSources()
+        trackDao.getAllTracksWithSources().filter { it.isMusicContentAllowed() }
     }
 
     suspend fun getTrackCount(): Int = withContext(Dispatchers.IO) {
@@ -265,7 +272,9 @@ class TrackRepository(private val trackDao: TrackDao) {
 
     suspend fun searchLibrary(query: String, limit: Int = 25): List<UnifiedTrackWithSources> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        trackDao.searchTracksWithSources(query.trim(), limit)
+        trackDao.searchTracksWithSources(query.trim(), limit.coerceAtLeast(25) * 2)
+            .filter { it.isMusicContentAllowed() }
+            .take(limit)
     }
 
     suspend fun getTrackWithSources(trackId: Long): UnifiedTrackWithSources? = withContext(Dispatchers.IO) {

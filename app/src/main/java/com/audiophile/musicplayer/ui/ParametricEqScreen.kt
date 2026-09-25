@@ -2,7 +2,8 @@
 
 package com.audiophile.musicplayer.ui
 
-import android.content.Intent
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.audiophile.musicplayer.playback.PlaybackCommandAuth
 import com.audiophile.musicplayer.playback.PlaybackService
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerConfig
 import com.audiophile.musicplayer.playback.dsp.VantaEqualizerHolder
@@ -81,11 +83,6 @@ fun ParametricEqScreen(
     val eqPrefs = remember(context) { VantaEqualizerPreferences(context) }
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(Unit) {
-        if (VantaEqualizerHolder.processor == null) {
-            context.startForegroundService(Intent(context, PlaybackService::class.java))
-        }
-    }
 
     var initialConfig = remember { eqPrefs.load() }
     var eqEnabled by remember { mutableStateOf(initialConfig.eqEnabled) }
@@ -132,18 +129,11 @@ fun ParametricEqScreen(
     }
 
     fun pushConfig() {
-        val processor = VantaEqualizerHolder.processor ?: return
-        val appliedBands = bandGains.toMutableList()
-        if (trebleEnabled) {
-            val trebleCurve = listOf(0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,0f,1f,2f,3f,4f,5f,6f,6f,6f,6f,6f,6f)
-            for (i in trebleCurve.indices) {
-                appliedBands[i] = (appliedBands[i] + trebleCurve[i] * trebleBoostAmount)
-                    .coerceIn(-12f, 12f)
-            }
-        }
-        val config = VantaEqualizerConfig(
+        val processor = VantaEqualizerHolder.processor
+        val config = initialConfig.copy(
             eqEnabled = eqEnabled,
-            eqBands = appliedBands,
+            eqBypassEnabled = false,
+            eqBands = bandGains.toList(),
             spatialEnabled = spatialEnabled,
             stereoWidenLevel = if (spatialEnabled) 0.5f else 0f,
             crossfeedEnabled = crossfeedEnabled,
@@ -160,9 +150,9 @@ fun ParametricEqScreen(
             limiterEnabled = limiterEnabled,
             preset = currentPreset,
         )
-        processor.config = config
-        processor.forceApply()
         eqPrefs.save(config)
+        processor?.let { it.config = config; it.forceApply() }
+        context.startService(PlaybackCommandAuth.createIntent(context, PlaybackService.ACTION_REFRESH_IMMERSIVE_AUDIO))
     }
 
     fun applyPreset(preset: VantaEqualizerPreset) {
@@ -191,11 +181,12 @@ fun ParametricEqScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible))
             .background(eqBackground)
             .verticalScroll(scrollState)
             .padding(top = appTopContentPadding())
             .padding(horizontal = VantaSpacing.screenHorizontal)
-            .padding(bottom = appOverlayBottomPadding(miniPlayerVisible = miniPlayerVisible)),
+            .padding(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(
@@ -203,21 +194,36 @@ fun ParametricEqScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onBack) { Text("‹  Library", color = AppText, fontWeight = FontWeight.SemiBold) }
+            TextButton(onClick = onBack) { Text("‹  Back", color = AppText, fontWeight = FontWeight.SemiBold) }
             Text("AUDIO ENGINE", color = AppTextMuted, fontSize = 11.sp, letterSpacing = 1.6.sp)
         }
 
-        Text("Vanta Equalizer", color = AppText, fontWeight = FontWeight.Bold, fontSize = 28.sp)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Equalizer", color = AppText, fontWeight = FontWeight.Bold, fontSize = 28.sp)
+            TextButton(onClick = {
+                initialConfig = VantaEqualizerConfig()
+                eqEnabled = false; spatialEnabled = false; tubeEnabled = false
+                bassCannonEnabled = false; trebleEnabled = false; convolverEnabled = false
+                crossfeedEnabled = false; reverbEnabled = false; limiterEnabled = true
+                tubeDrive = 0.5f; bassCannonAmount = 0.5f; trebleBoostAmount = 0.5f
+                currentPreset = VantaEqualizerPreset.FLAT
+                bandGains.clear(); bandGains.addAll(initialConfig.eqBands)
+                pushConfig(); uiTick++
+            }) { Text("Reset sound", color = AppTextSecondary) }
+        }
 
         if (VantaEqualizerHolder.processor == null) {
             Box(Modifier.fillMaxWidth().padding(24.dp)) {
                 Text(
-                    "Audio engine warming up.\nStart playback to enable DSP.",
+                    "Your settings are saved. Start playback to hear your changes.",
                     color = AppTextSecondary, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            return@Column
         }
 
         Row(
@@ -226,10 +232,11 @@ fun ParametricEqScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("MASTER BYPASS", color = accentColor, fontSize = 11.sp, letterSpacing = 1.sp)
+                Text("EQUALIZER", color = accentColor, fontSize = 11.sp, letterSpacing = 1.sp)
                 Text("31-band precision EQ", color = AppTextSecondary, fontSize = 11.sp)
             }
             Switch(
+                modifier = Modifier.semantics { contentDescription = "Enable equalizer" },
                 checked = eqEnabled,
                 onCheckedChange = { eqEnabled = it; pushConfig(); uiTick++ },
                 colors = eqSwitchColors,
@@ -246,12 +253,14 @@ fun ParametricEqScreen(
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(bandGains.toList()) {
+                    .pointerInput(Unit) {
                         detectDragGestures { change, _ ->
                             val bandIndex = ((change.position.x / size.width) * bandGains.size)
                                 .toInt().coerceIn(0, bandGains.size - 1)
                             val newGain = ((1f - change.position.y / size.height) * 24f - 12f)
                                 .roundToInt().toFloat().coerceIn(-12f, 12f)
+                            change.consume()
+                            eqEnabled = true
                             bandGains[bandIndex] = newGain
                             pushConfig()
                             uiTick++
@@ -418,14 +427,6 @@ fun ParametricEqScreen(
 
         Box(Modifier.fillMaxWidth().background(surfaceColor, RoundedCornerShape(16.dp)).padding(16.dp)) {
             Column {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Convolver", color = AppText, fontSize = 13.sp)
-                        Text("IR-based spatial convolution", color = AppTextSecondary, fontSize = 11.sp)
-                    }
-                    Switch(checked = convolverEnabled, onCheckedChange = { convolverEnabled = it; pushConfig() }, colors = eqSwitchColors)
-                }
-                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("Output Limiter", color = AppText, fontSize = 13.sp)

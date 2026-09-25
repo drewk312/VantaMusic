@@ -62,14 +62,16 @@ class FriendActivityLocalSource(context: Context) {
 
     private fun loadFriends(): List<VantaFriend> {
         val raw = prefs.getString(KEY_FRIENDS, null) ?: return emptyList()
-        return runCatching {
+        val parsed = runCatching {
             val array = JSONArray(raw)
             List(array.length()) { index ->
                 val obj = array.getJSONObject(index)
+                val rawName = obj.getString("displayName")
+                val cleanName = rawName.replace("_", " ").trim()
                 VantaFriend(
                     id = obj.getString("id"),
-                    displayName = obj.getString("displayName"),
-                    avatarSeed = obj.optString("avatarSeed", obj.getString("displayName")),
+                    displayName = cleanName.ifBlank { "Friend" },
+                    avatarSeed = obj.optString("avatarSeed", cleanName).ifBlank { "FR" },
                     friendCode = obj.optString("friendCode").takeIf { it.isNotBlank() },
                     privacy = runCatching {
                         FriendPrivacy.valueOf(obj.optString("privacy", FriendPrivacy.SHARE_ALL.name))
@@ -82,6 +84,13 @@ class FriendActivityLocalSource(context: Context) {
                 )
             }
         }.getOrDefault(emptyList())
+
+        // Purge dummy curator friend — the user IS the curator
+        val filtered = parsed.filterNot { it.id.contains("curator", ignoreCase = true) || it.displayName.contains("curator", ignoreCase = true) }
+        if (filtered.size != parsed.size) {
+            saveFriends(filtered)
+        }
+        return filtered
     }
 
     private fun saveFriends(friends: List<VantaFriend>) {
@@ -171,9 +180,11 @@ class FriendActivityLocalSource(context: Context) {
             val array = JSONArray(raw)
             List(array.length()) { index ->
                 val obj = array.getJSONObject(index)
+                val rawName = obj.getString("friendDisplayName")
+                val cleanName = rawName.replace("_", " ").trim()
                 FriendListeningEvent(
                     friendId = obj.getString("friendId"),
-                    friendDisplayName = obj.getString("friendDisplayName"),
+                    friendDisplayName = cleanName.ifBlank { "Friend" },
                     trackId = obj.getString("trackId"),
                     title = obj.getString("title"),
                     artist = obj.getString("artist"),
@@ -186,7 +197,18 @@ class FriendActivityLocalSource(context: Context) {
                 )
             }
         }.getOrDefault(emptyList())
-        return FriendFeed(friends, events, System.currentTimeMillis())
+
+        // Purge dummy curator events — the user IS the curator
+        val filteredEvents = events.filterNot {
+            it.friendId.contains("curator", ignoreCase = true) ||
+                it.friendDisplayName.contains("curator", ignoreCase = true)
+        }
+        if (filteredEvents.size != events.size) {
+            val feedToSave = FriendFeed(friends, filteredEvents, System.currentTimeMillis())
+            saveFeed(feedToSave)
+        }
+
+        return FriendFeed(friends, filteredEvents, System.currentTimeMillis())
     }
 
     private fun sortFriends(friends: List<VantaFriend>): List<VantaFriend> =

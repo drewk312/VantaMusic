@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.util.Log
+import com.audiophile.musicplayer.common.VantaLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
@@ -121,6 +122,9 @@ class UpnpCastingManager(
             } finally {
                 isDiscovering = false
                 releaseMulticastLock()
+                if (_castingState.value is CastingState.Discovering) {
+                    _castingState.value = CastingState.Idle
+                }
             }
         }
     }
@@ -146,7 +150,7 @@ class UpnpCastingManager(
      * SOAP AVTransport: SetAVTransportURI + Play.
      */
     fun castToDevice(device: UpnpDevice, streamUrl: String, metadata: String = "") {
-        Log.d(TAG, "Casting to ${device.friendlyName}: $streamUrl")
+        Log.d(TAG, "Casting to ${device.friendlyName}: host=${VantaLogger.urlHost(streamUrl)}")
         connectToDevice(device)
 
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -170,7 +174,7 @@ class UpnpCastingManager(
                           <s:Body>
                             <u:SetAVTransportURI xmlns:u="$XML_NAMESPACE_AVT">
                               <InstanceID>0</InstanceID>
-                              <CurrentURI>$streamUrl</CurrentURI>
+                              <CurrentURI>${streamUrl.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</CurrentURI>
                               <CurrentURIMetaData><![CDATA[$didlLite]]></CurrentURIMetaData>
                             </u:SetAVTransportURI>
                           </s:Body>
@@ -318,7 +322,10 @@ class UpnpCastingManager(
                             Log.d(TAG, "Found Media Renderer: location=$location st=$st usn=$usn")
                             // Fetch device description to get friendly name and AVTransport URL
                             val device = fetchDeviceDescription(location, udn)
-                            if (device != null) {
+                            if (device != null &&
+                                device.ipAddress != localIp.hostAddress &&
+                                devices.none { it.ipAddress == device.ipAddress && it.friendlyName.equals(device.friendlyName, ignoreCase = true) }
+                            ) {
                                 devices.add(device)
                             }
                         }
@@ -360,7 +367,7 @@ MX: 3
 ST: $SSDP_SEARCH_TARGET
 USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
 
-        """.trimIndent().replace("\n", "\r\n")
+        """.trimIndent().trimEnd().replace("\n", "\r\n") + "\r\n\r\n"
     }
 
     private fun parseSsdpHeader(response: String, header: String): String? {
@@ -376,15 +383,9 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
     private fun fetchDeviceDescription(location: String, udn: String): UpnpDevice? {
         return try {
             val url = URL(location)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = SOAP_TIMEOUT_MS
-            connection.readTimeout = SOAP_TIMEOUT_MS
-            connection.requestMethod = "GET"
-
-            val xml = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            connection.disconnect()
-
-            parseDeviceXml(xml, url, udn)
+            val response = UpnpLocalHttp.request(url)
+            if (response.status !in 200..299) return null
+            parseDeviceXml(response.body, url, udn)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch device description from $location: ${e.message}")
             null
@@ -405,10 +406,12 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
             var currentServiceType = ""
             var currentControlUrl = ""
             var eventDepth = 0
+            var elementName = ""
 
             while (parser.eventType != XmlPullParser.END_DOCUMENT) {
                 when (parser.eventType) {
                     XmlPullParser.START_TAG -> {
+                        elementName = parser.name
                         when (parser.name) {
                             "device" -> insideDevice = true
                             "service" -> if (insideDevice) {
@@ -421,11 +424,11 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
                     }
                     XmlPullParser.TEXT -> {
                         val text = parser.text?.trim() ?: ""
-                        if (insideDevice && !insideService && parser.name == "friendlyName") {
+                        if (insideDevice && !insideService && elementName == "friendlyName" && text.isNotBlank()) {
                             friendlyName = text.ifBlank { "Unknown" }
                         }
-                        if (insideService) {
-                            when (parser.name) {
+                        if (insideService && text.isNotBlank()) {
+                            when (elementName) {
                                 "serviceType" -> currentServiceType = text
                                 "controlURL" -> currentControlUrl = text
                             }
@@ -470,14 +473,7 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
 
     private fun resolveUrl(baseUrl: URL, controlUrl: String): String? {
         if (controlUrl.isBlank()) return null
-        return if (controlUrl.startsWith("http")) {
-            controlUrl
-        } else if (controlUrl.startsWith("/")) {
-            "${baseUrl.protocol}://${baseUrl.host}:${baseUrl.port}$controlUrl"
-        } else {
-            val base = baseUrl.toString().substringBeforeLast("/")
-            "$base/$controlUrl"
-        }
+        return runCatching { URL(baseUrl, controlUrl).takeIf { it.host == baseUrl.host }?.toString() }.getOrNull()
     }
 
     // ---------------------------------------------------------------
@@ -492,25 +488,9 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
     ): Boolean {
         return try {
             val url = URL(controlUrl)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.connectTimeout = SOAP_TIMEOUT_MS
-            connection.readTimeout = SOAP_TIMEOUT_MS
-            connection.setRequestProperty("Content-Type", "text/xml; charset=utf-8")
-            connection.setRequestProperty("SOAPAction", "\"urn:schemas-upnp-org:service:$serviceType:1#$action\"")
-
-            val outputBytes = body.toByteArray(Charsets.UTF_8)
-            connection.setRequestProperty("Content-Length", outputBytes.size.toString())
-            connection.outputStream.buffered().use { it.write(outputBytes); it.flush() }
-
-            val responseCode = connection.responseCode
-            val responseBody = if (responseCode in 200..299) {
-                connection.inputStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-            } else {
-                connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-            }
-            connection.disconnect()
+            val response = UpnpLocalHttp.request(url, body, "urn:schemas-upnp-org:service:$serviceType:1#$action")
+            val responseCode = response.status
+            val responseBody = response.body
 
             if (responseCode in 200..299) {
                 Log.d(TAG, "SOAP $action success on $serviceType (HTTP $responseCode)")
@@ -519,7 +499,7 @@ USER-AGENT: VANTA/1.0 UPnP/1.0 Android/$uuid
                 Log.w(TAG, "SOAP $action failed on $serviceType: HTTP $responseCode — $responseBody")
                 false
             }
-        } catch (e: java.io.IOException) {
+        } catch (e: Exception) {
             Log.e(TAG, "SOAP $action error: ${e.message}")
             false
         }

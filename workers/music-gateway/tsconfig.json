@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
     "lib": [
       "ES2022"
     ],
@@ -17,6 +18,7 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "worker-configuration.d.ts"
   ]
 }

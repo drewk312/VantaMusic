@@ -44,26 +44,34 @@ enum class CollectionType { ALBUM, PLAYLIST }
  *
  * Supported inputs:
  *  - Apple Music album URLs  → iTunes lookup with entity=song
+ *  - Apple Music playlist    → VANTA music-gateway (no user token)
  *  - Pandora album/playlist  → slug-based artist+album search on iTunes
  *  - Spotify album           → Songlink entity lookup
+ *  - Spotify playlist        → VANTA music-gateway (no user token)
  */
 class CollectionResolver(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(18, TimeUnit.SECONDS)
+        .addInterceptor(com.audiophile.musicplayer.playback.GatewayApiKeyInterceptor)
         .build(),
-    private val itunesClient: ITunesSearchApiClient = ITunesSearchApiClient()
+    private val itunesClient: ITunesSearchApiClient = ITunesSearchApiClient(),
+    private val gatewayBaseUrl: String = "https://vanta-music-gateway.16drewk.workers.dev",
 ) {
 
     suspend fun resolve(url: String): CollectionResult? = withContext(Dispatchers.IO) {
         val platform = platformName(url) ?: return@withContext null
         return@withContext when (platform) {
             "Apple Music" -> {
-                // albums via iTunes lookup; playlists via Songlink metadata
-                resolveAppleMusicAlbum(url) ?: resolveAppleMusicPlaylist(url)
+                resolveAppleMusicAlbum(url)
+                    ?: resolveAppleMusicPlaylistViaGateway(url)
+                    ?: resolveAppleMusicPlaylist(url)
             }
             "Pandora"     -> resolvePandoraCollection(url)
-            "Spotify"     -> resolveSpotifyAlbumViaSonglink(url)
+            "Spotify"     -> {
+                resolveSpotifyPlaylistViaGateway(url)
+                    ?: resolveSpotifyAlbumViaSonglink(url)
+            }
             "Tidal"       -> null
             "Deezer"      -> resolveDeezerAlbum(url)
             else          -> null
@@ -117,7 +125,7 @@ class CollectionResolver(
             ?.replace('-', ' ')?.replace('_', ' ')
             ?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }
             ?: return null
-        Log.d("VANTA_COLLECTION", "Apple playlist name='$playlistName'")
+        Log.d("VANTA_COLLECTION", "Apple playlist name='$playlistName' (stub — gateway preferred)")
         return CollectionResult(
             collectionTitle = playlistName,
             collectionArtist = null,
@@ -126,6 +134,79 @@ class CollectionResolver(
             tracks = emptyList(),
             sourceUrl = url
         )
+    }
+
+    private suspend fun resolveAppleMusicPlaylistViaGateway(url: String): CollectionResult? {
+        val link = GatewayPlaylistImporter.parsePlaylistUrl(url) ?: return null
+        if (link.platform != "apple") return null
+        return fetchGatewayPlaylistTracks(
+            path = "apple/playlist/${URLEncoder.encode(link.playlistId, "UTF-8")}/tracks",
+            query = "limit=200&storefront=${URLEncoder.encode(link.storefront ?: "us", "UTF-8")}",
+            title = link.displayNameHint ?: "Apple Music Playlist",
+            platform = "Apple Music",
+            sourceUrl = url,
+        )
+    }
+
+    private suspend fun resolveSpotifyPlaylistViaGateway(url: String): CollectionResult? {
+        val link = GatewayPlaylistImporter.parsePlaylistUrl(url) ?: return null
+        if (link.platform != "spotify") return null
+        return fetchGatewayPlaylistTracks(
+            path = "spotify/playlist/${URLEncoder.encode(link.playlistId, "UTF-8")}/tracks",
+            query = "limit=200",
+            title = "Spotify Playlist",
+            platform = "Spotify",
+            sourceUrl = url,
+        )
+    }
+
+    private fun fetchGatewayPlaylistTracks(
+        path: String,
+        query: String,
+        title: String,
+        platform: String,
+        sourceUrl: String,
+    ): CollectionResult? {
+        val base = gatewayBaseUrl.trimEnd('/')
+        val request = Request.Builder()
+            .url("$base/$path?$query")
+            .header("Accept", "application/json")
+            .header("User-Agent", "VANTA/1.0 Android")
+            .build()
+        return runCatching {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string()?.takeIf { it.isNotBlank() } ?: return null
+                val root = JsonParser.parseString(body).asJsonObject
+                val tracksArray = root.getAsJsonArray("tracks") ?: return null
+                val tracks = tracksArray.mapNotNull { elem ->
+                    val track = elem.asJsonObject
+                    val trackTitle = track.get("title")?.asString?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    val artist = track.get("artist")?.asString?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    CollectionTrack(
+                        title = trackTitle,
+                        artist = artist,
+                        album = track.get("album")?.asString,
+                        durationMs = track.get("duration")?.asLong?.times(1000),
+                        isrc = track.get("isrc")?.asString,
+                        artworkUrl = track.get("artworkURL")?.asString ?: track.get("artworkUrl")?.asString,
+                    )
+                }
+                if (tracks.isEmpty()) return null
+                Log.d("VANTA_COLLECTION", "gateway_$platform tracks=${tracks.size} title='$title'")
+                CollectionResult(
+                    collectionTitle = title,
+                    collectionArtist = null,
+                    platform = platform,
+                    artworkUrl = tracks.firstOrNull()?.artworkUrl,
+                    collectionType = CollectionType.PLAYLIST,
+                    tracks = tracks,
+                    sourceUrl = sourceUrl,
+                )
+            }
+        }.onFailure {
+            Log.w("VANTA_COLLECTION", "gateway_playlist_failed platform=$platform error='${it.message}'")
+        }.getOrNull()
     }
 
     // ─── Pandora ───────────────────────────────────────────────────────────────
@@ -232,7 +313,7 @@ class CollectionResolver(
                 // Now search iTunes to get the actual track list
                 // (Songlink doesn't provide individual tracks for albums)
                 Log.d("VANTA_COLLECTION", "Spotify album via Songlink title='$title' artist='$artist'")
-                searchItunesByAlbum(artist, title, CollectionType.ALBUM, url) ?: null
+                searchItunesByAlbum(artist, title, CollectionType.ALBUM, url)
             }
         }.onFailure {
             Log.w("VANTA_COLLECTION", "spotify_songlink_failed error='${it.message}'")

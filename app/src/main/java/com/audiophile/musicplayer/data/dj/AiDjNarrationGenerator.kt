@@ -49,15 +49,27 @@ Brief transition into the next stretch. One or two sentences, or SILENT if unnec
     ): DjCommentary {
         if (!pulseAiBrain.isConfigured()) return DjCommentary.Silent
         val playback = track.toPlaybackDisplay()
-        val fallback = ""
-        return finalizeNarration(
-            pulseAiBrain.narrate(
-                VantaDjPrompts.systemPersona,
-                VantaDjPrompts.trackMoment(listener, playback, segmentIndex),
-                fallback
-            ),
+        val artist = track.track.artist.orEmpty()
+        val title = track.track.title.orEmpty()
+        val album = track.track.albumName.orEmpty()
+        val fallback = listOfNotNull(
+            "Up next — $artist — $title.".takeIf { title.isNotBlank() && artist.isNotBlank() },
+            "Up next — $artist.".takeIf { artist.isNotBlank() },
+            "Next up."
+        ).first()
+        val result = pulseAiBrain.narrate(
+            VantaDjPrompts.systemPersona,
+            VantaDjPrompts.trackMoment(listener, playback, segmentIndex),
             fallback
         )
+        val final = finalizeNarration(result, fallback)
+        if (final.fromPulseAi) {
+            val metadata = setOfNotNull(title, artist, album, listener.displayName, "Vanta").filter { it.isNotBlank() }.toSet()
+            if (!DjFactGuard.validate(final.text, metadata)) {
+                return DjCommentary(fallback, fromPulseAi = false)
+            }
+        }
+        return final
     }
 
     suspend fun generateFeedbackAcknowledgment(

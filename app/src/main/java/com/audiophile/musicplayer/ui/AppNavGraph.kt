@@ -1,11 +1,14 @@
 package com.audiophile.musicplayer.ui
 
 import androidx.activity.compose.BackHandler
+import com.audiophile.musicplayer.common.AcceptanceTruth
 import com.audiophile.musicplayer.social.VantaSocialManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -25,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -46,6 +50,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import com.audiophile.musicplayer.data.dj.AiDjViewModel
+import com.audiophile.musicplayer.data.dj.AiDjUiState
 import com.audiophile.musicplayer.data.dj.JukeboxCatalog
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
@@ -59,6 +64,9 @@ import com.audiophile.musicplayer.StartupSafeguard
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
 import com.audiophile.musicplayer.permissions.MediaPermissions
 import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerViewModel
+import com.audiophile.musicplayer.ui.visualizer.VantaVisualizerPreferences
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.audiophile.musicplayer.data.display.VantaQualityInfo
 import android.content.Intent
 import android.util.Log
@@ -67,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.audiophile.musicplayer.data.source.sourceValidityStatus
 import com.audiophile.musicplayer.data.source.canEnterPlaybackFlow
 import com.audiophile.musicplayer.data.source.isConfirmedPlayable
+import com.audiophile.musicplayer.data.source.toGatewayHomePlaylist
 import com.audiophile.musicplayer.data.canonical.CanonicalTrack
 
 enum class AppRoute {
@@ -77,8 +86,9 @@ enum class AppRoute {
     AdvancedSettings,
     ParametricEq,
     RadioStation,
-    PlaylistDetail,
-    FriendProfile
+    PlaylistDetail, HomePlaylistDetail,
+    FriendProfile,
+    Wrapped
 }
 
 data class DetailRoute(
@@ -133,7 +143,7 @@ private val DetailRouteSaver = listSaver<DetailRoute?, String>(
 )
 
 private val DetailRouteListSaver = listSaver<List<DetailRoute>, String>(
-    save = { list -> (list ?: emptyList()).flatMap { route -> encodeDetailRoute(route) } },
+    save = { list -> list.flatMap { route -> encodeDetailRoute(route) } },
     restore = { value ->
         value.chunked(8).mapNotNull { chunk -> decodeDetailRoute(chunk) }
     }
@@ -142,18 +152,41 @@ private val DetailRouteListSaver = listSaver<List<DetailRoute>, String>(
 @Composable
 fun AppNavGraph(
     mainViewModel: MainViewModel,
+    searchViewModel: SearchViewModel,
     nowPlayingViewModel: NowPlayingViewModel,
-    aiDjViewModel: AiDjViewModel,
-    personalizedMixViewModel: PersonalizedMixViewModel,
-    visualizerViewModel: VantaVisualizerViewModel,
-    accountManager: com.audiophile.musicplayer.account.AccountManager,
-    vantaSocialManager: VantaSocialManager,
+    container: com.audiophile.musicplayer.AppContainer,
 
     sharedImportPayload: SharedImportPayload? = null,
     onSharedImportConsumed: () -> Unit = {}
 ) {
+    Log.i("VANTA_STARTUP", "nav_graph_enter")
+    val dismissKeyboard = rememberKeyboardDismissal()
+    val feedbackHost = remember { androidx.compose.material3.SnackbarHostState() }
+    var route by rememberSaveable { mutableStateOf(AppRoute.Home) }
+    // Keep dependencies alive after first use: AnimatedContent still composes outgoing routes.
+    val visitedRoutes = remember { mutableSetOf<AppRoute>() }
+    visitedRoutes.add(route)
+    var accountServicesActivated by rememberSaveable { mutableStateOf(false) }
+    val accountServicesRequired = accountServicesActivated ||
+        visitedRoutes.any { it == AppRoute.Account || it == AppRoute.Settings || it == AppRoute.FriendProfile }
+    val accountManager = if (accountServicesRequired) container.accountManager else null
+    val vantaSocialManager = if (accountServicesRequired) container.vantaSocialManager else null
+
+    // Construct expensive graphs lazily on first use, then retain them for
+    // outgoing route animations and subsequent visits. Personalized Home
+    // mixes remain active; MainActivity's protected phase 4 covers their setup.
+    val aiDjRequired = visitedRoutes.any { it == AppRoute.AiDj || it == AppRoute.Drive }
+    val aiDjViewModel: AiDjViewModel? = if (aiDjRequired) hiltViewModel() else null
+    val visualizerRequired = visitedRoutes.any { it == AppRoute.NowPlaying || it == AppRoute.Drive || it == AppRoute.Settings }
+    val visualizerViewModel: VantaVisualizerViewModel? = if (visualizerRequired) viewModel() else null
+    val personalizedMixViewModel: PersonalizedMixViewModel = hiltViewModel()
+    val dailyDiscoveryViewModel: DailyDiscoveryViewModel = hiltViewModel()
+
     val uiState by mainViewModel.uiState.collectAsState()
+    val radioDiscoveryMode by mainViewModel.radioDiscoveryMode.collectAsState()
+    val searchUiState by searchViewModel.uiState.collectAsState()
     val personalizedMixState by personalizedMixViewModel.uiState.collectAsState()
+    val personalizedMixDetailState by personalizedMixViewModel.detailState.collectAsState()
     val nowPlayingState by nowPlayingViewModel.chromeState.collectAsState()
     val rawLyricsData by nowPlayingViewModel.lyrics.collectAsState()
     val lyricsTrackId by nowPlayingViewModel.lyricsTrackId.collectAsState()
@@ -164,18 +197,20 @@ fun AppNavGraph(
     val pulseDeepInsight by nowPlayingViewModel.pulseDeepInsight.collectAsState()
     val pulseDeepLoading by nowPlayingViewModel.pulseDeepLoading.collectAsState()
     val translationEnabled by nowPlayingViewModel.translationEnabled.collectAsState()
-    val aiDjState by aiDjViewModel.state.collectAsState()
+    val aiDjState = aiDjViewModel?.state?.collectAsState()?.value ?: AiDjUiState()
     // NowPlayingViewModel clears lyrics on every track change and rejects stale
     // async responses using the requested track id. Re-validating the cache key
     // here rejected legitimate pre-ISRC cache entries and ran on every position
     // tick, producing log spam and hiding valid lyrics.
     val lyricsData = rawLyricsData
-    var route by rememberSaveable { mutableStateOf(AppRoute.Home) }
     var previousMainRoute by rememberSaveable { mutableStateOf(AppRoute.Home) }
     var paramEqReturnRoute by rememberSaveable { mutableStateOf(AppRoute.Home) }
+    var playlistReturnRoute by rememberSaveable { mutableStateOf(AppRoute.Home) }
+    var wrappedYear by rememberSaveable { mutableStateOf(java.time.Year.now().value) }
     var nowPlayingReturnDetailRoute by rememberSaveable(stateSaver = DetailRouteSaver) { mutableStateOf<DetailRoute?>(null) }
     var nowPlayingReturnDetailHistory by rememberSaveable(stateSaver = DetailRouteListSaver) { mutableStateOf<List<DetailRoute>>(emptyList()) }
     var pendingImportName by rememberSaveable { mutableStateOf("Imported Playlist") }
+    var pendingImportPlaylistId by rememberSaveable { mutableStateOf<Long?>(null) }
     var pendingImportText by rememberSaveable { mutableStateOf("") }
     var detailRoute by rememberSaveable(stateSaver = DetailRouteSaver) { mutableStateOf<DetailRoute?>(null) }
     var detailHistory by rememberSaveable(stateSaver = DetailRouteListSaver) { mutableStateOf<List<DetailRoute>>(emptyList()) }
@@ -192,9 +227,21 @@ fun AppNavGraph(
     var sleepTimerActiveMinutes by rememberSaveable { mutableStateOf<Int?>(null) }
     var playlistsForSheet by remember { mutableStateOf<List<com.audiophile.musicplayer.data.local.entities.PlaylistEntity>>(emptyList()) }
     val ctx = LocalContext.current
+    LaunchedEffect(Unit) {
+        if (com.audiophile.musicplayer.StartupSafeguard.shouldResetNavigationState(ctx)) {
+            detailRoute = null
+            detailHistory = emptyList()
+            route = AppRoute.Home
+            com.audiophile.musicplayer.StartupSafeguard.acknowledgeNavigationRecovery(ctx)
+        }
+    }
+    LaunchedEffect(route, detailRoute, radioStationId, mixRoute, activeActionContext, showAddToPlaylistSheet, showSleepTimerSheet) {
+        dismissKeyboard()
+    }
     val coroutineScope = rememberCoroutineScope()
     var animatedArtworkEnabled by remember { mutableStateOf(VisualMotionPreferences.isAnimatedArtworkEnabled(ctx)) }
-    val visualizerPreferences by visualizerViewModel.preferences.collectAsState()
+    val visualizerPreferences = visualizerViewModel?.preferences?.collectAsState()?.value
+        ?: VantaVisualizerPreferences()
 
     var hasRequestedStartupPermissions by rememberSaveable { mutableStateOf(false) }
     val startupPermissions = remember { MediaPermissions.startupPermissions() }
@@ -225,6 +272,12 @@ fun AppNavGraph(
     }
 
     LaunchedEffect(route) {
+        if (route == AppRoute.Account || route == AppRoute.Settings || route == AppRoute.FriendProfile) {
+            accountServicesActivated = true
+        }
+        if (route == AppRoute.NowPlaying) {
+            nowPlayingViewModel.activateDetailEnrichment()
+        }
         if (route == AppRoute.Library) {
             mainViewModel.ensureLibraryLoaded()
         }
@@ -232,13 +285,13 @@ fun AppNavGraph(
 
     LaunchedEffect(route, nowPlayingState.trackId, nowPlayingState.isPlaying) {
         if (route != AppRoute.NowPlaying) {
-            visualizerViewModel.releaseAnalyzer()
+            visualizerViewModel?.releaseAnalyzer()
             return@LaunchedEffect
         }
         repeat(60) {
             val sessionId = PlaybackService.audioSessionId
             if (sessionId > 0) {
-                visualizerViewModel.attachToSession(sessionId)
+                visualizerViewModel?.attachToSession(sessionId)
                 return@LaunchedEffect
             }
             kotlinx.coroutines.delay(250)
@@ -248,7 +301,7 @@ fun AppNavGraph(
     var lastRoute by rememberSaveable { mutableStateOf<AppRoute?>(null) }
     LaunchedEffect(route) {
         if (route == AppRoute.AiDj && lastRoute != null && lastRoute != AppRoute.AiDj) {
-            aiDjViewModel.prepareFreshEntry()
+            aiDjViewModel?.prepareFreshEntry()
         }
         lastRoute = route
     }
@@ -391,6 +444,9 @@ fun AppNavGraph(
     BackHandler(enabled = !transientBackActive && radioStationId == null && mixRoute != null) {
         mixRoute = null
     }
+    BackHandler(enabled = !transientBackActive && radioStationId == null && mixRoute == null && personalizedMixDetailState.kind != null) {
+        personalizedMixViewModel.closeMixDetail()
+    }
     BackHandler(enabled = !transientBackActive && radioStationId == null && mixRoute == null && detailRoute != null) {
         closeDetail()
     }
@@ -423,7 +479,13 @@ fun AppNavGraph(
         route = AppRoute.Imports
     }
 
+    BackHandler(enabled = routeBackAvailable && route == AppRoute.HomePlaylistDetail) {
+        route = playlistReturnRoute
+    }
     BackHandler(enabled = routeBackAvailable && route == AppRoute.PlaylistDetail) {
+        route = AppRoute.Library
+    }
+    BackHandler(enabled = routeBackAvailable && route == AppRoute.Wrapped) {
         route = AppRoute.Library
     }
     BackHandler(enabled = routeBackAvailable && route == AppRoute.FriendProfile) {
@@ -445,11 +507,27 @@ fun AppNavGraph(
     // including the Radio hub, the shared mini player remains available.
     val miniPlayerVisible = ChromeVisibilityPolicy.shouldShowMiniPlayer(route, latchedPlayback, isKeyboardVisible) &&
         !(route == AppRoute.AiDj && aiDjState.session.isStarted)
+    val sharedChromeContentInset = if (miniPlayerVisible || showBottomNav) {
+        appBottomContentPadding(
+            isMiniPlayerVisible = miniPlayerVisible,
+            isBottomNavVisible = showBottomNav
+        )
+    } else {
+        0.dp
+    }
     val chromeRouteLabel = ChromeVisibilityPolicy.routeLabel(
         route = route,
         hasDetailOverlay = detailRoute != null,
         hasRadioStationOverlay = radioStationId != null
     )
+    LaunchedEffect(uiState.statusMessage) {
+        val message = uiState.statusMessage?.trim().orEmpty()
+        val actionable = listOf("added", "saved", "deleted", "could not", "couldn't", "unable", "failed", "no playable", "imported", "preparing", "error playing")
+            .any { message.startsWith(it, ignoreCase = true) }
+        if (actionable && route != AppRoute.NowPlaying) {
+            feedbackHost.showSnackbar(message, withDismissAction = true, duration = androidx.compose.material3.SnackbarDuration.Short)
+        }
+    }
 
     androidx.compose.runtime.LaunchedEffect(
         chromeRouteLabel,
@@ -475,9 +553,14 @@ fun AppNavGraph(
 
     Box(modifier = Modifier.fillMaxSize()) {
         VantaAppBackground()
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+        ) {
         val activeStationId = radioStationId
         val activeMood = mixRoute
+        val activeMixDetailKind = personalizedMixDetailState.kind
         val activeDetail = detailRoute
         when {
             activeStationId != null -> {
@@ -507,7 +590,9 @@ fun AppNavGraph(
                         onPlayPreviewTrack = { track ->
                             mainViewModel.playTrack(track)
                             nowPlayingViewModel.restore()
-                        }
+                        },
+                        selectedDiscoveryMode = radioDiscoveryMode,
+                        onDiscoveryModeSelected = mainViewModel::setRadioDiscoveryMode
                     )
                 }
             }
@@ -548,40 +633,78 @@ fun AppNavGraph(
                     }
                 )
             }
+            activeMixDetailKind != null -> {
+                val detail = personalizedMixDetailState
+                MixDetailScreen(
+                    moodName = detail.title,
+                    tracks = detail.tracks,
+                    onBack = { personalizedMixViewModel.closeMixDetail() },
+                    onPlayTrack = { track ->
+                        mainViewModel.playTrack(track)
+                        nowPlayingViewModel.restore()
+                    },
+                    onPlayAll = {
+                        personalizedMixViewModel.closeMixDetail()
+                        if (detail.tracks.isNotEmpty()) {
+                            mainViewModel.playQueue(detail.tracks, 0)
+                            nowPlayingViewModel.restore()
+                        }
+                    },
+                    onShuffle = {
+                        personalizedMixViewModel.closeMixDetail()
+                        val shuffled = detail.tracks.shuffled()
+                        if (shuffled.isNotEmpty()) {
+                            mainViewModel.playQueue(shuffled, 0)
+                            nowPlayingViewModel.restore()
+                        }
+                    },
+                    onNavigateToArtist = { name, id ->
+                        personalizedMixViewModel.closeMixDetail()
+                        detailRoute = DetailRoute(DetailRoute.Type.Artist, name, id)
+                    }
+                )
+            }
             activeDetail != null -> {
                 val dr = activeDetail
                 val mpVisible = miniPlayerVisible
                 when (dr.type) {
                     DetailRoute.Type.Artist -> {
-                        LaunchedEffect(dr.name) {
-                            mainViewModel.loadArtistCatalog(dr.name)
+                        LaunchedEffect(dr.name, dr.id) {
+                            mainViewModel.loadArtistCatalog(
+                                artistName = dr.name,
+                                canonicalArtistId = dr.id?.toLongOrNull()
+                            )
                         }
                         ArtistDetailScreen(
                         artistName = dr.name,
                         artistId = dr.id,
-                        tracks = uiState.library.filter { it.track.artist.equals(dr.name, ignoreCase = true) },
+                        tracks = uiState.library.filter { dr.name.equals(it.track.artist, ignoreCase = true) },
                         albums = uiState.libraryAlbums,
                         catalog = uiState.artistCatalog?.takeIf { it.artist.name.equals(dr.name, ignoreCase = true) },
                         catalogLoading = uiState.artistCatalogLoading,
-                        searchTracks = uiState.sourceResults.filter { it.artist.equals(dr.name, ignoreCase = true) },
+                        searchTracks = searchUiState.songs.filter { it.artist.equals(dr.name, ignoreCase = true) },
                         onBack = { closeDetail() },
                         onPlayArtistRadio = {
                             Log.d("VANTA_ACTION_TRUTH", "action='artist_radio' artist='${dr.name}'")
                             mainViewModel.playArtistRadio(dr.name)
                             nowPlayingViewModel.restore()
                         },
+                        onPlayArtist = {
+                            val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
+                                searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                            }
+                            if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs)
+                            else mainViewModel.playArtistRadio(dr.name)
+                        },
                         onShuffleTopSongs = {
-                            dismissDetails()
-                            val artistTracks = uiState.library.filter {
-                                it.track.artist.equals(dr.name, ignoreCase = true)
-                            }.filter {
-                                it.sourceValidityStatus().canEnterPlaybackFlow()
-                            }.shuffled()
-                            Log.d("VANTA_ACTION_TRUTH", "action='artist_shuffle' artist='${dr.name}' trackCount=${artistTracks.size}")
-                            if (artistTracks.isNotEmpty()) {
-                                mainViewModel.playQueue(artistTracks, 0)
-                                Log.d("VANTA_QUEUE_TRUTH", "queueSource='artist_shuffle' queueSize=${artistTracks.size}")
-                                nowPlayingViewModel.restore()
+                            val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
+                                searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                            }
+                            if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs, shuffle = true)
+                            else {
+                                val local = uiState.library.filter { dr.name.equals(it.track.artist, ignoreCase = true) }
+                                    .filter { it.sourceValidityStatus().canEnterPlaybackFlow() }.shuffled()
+                                if (local.isNotEmpty()) mainViewModel.playQueue(local, 0)
                             }
                         },
                         onNavigateToAlbum = { albumName, artistName ->
@@ -599,8 +722,12 @@ fun AppNavGraph(
                     )
                     }
                     DetailRoute.Type.Album -> {
-                        LaunchedEffect(dr.name, dr.secondaryName) {
-                            mainViewModel.loadAlbumCatalog(dr.name, dr.secondaryName.orEmpty())
+                        LaunchedEffect(dr.name, dr.secondaryName, dr.id) {
+                            mainViewModel.loadAlbumCatalog(
+                                albumName = dr.name,
+                                artistName = dr.secondaryName.orEmpty(),
+                                canonicalAlbumId = dr.id?.toLongOrNull()
+                            )
                         }
                         AlbumDetailScreen(
                         albumName = dr.name,
@@ -617,39 +744,36 @@ fun AppNavGraph(
                         catalogLoading = uiState.albumCatalogLoading,
                         onBack = { closeDetail() },
                         onPlayAlbum = {
-                            dismissDetails()
-                            val albumTracks = uiState.library.filter {
-                                it.track.albumName.equals(dr.name, ignoreCase = true)
-                            }.filter {
-                                it.sourceValidityStatus().canEnterPlaybackFlow()
-                            }
-                            Log.d("VANTA_ACTION_TRUTH", "action='album_play' album='${dr.name}' playableTrackCount=${albumTracks.size}")
-                            if (albumTracks.isNotEmpty()) {
-                                mainViewModel.playQueue(albumTracks, 0)
-                                Log.d("VANTA_QUEUE_TRUTH", "queueSource='album' queueSize=${albumTracks.size}")
-                                nowPlayingViewModel.restore()
+                            val catalogTracks = uiState.albumCatalog?.tracks.orEmpty()
+                            if (catalogTracks.isNotEmpty()) {
+                                mainViewModel.playCatalogQueue(catalogTracks)
+                            } else {
+                                val albumTracks = uiState.library.filter {
+                                    it.track.albumName.equals(dr.name, ignoreCase = true) &&
+                                        (dr.secondaryName.isNullOrBlank() || it.track.artist.equals(dr.secondaryName, ignoreCase = true))
+                                }.filter { it.sourceValidityStatus().canEnterPlaybackFlow() }
+                                if (albumTracks.isNotEmpty()) mainViewModel.playQueue(albumTracks, 0)
+                                else {
+                                    dismissDetails()
+                                    searchViewModel.searchByTitleArtist(dr.name, dr.secondaryName.orEmpty())
+                                    route = AppRoute.Search
+                                }
                             }
                         },
                         onFindMatches = {
                             dismissDetails()
-                            mainViewModel.searchByTitleArtist(dr.name, dr.secondaryName.orEmpty())
+                            searchViewModel.searchByTitleArtist(dr.name, dr.secondaryName.orEmpty())
                             route = AppRoute.Search
                         },
                         onShuffleAlbum = {
-                            dismissDetails()
-                            val albumTracks = uiState.library.filter {
-                                it.track.albumName.equals(dr.name, ignoreCase = true)
-                            }.filter {
-                                it.sourceValidityStatus().canEnterPlaybackFlow()
-                            }
-                            Log.d("VANTA_ACTION_TRUTH", "action='album_shuffle' album='${dr.name}' playableTrackCount=${albumTracks.size}")
-                            if (albumTracks.isNotEmpty()) {
-                                mainViewModel.playQueue(albumTracks.shuffled(), 0)
-                                Log.d("VANTA_QUEUE_TRUTH", "queueSource='album_shuffled' queueSize=${albumTracks.size}")
-                                nowPlayingViewModel.restore()
-                            } else {
-                                mainViewModel.searchByTitleArtist(dr.name, dr.secondaryName ?: "")
-                                route = AppRoute.Search
+                            val catalogTracks = uiState.albumCatalog?.tracks.orEmpty()
+                            if (catalogTracks.isNotEmpty()) mainViewModel.playCatalogQueue(catalogTracks, shuffle = true)
+                            else {
+                                val albumTracks = uiState.library.filter {
+                                    it.track.albumName.equals(dr.name, ignoreCase = true) &&
+                                        (dr.secondaryName.isNullOrBlank() || it.track.artist.equals(dr.secondaryName, ignoreCase = true))
+                                }.filter { it.sourceValidityStatus().canEnterPlaybackFlow() }
+                                if (albumTracks.isNotEmpty()) mainViewModel.playQueue(albumTracks.shuffled(), 0)
                             }
                         },
                         onPlayTrack = { track ->
@@ -673,34 +797,10 @@ fun AppNavGraph(
                 }
             }
             else -> {
-                val tabOrder = remember { mapOf(
-                    AppRoute.Home to 0, AppRoute.Discover to 1, AppRoute.AiDj to 2, AppRoute.Library to 3, AppRoute.Search to 4
-                ) }
-                fun slideDirection(old: AppRoute, new: AppRoute): Int {
-                    val oi = tabOrder[old] ?: old.ordinal
-                    val ni = tabOrder[new] ?: new.ordinal
-                    return ni.compareTo(oi)
-                }
-                AnimatedContent(targetState = route, transitionSpec = {
-                    val dir = slideDirection(initialState, targetState)
-                    val fade = tween<Float>(VantaMotion.screenFadeMs, easing = VantaMotion.easeOutLuxury)
-                    val exitFade = tween<Float>(VantaMotion.microMs, easing = VantaMotion.easeInOutCozy)
-                    val slide = tween<IntOffset>(VantaMotion.screenSlideMs, easing = VantaMotion.easeOutLuxury)
-                    when {
-                        targetState == AppRoute.NowPlaying ->
-                            (slideInVertically(animationSpec = slide) { height -> height } + fadeIn(fade)) togetherWith
-                                fadeOut(exitFade)
-                        initialState == AppRoute.NowPlaying ->
-                            fadeIn(fade) togetherWith
-                                (slideOutVertically(animationSpec = slide) { height -> height } + fadeOut(exitFade))
-                        dir >= 0 ->
-                            (slideInHorizontally(animationSpec = slide) { width -> (width * 0.16f).toInt() } + fadeIn(fade)) togetherWith
-                                (slideOutHorizontally(animationSpec = slide) { width -> (-width * 0.08f).toInt() } + fadeOut(exitFade))
-                        else ->
-                            (slideInHorizontally(animationSpec = slide) { width -> (-width * 0.16f).toInt() } + fadeIn(fade)) togetherWith
-                                (slideOutHorizontally(animationSpec = slide) { width -> (width * 0.08f).toInt() } + fadeOut(exitFade))
-                    }
-                }, label = "screenTransition") { currentRoute ->
+                // A route owns one full-size surface. Cross-route animation used
+                // target chrome/insets on the outgoing screen, moving controls mid-transition.
+                androidx.compose.runtime.key(route) {
+                    val currentRoute = route
                     when (currentRoute) {
                         AppRoute.Home -> HomeScreen(
                     uiState = uiState,
@@ -711,8 +811,8 @@ fun AppNavGraph(
                     onOpenSearch = { route = AppRoute.Search },
                     onOpenRadio = { route = AppRoute.AiDj },
                     onOpenDrive = { openDrive(AppRoute.Home) },
-                    onPlayFirstPlayable = {
-                        mainViewModel.playFirstPlayableTrack()
+                    onToggleNowPlaying = {
+                        mainViewModel.togglePlayPause()
                         nowPlayingViewModel.restore()
                     },
                     onPlayTrack = {
@@ -724,8 +824,22 @@ fun AppNavGraph(
                             nowPlayingViewModel.restore()
                         }
                     },
+                    onOpenPersonalizedMix = { kind ->
+                        personalizedMixViewModel.openMixDetail(kind)
+                    },
                     onRefreshPersonalizedMix = personalizedMixViewModel::refreshMix,
-                    onQueryChanged = mainViewModel::onQueryChanged,
+                    onLoadHomeFeed = { mainViewModel.loadHomeFeed() },
+                    onLoadCatalogForYou = { mainViewModel.loadCatalogForYou() },
+                    onRefreshHome = {
+                        mainViewModel.loadHomeFeed(force = true)
+                        mainViewModel.loadCatalogForYou(refresh = true)
+                    },
+                    onPlayHomeTrack = { mainViewModel.playHomeTrack(it) },
+                    onOpenHomePlaylist = { playlist ->
+                        playlistReturnRoute = AppRoute.Home
+                        mainViewModel.openHomePlaylist(playlist)
+                        route = AppRoute.HomePlaylistDetail
+                    },
                     onNavigateToArtist = { name, id -> openRootDetail(DetailRoute(DetailRoute.Type.Artist, name, id)) },
                     onNavigateToAlbum = { albumName, artistName, artworkUrl ->
                         openRootDetail(DetailRoute(DetailRoute.Type.Album, albumName, null, secondaryName = artistName, artworkUrl = artworkUrl))
@@ -748,11 +862,19 @@ fun AppNavGraph(
                     }
                 )
                 AppRoute.Discover -> NewScreen(
+                    dailyDiscovery = {
+                        DailyDiscoveryPanel(dailyDiscoveryViewModel,
+                            onPlay = { mainViewModel.playSourceResult(it); nowPlayingViewModel.restore() },
+                            onSave = mainViewModel::saveSourceResultToLibrary)
+                    },
                     localPlaylists = uiState.localPlaylists,
                     localSongs = uiState.localSongs,
                     editorialReleases = uiState.editorialNewReleases,
                     editorialReleasesLoading = uiState.editorialNewReleasesLoading,
-                    onLoadEditorialReleases = { mainViewModel.loadEditorialNewReleases() },
+                    editorialReleasesStatus = uiState.editorialNewReleasesStatus,
+                    editorialReleasesError = uiState.editorialNewReleasesError,
+                    editorialReleasesUpdatedAtMs = uiState.editorialNewReleasesUpdatedAtMs,
+                    onLoadEditorialReleases = { mainViewModel.loadEditorialNewReleases(force = true) },
                     onOpenPlaylist = { playlistId ->
                         mainViewModel.loadPlaylistTracks(playlistId)
                         route = AppRoute.PlaylistDetail
@@ -778,6 +900,10 @@ fun AppNavGraph(
                         )
                         nowPlayingViewModel.restore()
                     },
+                    onPlayReleaseAtIndex = { releases, index ->
+                        mainViewModel.playReleases(releases, index)
+                        nowPlayingViewModel.restore()
+                    },
                     miniPlayerVisible = miniPlayerVisible
                 )
                 AppRoute.Library -> LibraryScreen(
@@ -785,14 +911,16 @@ fun AppNavGraph(
                     miniPlayerVisible = miniPlayerVisible,
                     onOpenSettings = { route = AppRoute.Settings },
                     onOpenImports = { route = AppRoute.Imports },
+                    onOpenWrapped = {
+                        wrappedYear = java.time.Year.now().value
+                        mainViewModel.refreshWrappedStats(wrappedYear)
+                        route = AppRoute.Wrapped
+                    },
                     onToggleFavoriteSong = { song -> mainViewModel.toggleFavoriteForSong(song.id) },
                     onPlay = {
                         mainViewModel.playTrack(it)
                         nowPlayingViewModel.restore()
                     },
-                    onPlayNext = mainViewModel::playNext,
-                    onAddToQueue = mainViewModel::addToQueue,
-                    onDownload = mainViewModel::downloadTrack,
                     onNavigateToArtist = { name, id -> openRootDetail(DetailRoute(DetailRoute.Type.Artist, name, id)) },
                     onNavigateToAlbum = { albumName, artistName, artworkUrl ->
                         openRootDetail(DetailRoute(DetailRoute.Type.Album, albumName, null, secondaryName = artistName, artworkUrl = artworkUrl))
@@ -808,17 +936,32 @@ fun AppNavGraph(
                         mainViewModel.playPlaylist(playlistId)
                         nowPlayingViewModel.restore()
                     },
-                    onOpenImportFromLink = { route = AppRoute.ImportText }
+                    onCreatePlaylist = { name -> mainViewModel.createPlaylist(name) }
+                )
+                AppRoute.Wrapped -> WrappedScreen(
+                    year = wrappedYear,
+                    stats = uiState.wrappedStats,
+                    onBack = { route = AppRoute.Library }
                 )
                 AppRoute.Search -> SearchScreen(
-                    uiState = uiState,
-                    onQueryChanged = mainViewModel::onQueryChanged,
-                    onSearch = mainViewModel::search,
-                    onSearchQuery = mainViewModel::searchFor,
-                    onBrowseCategory = mainViewModel::searchCategory,
-                    onPlay = mainViewModel::playTrack,
+                    uiState = searchUiState,
+                    library = uiState.library,
+                    onQueryChanged = searchViewModel::onQueryChanged,
+                    onSearch = { dismissKeyboard(); searchViewModel.search() },
+                    onSearchQuery = { dismissKeyboard(); searchViewModel.searchFor(it) },
+                    onBrowseCategory = { dismissKeyboard(); searchViewModel.searchCategory(it) },
+                    onRememberSearch = searchViewModel::rememberSearch,
+                    onRemoveRecentSearch = searchViewModel::removeSearchHistory,
+                    onClearRecentSearches = searchViewModel::clearSearchHistory,
+                    onPlay = { dismissKeyboard(); mainViewModel.playTrack(it) },
                     onPlaySourceResult = { track ->
+                        dismissKeyboard()
                         mainViewModel.playSourceResult(track)
+                        nowPlayingViewModel.restore()
+                    },
+                    onPlaySourceResultList = { tracks, startIndex ->
+                        dismissKeyboard()
+                        mainViewModel.playSourceResults(tracks, startIndex)
                         nowPlayingViewModel.restore()
                     },
                     onSaveSourceResult = mainViewModel::saveSourceResultToLibrary,
@@ -839,8 +982,13 @@ fun AppNavGraph(
                             }
                         }
                     },
-                    onQuickPlay = mainViewModel::quickPlayFromUrl,
+                    onQuickPlay = { dismissKeyboard(); mainViewModel.quickPlayFromUrl(it) },
                     onImportEclipsePlaylist = mainViewModel::importEclipsePlaylist,
+                    onOpenCatalogPlaylist = { playlist ->
+                        playlistReturnRoute = AppRoute.Search
+                        mainViewModel.openHomePlaylist(playlist.toGatewayHomePlaylist())
+                        route = AppRoute.HomePlaylistDetail
+                    },
 
                     miniPlayerVisible = miniPlayerVisible,
                     bottomNavVisible = showBottomNav,
@@ -853,7 +1001,7 @@ fun AppNavGraph(
                     lyricsData = lyricsData,
                     pulseInsight = pulseInsight,
                     pulseInsightLoading = pulseInsightLoading,
-                    aiDjViewModel = aiDjViewModel,
+                    aiDjViewModel = aiDjViewModel!!,
                     animatedArtworkEnabled = animatedArtworkEnabled,
                     onTogglePlayPause = {
                         aiDjViewModel.togglePlayback()
@@ -867,7 +1015,8 @@ fun AppNavGraph(
                     )
                 }
                 AppRoute.AiDj -> AiDjScreen(
-                    viewModel = aiDjViewModel,
+                    onOpenPlayer = { openRoute(AppRoute.NowPlaying) },
+                    viewModel = aiDjViewModel!!,
                     onBack = { route = previousMainRoute },
                     onOpenStation = { stationId -> openRadioStation(stationId) },
                     onStartStreamingStation = { input ->
@@ -882,9 +1031,9 @@ fun AppNavGraph(
                     bottomNavVisible = showBottomNav
                 )
                 AppRoute.Account -> AccountScreen(
-                    accountManager = accountManager,
+                    accountManager = accountManager!!,
                     mainViewModel = mainViewModel,
-                    vantaSocialManager = vantaSocialManager,
+                    vantaSocialManager = vantaSocialManager!!,
                     onBack = { route = AppRoute.Home },
                     onOpenFriendProfile = { friendId ->
                         friendProfileId = friendId
@@ -892,11 +1041,13 @@ fun AppNavGraph(
                     }
                 )
                 AppRoute.Settings -> SettingsScreen(
+                    onOpenImports = { route = AppRoute.Imports },
+                    onLibraryChanged = { mainViewModel.refreshAll(skipRoomMaterialize = true) },
                     onBack = { route = previousMainRoute },
                     onOpenAdvanced = { route = AppRoute.AdvancedSettings },
                     onOpenEqualizer = { paramEqReturnRoute = route; route = AppRoute.ParametricEq },
                     miniPlayerVisible = miniPlayerVisible,
-                    accountManager = accountManager,
+                    accountManager = accountManager!!,
                     onOpenAccount = { route = AppRoute.Account },
                     animatedArtworkEnabled = animatedArtworkEnabled,
                     onAnimatedArtworkEnabledChange = { enabled ->
@@ -905,11 +1056,11 @@ fun AppNavGraph(
                     },
                     onOpenDrive = { openDrive(AppRoute.Settings) },
                     auraMode = visualizerPreferences.mode,
-                    onAuraModeChange = { visualizerViewModel.setMode(it) },
+                    onAuraModeChange = { visualizerViewModel?.setMode(it) },
                     auraAudioReactive = visualizerPreferences.audioReactiveEnabled,
-                    onAuraAudioReactiveChange = { visualizerViewModel.setAudioReactive(it) },
+                    onAuraAudioReactiveChange = { visualizerViewModel?.setAudioReactive(it) },
                     auraReduceMotionCar = visualizerPreferences.reduceMotionInCar,
-                    onAuraReduceMotionCarChange = { visualizerViewModel.setReduceMotionInCar(it) }
+                    onAuraReduceMotionCarChange = { visualizerViewModel?.setReduceMotionInCar(it) }
                 )
                 AppRoute.AdvancedSettings -> AdvancedSettingsScreen(
                     form = uiState.resolverConfig,
@@ -985,6 +1136,7 @@ fun AppNavGraph(
                         nowPlayingViewModel.restore()
                     },
                     onSeekTo = { mainViewModel.seekTo(it) },
+                    onToggleShuffle = mainViewModel::toggleShuffle,
                     onPlayNextQueue = {
                         mainViewModel.playNextFromQueue()
                         nowPlayingViewModel.restore()
@@ -1002,7 +1154,19 @@ fun AppNavGraph(
                     onOpenDj = { openRoute(AppRoute.AiDj) },
                     onOpenEqualizer = { paramEqReturnRoute = route; openRoute(AppRoute.ParametricEq) },
                     onOpenTrackSheet = {
-                        val current = uiState.queueSnapshot.currentTrack
+                        // Prefer Now Playing identity over a stale queueSnapshot.currentTrack
+                        // (large radio queues can diverge while NP title/artist stay correct).
+                        val npTrackId = nowPlayingState.trackId?.toLongOrNull()
+                        val queueCurrent = uiState.queueSnapshot.currentTrack
+                        val current = when {
+                            queueCurrent != null &&
+                                (npTrackId == null || queueCurrent.track.trackId == npTrackId) -> queueCurrent
+                            npTrackId != null -> {
+                                uiState.queueSnapshot.originalQueue.firstOrNull { it.track.trackId == npTrackId }
+                                    ?: uiState.library.firstOrNull { it.track.trackId == npTrackId }
+                            }
+                            else -> queueCurrent
+                        }
                         if (current != null) {
                             activeActionContext = mapTrackToContext(current, uiState.localSongs, isNowPlaying = true)
                         } else {
@@ -1043,7 +1207,9 @@ fun AppNavGraph(
                     onOpenQueueTrackSheet = { track ->
                         activeActionContext = mapTrackToContext(track, uiState.localSongs)
                     },
-                    visualizerViewModel = visualizerViewModel
+                    visualizerViewModel = visualizerViewModel,
+                    selectedDiscoveryMode = radioDiscoveryMode,
+                    onDiscoveryModeSelected = mainViewModel::setRadioDiscoveryMode
                     )
                 }
                 AppRoute.Imports -> ImportsScreen(
@@ -1053,6 +1219,7 @@ fun AppNavGraph(
                     statusMessage = uiState.statusMessage,
                     onBack = { route = AppRoute.Library },
                     onNewImport = {
+                        pendingImportPlaylistId = null
                         pendingImportName = "Imported Playlist"
                         pendingImportText = ""
                         route = AppRoute.ImportText
@@ -1064,9 +1231,19 @@ fun AppNavGraph(
                         mainViewModel.importSingleLocalFile(uri)
                     },
                     onImportTracklistFile = { importName, text ->
+                        pendingImportPlaylistId = null
                         pendingImportName = importName
                         pendingImportText = text
                         route = AppRoute.ImportPreview
+                    },
+                    onImportSpotifyHistory = { uri ->
+                        mainViewModel.importSpotifyHistory(uri)
+                    },
+                    onImportAppleLibrary = { uri ->
+                        mainViewModel.importAppleLibrary(uri)
+                    },
+                    onImportLikedCsv = { text ->
+                        mainViewModel.importLikedSongsCsvText(text)
                     }
                 )
                 AppRoute.ImportText -> ImportTextScreen(
@@ -1088,7 +1265,7 @@ fun AppNavGraph(
                     onBack = { route = AppRoute.ImportText },
                     onContinueToMatch = {
                         val isEclipse = com.audiophile.musicplayer.data.importer.SoundiizTextParser.isEclipsePlaylistUrl(pendingImportText)
-                        mainViewModel.importPastedText(pendingImportName, pendingImportText)
+                        mainViewModel.importPastedText(pendingImportName, pendingImportText, pendingImportPlaylistId)
                         if (isEclipse) {
                             route = AppRoute.Library
                         } else {
@@ -1105,7 +1282,28 @@ fun AppNavGraph(
                     onSaveAllMetadata = mainViewModel::saveAllImportMetadata,
                     onResolveAgain = mainViewModel::resolveCurrentImportAgain
                 )
+                AppRoute.HomePlaylistDetail -> HomePlaylistDetailScreen(
+                    playlist = uiState.homePlaylist,
+                    tracks = uiState.homePlaylistTracks,
+                    loading = uiState.homePlaylistLoading,
+                    error = uiState.homePlaylistError,
+                    onBack = { route = playlistReturnRoute },
+                    onRetry = { uiState.homePlaylist?.let(mainViewModel::openHomePlaylist) },
+                    onPlay = { mainViewModel.playHomePlaylist() },
+                    onShuffle = { mainViewModel.playHomePlaylist(shuffle = true) },
+                    onPlayTrack = { index -> mainViewModel.playHomePlaylist(startIndex = index) },
+                    miniPlayerVisible = miniPlayerVisible,
+                    bottomNavVisible = showBottomNav
+                )
                 AppRoute.PlaylistDetail -> PlaylistDetailScreen(
+                    playlists = uiState.localPlaylists,
+                    onAddSelected = mainViewModel::addSelectedSongs,
+                    onImportCsv = { text ->
+                        pendingImportPlaylistId = uiState.activePlaylistId
+                        pendingImportName = uiState.activePlaylistName
+                        pendingImportText = text
+                        route = AppRoute.ImportPreview
+                    },
                     playlistName = uiState.activePlaylistName,
                     playlistDescription = uiState.activePlaylistDescription,
                     playlistArtworkUrl = uiState.activePlaylistArtworkUrl,
@@ -1135,7 +1333,7 @@ fun AppNavGraph(
                     if (fpId != null) {
                         FriendProfileScreen(
                             friendId = fpId,
-                            vantaSocialManager = vantaSocialManager,
+                            vantaSocialManager = vantaSocialManager!!,
                             onBack = {
                                 friendProfileId = null
                                 route = AppRoute.Home
@@ -1162,6 +1360,16 @@ fun AppNavGraph(
         }
         }
 
+        androidx.compose.material3.SnackbarHost(
+            hostState = feedbackHost,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = sharedChromeContentInset + 12.dp).zIndex(60f)
+        )
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                .background(AppBackground.copy(alpha = 0.97f)).zIndex(40f)
+        )
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1186,16 +1394,7 @@ fun AppNavGraph(
                 label = "miniPlayerVisibility"
             ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val djMoment = aiDjState.liveCommentary?.takeIf { it.isNotBlank() }
-                        if (djMoment != null && route != AppRoute.AiDj) {
-                            DjMomentCard(
-                                message = djMoment,
-                                accentLabel = aiDjState.companionMode.label.uppercase(),
-                                onOpenDj = { openRoute(AppRoute.AiDj) },
-                                onCycleMode = { aiDjViewModel.toggleDjVoice() },
-                                onDismiss = { aiDjViewModel.dismissDjMoment() }
-                            )
-                        }
+                        // Commentary stays in Radio; it must not change the shared player's height.
                         val liveNowPlayingState by nowPlayingViewModel.state.collectAsState()
                         MiniPlayer(
                             nowPlayingState = liveNowPlayingState,
@@ -1274,11 +1473,23 @@ fun AppNavGraph(
                             is VantaActionContext.SearchResult -> context.artworkUrl
                             else -> null
                         }
+                        val seedTrackId = when (context) {
+                            is VantaActionContext.Track -> context.trackId
+                            else -> nowPlayingState.trackId
+                        }
                         if (!albumName.isNullOrBlank()) {
+                            val albumId = nowPlayingState.canonicalAlbumId
+                            AcceptanceTruth.album(
+                                album = albumName,
+                                artist = artistName,
+                                seedTrackId = seedTrackId,
+                                navigationMode = if (albumId != null) "canonical" else "name",
+                                albumId = albumId
+                            )
                             detailRoute = DetailRoute(
                                 type = DetailRoute.Type.Album,
                                 name = albumName,
-                                id = null,
+                                id = albumId,
                                 secondaryName = artistName,
                                 artworkUrl = artworkUrl
                             )
@@ -1290,11 +1501,23 @@ fun AppNavGraph(
                             is VantaActionContext.SearchResult -> context.artist
                             else -> null
                         }
+                        val seedTrackId = when (context) {
+                            is VantaActionContext.Track -> context.trackId
+                            else -> nowPlayingState.trackId
+                        }
                         if (!artistName.isNullOrBlank()) {
+                            val artistId = nowPlayingState.canonicalArtistId
+                            AcceptanceTruth.artist(
+                                artist = artistName,
+                                navigationMode = if (artistId != null) "canonical" else "name",
+                                seedTrackId = seedTrackId,
+                                activePlaybackTrackId = nowPlayingState.trackId,
+                                artistId = artistId
+                            )
                             detailRoute = DetailRoute(
                                 type = DetailRoute.Type.Artist,
                                 name = artistName,
-                                id = null
+                                id = artistId
                             )
                         }
                     }

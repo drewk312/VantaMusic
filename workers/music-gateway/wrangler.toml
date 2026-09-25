@@ -1,28 +1,73 @@
 name = "vanta-music-gateway"
-main = "src/index.ts"
-compatibility_date = "2024-12-01"
+main = "src/worker.ts"
+compatibility_date = "2026-08-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "EXTENSION_SESSIONS"
+class_name = "ExtensionSessions"
+
+[[migrations]]
+tag = "v1-extension-sessions"
+new_sqlite_classes = ["ExtensionSessions"]
+
+[[durable_objects.bindings]]
+name = "EXTENSION_AUDIO"
+class_name = "ExtensionAudio"
+
+[[migrations]]
+tag = "v2-extension-audio"
+new_sqlite_classes = ["ExtensionAudio"]
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
 
 # Deploy:  cd workers/music-gateway && npm install && npx wrangler deploy
 # Then set SpotiFlacEndpoints.DEFAULT_GATEWAY_BASE_URL to the printed workers.dev URL.
 
 [vars]
+ENVIRONMENT = "production"
 GATEWAY_ID = "com.audiophile.music-gateway"
 GATEWAY_NAME = "VANTA Music Gateway"
-GATEWAY_VERSION = "2.5.0"
+GATEWAY_VERSION = "2.5.10"
 GATEWAY_DESCRIPTION = "Max zero-config lossless — community auth, MusicDL, GDStudio mirrors, parallel racing"
 # Search: deezer + qobuz (auto-scraped creds) + apple (iTunes metadata)
-ENABLED_SEARCH_PROVIDERS = "deezer,qobuz,apple"
+ENABLED_SEARCH_PROVIDERS = "deezer,qobuz,apple,amazon,spotify"
 # Stream fallback order (highest fidelity first)
-ENABLED_STREAM_PROVIDERS = "qobuz,tidal,deezer,amazon,pandora"
+ENABLED_STREAM_PROVIDERS = "qobuz,tidal,deezer,amazon,pandora,soundcloud"
 DEFAULT_STREAM_QUALITY = "24"
-ENRICH_SEARCH_RESULTS = "true"
+ENRICH_SEARCH_RESULTS = "false"
 SEARCH_ENRICH_LIMIT = "12"
+RATE_LIMIT_WINDOW_SECONDS = "60"
+RATE_LIMIT_MAX_REQUESTS = "120"
+# Stream/search KV caching. Disabled only while the free write quota is
+# exhausted for the UTC day; flip to "false" if the quota trips again.
+KV_WRITES_ENABLED = "true"
 # Built-in zero-config stream fallbacks (no secrets required)
 DEFAULT_COMMUNITY_GATEWAY = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
 FALLBACK_COMMUNITY_GATEWAYS = "https://qobuz-tidal-eclipse.cyrusna29.workers.dev"
-GDSTUDIO_API_URL = "https://music.gdstudio.xyz/api.php"
+GDSTUDIO_API_URL = "https://music-api.gdstudio.xyz/api.php"
+GATEWAY_PUBLIC_URL = "https://vanta-music-gateway.16drewk.workers.dev"
+APP_VERSION_CODE = "5"
+APP_VERSION_NAME = "1.01"
+APP_APK_URL = "https://github.com/drewk312/VantaMusic/releases/download/new/vanta.apk"
+APP_CHANGELOG = "VANTA 1.01 Hotfix: Synchronized and translated lyrics restoration, Spotify-style lyric search, search bug fix for Lose Yourself / soundtrack titles, and playback stability improvements."
+# Paste your Ko-fi / PayPal / Cash App link. Leave blank to hide Support in the app.
+APP_DONATE_URL = "https://ko-fi.com/drewk312"
+# Licensed/private backends are configured per deployment. Do not point these
+# at preview/sample relays: the gateway rejects samples and false Atmos claims.
+QOBUZ_STREAM_UPSTREAM = "https://vanta-qobuz-stream.16drewk.workers.dev/api/dl"
 
-# Required in production: durable cache and rate-limit storage.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "24051"
+
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+# Required in production: durable cache storage.
 [[kv_namespaces]]
 binding = "CACHE"
 id = "1395e92642c944e7a8894c66a971af9d"
@@ -33,10 +78,10 @@ binding = "SOCIAL_KV"
 id = "c621547d69d14d339c724e3af9395720"
 
 # ── Secrets: npx wrangler secret put <NAME> ──────────────────────────────────
-# GATEWAY_API_KEY          Lock gateway to your app (send X-Api-Key header)
+# GATEWAY_API_KEY          Optional operator-to-operator lock. Do not embed a shared key in a mobile app.
 # FIREBASE_PROJECT_ID      Firebase project ID used to verify user ID tokens
 # SYNC_AUTH_SECRET         Development-only HMAC sync-token fallback
-# In production, CACHE, SOCIAL_KV, GATEWAY_API_KEY, and FIREBASE_PROJECT_ID are required.
+# In production, CACHE, SOCIAL_KV, and FIREBASE_PROJECT_ID are required. Sync fails closed without Firebase.
 # Development-only identity bypass: ENVIRONMENT=development plus DEV_SYNC_USER_ID;
 # clients must send the same value in X-Dev-Sync-User.
 #
@@ -46,8 +91,24 @@ id = "c621547d69d14d339c724e3af9395720"
 #
 # ── Stream relays (use any combination) ─────────────────────────────────────
 # QOBUZ_STREAM_UPSTREAM    Custom Qobuz relay base URL
-# TIDAL_STREAM_UPSTREAM    Custom Tidal relay base URL
-# TIDAL_API_URL            Tidal manifest API base (community tidal-go relay)
+# TIDAL_STREAM_UPSTREAM    Optional operator Tidal adapter. Atmos is accepted only with verified codec evidence. VANTA does not require an end-user Tidal token.
+# TIDAL_API_URL            Self-hosted hifi-api / Tidal OpenAPI base. Enables native
+#                          Tidal Atmos (E-AC-3 JOC) via /trackManifests. Requires a
+#                          valid Tidal HiFi Plus session on that API.
+# TIDAL_API_KEY            Shared secret used only between this Worker and hifi-api.
+# HIFI_API_URL             Self-hosted SpotiFLAC-style Tidal hifi-api base (binimum/
+#                          hifi-api). Enables hi-res FLAC via /api/search +
+#                          /api/download-music?quality=27, and verified Atmos via
+#                          /trackManifests when the instance holds a HiFi Plus session.
+# HIFI_API_KEY             Optional shared secret for the HIFI_API_URL instance.
+# QOBUZ_COMMUNITY_TOKEN    Shared community Qobuz account token (SpotiFLAC "qbz-a"
+#                          style). Lets /stream request hi-res format_id 27/7 FLAC
+#                          without a per-operator QOBUZ_AUTH_TOKEN.
+# DRM_PROXY_SECRET         HMAC secret for short-lived Widevine license URLs.
+# OPERATOR_BACKEND_URL     Private VANTA /v1 multi-provider backend (non-secret URL).
+# OPERATOR_BACKEND_API_KEY Secret for OPERATOR_BACKEND_URL. Both fields are required.
+# OPERATOR_BACKEND_PROVIDERS Comma-separated capabilities, e.g. "qobuz" or
+#                          "qobuz,tidal,deezer,amazon,pandora". Prevents false status claims.
 # DEEZER_STREAM_UPSTREAM   Deezer FLAC relay base URL
 # AMAZON_STREAM_UPSTREAM   Amazon Music relay base URL
 # PANDORA_STREAM_UPSTREAM  Pandora relay base URL
@@ -56,6 +117,52 @@ id = "c621547d69d14d339c724e3af9395720"
 # MUSICDL_BASE_URL         e.g. https://www.musicdl.me
 # MUSICDL_API_KEY          API key if required
 #
+# ── SpotiFLAC-Next shared "multinode" lossless relays (qzz.io) ──────────────
+# SPOTBYE_NODES            Optional comma-separated *.spotbye.qzz.io relay URLs.
+#                          gated by afkarxyz/6e57cd362cbd67f889e3a91a76254a5e status.
+#                          Leave unset to disable shared SpotiFLAC fallback.
+#
+# ── SpotiFLAC community session (one-time human CAPTCHA, NO paid account) ──
+# COMMUNITY_INSTALL_ID     From `node scripts/community-session.mjs` bootstrap
+# COMMUNITY_SESSION_ID     HMAC session id
+# COMMUNITY_SESSION_SECRET HMAC session secret
+# COMMUNITY_SESSION_EXPIRES RFC3339 expiry (re-run before expiry)
+# COMMUNITY_APP_VERSION    e.g. VANTA-MusicGateway/2.0
+# COMMUNITY_PLATFORM       desktop
+#
+# ── Monochrome Unified Playback (tie in THEIR servers for Amazon/Tidal Atmos) ─
+# MONOCHROME_API_BASE_URL  default https://music-api.geeked.wtf
+# MONOCHROME_API_TOKEN     default amp_29b2lIr4mze4tK-P8QDOxfMZ9anCgJ9_uGTUks3nIyo
+# MONOCHROME_TURNSTILE_JWT Cloudflare Turnstile JWT (sitekey 0x4AAAAAADgxqF6QVMm0GLHH)
+#                          Mint via Monochrome frontend or `node scripts/monochrome-session.mjs`
+# MONOCHROME_ALLOW_UNAUTH  true to try without JWT (will 428)
+# MONOCHROME_PROXY_DECRYPT true to proxy-decrypt Amazon CENC via /api/decrypt-stream
+# GATEWAY_PUBLIC_URL       e.g. https://vanta-music-gateway.workers.dev
+#
+# ── Deezer public FLAC (Monochrome-style fallback) ─────────────────────────
+# DEEZER_PUBLIC_BASE_URL   default https://dzr.tabs-vs-spaces.wtf
+#
+# ── Apple Music Atmos (via am-mint, no account) ─────────────────────────────
+# Uses https://am-mint.binimum.org/token → https://api.music.apple.com
+# No secret needed; gateway caches dev token. Provides Atmos traits + HLS.
+#
+# ── Spotify AI Radio & Playlist Import ──────────────────────────────────────
+# SPOTIFY_CLIENT_ID=your-spotify-app-id
+# SPOTIFY_CLIENT_SECRET=your-spotify-app-secret
+# Then: GET /api/spotify/search?q=, /api/spotify/recommendations?seeds=, /api/spotify/playlist/{id}
+# And: POST /api/ai/radio {prompt, seedTrackIds} → AudioMuse LLM + Spotify fallback
+#
+# ── AudioMuse-AI (sonic intelligence, self-hosted) ──────────────────────────
+# AUDIOMUSE_BASE_URL=http://localhost:8000  # or https://audiomuse.example.com
+# AUDIOMUSE_API_KEY=optional-bearer
+# AUDIOMUSE_USERNAME=optional-basic
+# AUDIOMUSE_PASSWORD=optional-basic
+# Proxies /api/audiomuse/* → AudioMuse Flask. Also powers POST /api/ai/radio and
+# GET /api/ai/smart-playlist/{most-played|never-played|forgotten-gems}
+#
 # ── Optional ────────────────────────────────────────────────────────────────
 # DEEZER_ARL               Deezer account ARL (for future direct Deezer module)
 # ZARZ_RESOLVE_URL         Spotify resolve proxy (default: api.zarz.moe)
+
+[triggers]
+crons = ["*/5 * * * *"]

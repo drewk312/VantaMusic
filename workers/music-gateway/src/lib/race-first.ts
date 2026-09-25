@@ -1,3 +1,5 @@
+import { streamFidelityScore } from "./stream-quality";
+
 /** Run all attempts in parallel; return the first non-null result (fastest mirror wins). */
 export async function raceFirst<T>(
   attempts: Array<() => Promise<T | null>>
@@ -30,8 +32,16 @@ export interface RankedAttempt<T> {
   run: () => Promise<T | null>;
 }
 
-/** Run all attempts in parallel; pick highest bitrate, then lowest priority index. */
-export async function raceBest<T extends { bitrateKbps?: number }>(
+/** Run all attempts in parallel; pick highest fidelity, then lowest priority index. */
+export async function raceBest<T extends {
+  bitrateKbps?: number;
+  format?: string;
+  quality?: string;
+  mimeType?: string;
+  isDolbyAtmos?: boolean;
+  isSpatialAudio?: boolean;
+  isSurround?: boolean;
+}>(
   attempts: RankedAttempt<T>[]
 ): Promise<T | null> {
   if (attempts.length === 0) return null;
@@ -53,8 +63,8 @@ export async function raceBest<T extends { bitrateKbps?: number }>(
   if (successes.length === 0) return null;
 
   successes.sort((a, b) => {
-    const bitrateDiff = (b.value.bitrateKbps ?? 0) - (a.value.bitrateKbps ?? 0);
-    if (bitrateDiff !== 0) return bitrateDiff;
+    const fidelityDiff = streamFidelityScore(b.value) - streamFidelityScore(a.value);
+    if (fidelityDiff !== 0) return fidelityDiff;
     return a.priority - b.priority;
   });
 

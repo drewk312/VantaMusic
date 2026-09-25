@@ -28,7 +28,7 @@ object TrackDisplayResolver {
         // UnifiedTrack doesn't persist explicit — will be null until DB schema updated
         val display = DisplayMetadataCleaner.computeDisplayMetadata(
             rawTitle = track.title,
-            rawArtist = track.artist ?: "",
+            rawArtist = track.artist,
             rawAlbum = track.albumName
         )
         val artworkUrl = track.coverArtUrl?.takeIf { it.startsWith("http") }

@@ -59,7 +59,6 @@ object CalendarMomentProvider {
         val cal = Calendar.getInstance()
         val month = cal.get(Calendar.MONTH)
         val day = cal.get(Calendar.DAY_OF_MONTH)
-        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
 
         if (month == Calendar.JULY && day == 4) {
             return CalendarMoment(
@@ -77,36 +76,8 @@ object CalendarMomentProvider {
             )
         }
 
-        if (dayOfWeek == Calendar.FRIDAY) {
-            return CalendarMoment(
-                id = "friday",
-                title = "New Music Friday",
-                subtitle = "Fresh releases to kick off your weekend",
-                heroGradient = listOf(Color(0xFF16151A), Color(0xFF242027), Color(0xFF0D0D0F)),
-                playlists = listOf(
-                    MomentPlaylist("New This Week", "All genres \u00B7 75 tracks", "new"),
-                    MomentPlaylist("Release Radar", "Personalized Picks", "radar"),
-                    MomentPlaylist("Fresh Finds", "Emerging Artists", "discover")
-                ),
-                accentColor = Color(0xFFE2B76B)
-            )
-        }
-
-        if (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY) {
-            return CalendarMoment(
-                id = "weekend",
-                title = "Weekend Mode",
-                subtitle = "Unwind and turn up the volume",
-                heroGradient = listOf(Color(0xFF1A1517), Color(0xFF30231E), Color(0xFF0D0D0F)),
-                playlists = listOf(
-                    MomentPlaylist("Weekend Party", "Dance \u00B7 60 tracks", "party"),
-                    MomentPlaylist("Sunday Morning", "Chill \u00B7 35 tracks", "chill"),
-                    MomentPlaylist("Late Night Drive", "Ambient \u00B7 40 tracks", "drive")
-                ),
-                accentColor = Color(0xFFE2B76B)
-            )
-        }
-
+        // Do not invent weekly editorial content. Calendar cards are reserved for
+        // real dated moments; discovery and release claims come from the live feed.
         return null
     }
 }

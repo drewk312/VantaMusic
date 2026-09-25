@@ -22,8 +22,8 @@ object LiveRadioMetadataParser {
             when (val entry = metadata[i]) {
                 is IcyInfo -> icyTitle = entry.title?.trim()
                 is TextInformationFrame -> when (entry.id) {
-                    "TIT2" -> id3Title = entry.value.trim()
-                    "TPE1" -> id3Artist = entry.value.trim()
+                    "TIT2" -> id3Title = entry.values.firstOrNull()?.trim()
+                    "TPE1" -> id3Artist = entry.values.firstOrNull()?.trim()
                 }
             }
         }

@@ -1,11 +1,16 @@
 package com.audiophile.musicplayer.data.brain
 
 import android.util.Log
+import com.audiophile.musicplayer.data.canonical.CanonicalTrack
 import com.audiophile.musicplayer.search.UnifiedSearchEngine
 
 object IntentParser {
-    fun parse(query: String, exactUserTap: Boolean = false): CatalogIntent {
-        val parsed = UnifiedSearchEngine.parse(query)
+    fun parse(
+        query: String,
+        exactUserTap: Boolean = false,
+        catalogCandidates: List<CanonicalTrack> = emptyList()
+    ): CatalogIntent {
+        val parsed = UnifiedSearchEngine.resolveIntent(query, catalogCandidates)
         val normalized = normalize(query)
         val requestedVariant = requestedVariant(normalized)
         val intentType = when {

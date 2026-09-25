@@ -1,6 +1,8 @@
 package com.audiophile.musicplayer.common
 
 import android.util.Log
+import androidx.core.net.toUri
+import com.audiophile.musicplayer.BuildConfig
 
 /**
  * Thin, tag-enforced logging abstraction.
@@ -34,11 +36,20 @@ object VantaLogger {
         NETWORK("VANTA_NETWORK"),
         DI("VANTA_DI"),
         STARTUP("VANTA_STARTUP"),
+        ACCEPTANCE("VANTA_ACCEPTANCE"),
+        TRACK_TRUTH("VANTA_TRACK_TRUTH"),
+        LIBRARY_ACTION("VANTA_LIBRARY_ACTION"),
+        RADIO_TRUTH("VANTA_RADIO_TRUTH"),
+        POSITION_TRUTH("VANTA_POSITION_TRUTH"),
     }
 
-    fun v(tag: Tag, msg: String) = Log.v(tag.value, msg)
+    fun v(tag: Tag, msg: String) {
+        if (BuildConfig.DEBUG) Log.v(tag.value, msg)
+    }
 
-    fun d(tag: Tag, msg: String) = Log.d(tag.value, msg)
+    fun d(tag: Tag, msg: String) {
+        if (BuildConfig.DEBUG) Log.d(tag.value, msg)
+    }
 
     fun i(tag: Tag, msg: String) = Log.i(tag.value, msg)
 
@@ -49,4 +60,9 @@ object VantaLogger {
     fun e(tag: Tag, msg: String, tr: Throwable? = null) {
         if (tr != null) Log.e(tag.value, msg, tr) else Log.e(tag.value, msg)
     }
+
+    /** Host-only representation safe for logs; strips paths, queries, and signed tokens. */
+    fun urlHost(value: String?): String = runCatching {
+        value.orEmpty().toUri().host?.take(100)
+    }.getOrNull().orEmpty().ifBlank { "unknown" }
 }

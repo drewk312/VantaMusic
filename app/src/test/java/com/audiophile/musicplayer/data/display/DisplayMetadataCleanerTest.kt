@@ -32,6 +32,62 @@ class DisplayMetadataCleanerTest {
     }
 
     @Test
+    fun `comma separated catalog credits become featured artists`() {
+        val result = DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = "Praise The Lord (Da Shine)",
+            rawArtist = "A\$AP Rocky, Skepta",
+            rawAlbum = null
+        )
+        assertTrue(result.featuredArtists.contains("Skepta"))
+        assertTrue(result.artist.contains("Skepta"))
+    }
+
+    @Test
+    fun `ampersand collab splits primary and featured like Apple Music`() {
+        val result = DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = "I Can't Love You Anymore",
+            rawArtist = "Ella Langley & Morgan Wallen",
+            rawAlbum = "Dandelion"
+        )
+        assertEquals(listOf("Morgan Wallen"), result.featuredArtists)
+        assertTrue(result.artist.startsWith("Ella Langley"))
+        assertTrue(result.artist.contains("feat."))
+        assertTrue(result.artist.contains("Morgan Wallen"))
+    }
+
+    @Test
+    fun `simon and garfunkel stay a single duo act`() {
+        val result = DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = "The Sound of Silence",
+            rawArtist = "Simon & Garfunkel",
+            rawAlbum = null
+        )
+        assertEquals("Simon & Garfunkel", result.artist)
+        assertTrue(result.featuredArtists.isEmpty())
+    }
+
+    @Test
+    fun `comma band names stay a single artist`() {
+        val result = DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = "September",
+            rawArtist = "Earth, Wind & Fire",
+            rawAlbum = null
+        )
+        assertEquals("Earth, Wind & Fire", result.artist)
+        assertTrue(result.featuredArtists.isEmpty())
+    }
+
+    @Test
+    fun `lil nas x is not split on x`() {
+        val result = DisplayMetadataCleaner.computeDisplayMetadata(
+            rawTitle = "Industry Baby (feat. Lil Nas X)",
+            rawArtist = "Jack Harlow",
+            rawAlbum = null
+        )
+        assertEquals(listOf("Lil Nas X"), result.featuredArtists)
+    }
+
+    @Test
     fun `underscores become spaces in title and artist`() {
         val result = DisplayMetadataCleaner.computeDisplayMetadata(
             rawTitle = "Some_Track_Title",
@@ -79,5 +135,14 @@ class DisplayMetadataCleanerTest {
     fun `cleanTitle removes suffixes and underscores`() {
         val title = DisplayMetadataCleaner.cleanTitle("My_Song (Official Audio)")
         assertEquals("My Song", title)
+    }
+
+    @Test
+    fun `lyric video teaser is not treated as part of song title`() {
+        val title = DisplayMetadataCleaner.cleanTitle(
+            "Choosin' Texas (Lyrics) \"he's choosing texas i can tell\""
+        )
+
+        assertEquals("Choosin' Texas", title)
     }
 }

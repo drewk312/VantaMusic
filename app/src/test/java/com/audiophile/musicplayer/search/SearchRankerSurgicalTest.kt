@@ -25,10 +25,11 @@ class SearchRankerSurgicalTest {
 
         val response = UnifiedSearchEngine.process("Denver", results)
 
-        // Artists should include all unique artists from search results
-        assertEquals("Artists should include Jack Harlow", "Jack Harlow", response.artists[0].name)
-        assertEquals("Artists should include Willie Nelson", "Willie Nelson", response.artists[1].name)
-        assertEquals("Songs section should have tracks", 3, response.songs.size)
+        // Relevance-ordered catalog evidence resolves the leading recording and
+        // keeps unrelated same-title performers out of the artist/song rails.
+        assertEquals(listOf("Jack Harlow"), response.artists.map { it.name })
+        assertEquals(listOf("Jack Harlow"), response.songs.map { it.artist })
+        assertTrue(response.artists.none { it.name.equals("Denver", ignoreCase = true) })
     }
 
     @Test

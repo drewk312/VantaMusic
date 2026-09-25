@@ -5,6 +5,8 @@ package com.audiophile.musicplayer.auto
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import com.audiophile.musicplayer.BuildConfig
+import com.audiophile.musicplayer.R
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaLibraryService
@@ -477,6 +479,7 @@ class AndroidAutoBrowseController(
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(type)
+                    .apply { browseIconFor(id)?.let { setArtworkUri(it) } }
                     .setExtras(AutoBrowseExtras.listItemExtras())
                     .build()
             )
@@ -492,10 +495,28 @@ class AndroidAutoBrowseController(
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .apply { browseIconFor(id)?.let { setArtworkUri(it) } }
                     .setExtras(AutoBrowseExtras.listItemExtras())
                     .build()
             )
             .build()
+
+    private fun browseIconFor(id: String): Uri? = when {
+        id == AUTO_ALBUMS_ID || id.startsWith(AUTO_ALBUM_PREFIX) -> drawableUri(R.drawable.ic_auto_album)
+        id == AUTO_ARTISTS_ID || id.startsWith(AUTO_ARTIST_PREFIX) -> drawableUri(R.drawable.ic_auto_artist)
+        id == AUTO_GENRES_ID || id.startsWith(AUTO_GENRE_PREFIX) -> drawableUri(R.drawable.ic_auto_genre)
+        id == AUTO_HIGH_QUALITY_ID -> drawableUri(R.drawable.ic_auto_hifi)
+        id == AUTO_VIBE_MIXES_ID || id == AUTO_VIBE_MOODS_ID || id.startsWith(AUTO_MOOD_PREFIX) ->
+            drawableUri(R.drawable.ic_auto_mood)
+        id == AUTO_MAIN_STAGE_ID || id == AUTO_QUEUE_ID || id == AUTO_PLAYLISTS_ID ->
+            drawableUri(R.drawable.ic_auto_queue)
+        id == AUTO_RECENT_ID || id == AUTO_CONTINUE_ID -> drawableUri(R.drawable.ic_auto_recent)
+        id == AUTO_VIBE_TIME_ID || id.startsWith(AUTO_TIME_PREFIX) -> drawableUri(R.drawable.ic_auto_time)
+        else -> null
+    }
+
+    private fun drawableUri(drawableId: Int): Uri =
+        "android.resource://${BuildConfig.APPLICATION_ID}/$drawableId".toUri()
 
     private fun UnifiedTrackWithSources.toAutoTrackItem(): MediaItem {
         val qualityLabel = getQualityLabel()
@@ -744,4 +765,3 @@ private fun List<UnifiedTrackWithSources>.filterAutoBrowse(): List<UnifiedTrackW
 
 private fun UnifiedTrackWithSources.isAutoPlayable(): Boolean =
     sourceValidityStatus().canEnterPlaybackFlow()
-

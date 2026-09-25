@@ -52,6 +52,7 @@ class AiDjQueuePlanner(
         val bridgeKeywords = chapterPlan.bridgeFrom?.let { chapterPlanner.clusterKeywords(it) } ?: emptyList()
 
         val allTracks = playableCandidates(excludeTrackIds)
+            .filter { RadioIdentityPolicy.acceptsTaste(profile, it.track.artist, it.track.genre) }
         if (allTracks.isEmpty()) return emptySegment(mode, "No playable tracks in your library.")
 
         val scored = allTracks.map { track ->
@@ -90,6 +91,7 @@ class AiDjQueuePlanner(
     ): AiDjSegment {
         val mode = AiDjMode.VANTA_RADIO
         val allTracks = jukeboxPlayableCandidates(excludeTrackIds, station)
+            .filter { RadioIdentityPolicy.acceptsStation(station, it.track.artist, it.track.genre) }
         if (allTracks.isEmpty()) return emptySegment(mode, "")
 
         releaseYearResolver?.ensureLoaded()
@@ -672,6 +674,7 @@ class AiDjQueuePlanner(
     ): AiDjSegment {
         val allTracks = trackRepository.getAllTracks()
         val playable = allTracks
+            .filter { RadioIdentityPolicy.acceptsTaste(profile, it.track.artist, it.track.genre) }
             .filter { it.isPlayableMusicCandidate() }
             .filterNot { JukeboxTrackEligibility.shouldExcludeFromRadioQueue(it) }
             .filterNot { it.track.trackId in excludeTrackIds }
@@ -941,12 +944,10 @@ class AiDjQueuePlanner(
     private fun generateNarration(mode: AiDjMode, profile: AiDjTasteProfile, count: Int): String {
         val artist = profile.favoriteArtists.firstOrNull()
         return when {
-            artist != null && count > 3 -> "${mode.displayName}: Starting with $count tracks built around $artist and similar artists."
-            artist != null -> "${mode.displayName}: A short set of $count tracks featuring artists like $artist."
-            count > 3 -> "${mode.displayName}: Here are $count tracks matched to your current taste."
-            else -> "${mode.displayName}: A set of $count tracks for this vibe."
+            artist != null && count > 3 -> "Kicking things off with $artist. Let's see where the music takes us."
+            artist != null -> "A little $artist and a few songs to go with it. Turn it up."
+            count > 3 -> "A few favorites and something fresh. This one's for you."
+            else -> "Let's get into it. Here's your next mix."
         }
     }
 }
-
-

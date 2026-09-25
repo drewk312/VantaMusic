@@ -6,6 +6,7 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -22,6 +23,12 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
         .followRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    private val streamProbeClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val userAgent =
@@ -156,7 +163,9 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
 
             extractJsonVar(body, "ytInitialPlayerResponse")?.let { playerJson ->
                 JsonParser.parseString(playerJson)?.asJsonObject?.let { parsed ->
-                    parsePlayerResponse(parsed, trackId, "page")?.let { return@withContext it }
+                    parsePlayerResponse(parsed, trackId, "page", userAgent, preferVideo = false)
+                        ?.takeIf(::probeResolvedStream)
+                        ?.let { return@withContext it }
                 }
             }
 
@@ -175,9 +184,10 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
                     trackId = trackId,
                     tubeClient = tubeClient,
                     apiKey = apiKey,
-                    visitorData = visitorData
+                    visitorData = visitorData,
+                    preferVideo = false
                 )
-                if (resolved != null) return@withContext resolved
+                if (resolved != null && probeResolvedStream(resolved)) return@withContext resolved
             }
 
             if (scrapedApiKey != null && scrapedClientVersion != null) {
@@ -190,7 +200,8 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
                     clientNameId = 1,
                     userAgent = userAgent
                 )
-                requestInnerTubePlayer(trackId, webClient, scrapedApiKey, visitorData)
+                requestInnerTubePlayer(trackId, webClient, scrapedApiKey, visitorData, preferVideo = false)
+                    ?.takeIf(::probeResolvedStream)
                     ?.let { return@withContext it }
             }
 
@@ -202,11 +213,54 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
         }
     }
 
+    /** Progressive music-video MP4 for Android TV (single muxed A/V URL). */
+    override suspend fun resolveVideoStream(trackId: String): ResolvedStream? = withContext(Dispatchers.IO) {
+        try {
+            Log.d("YTMusic", "resolveVideoStream: $trackId")
+            val watchUrl = "https://www.youtube.com/watch?v=$trackId"
+            val request = Request.Builder()
+                .url(watchUrl)
+                .header("User-Agent", userAgent)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
+            val body = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                response.body?.string()
+            } ?: return@withContext null
+
+            extractJsonVar(body, "ytInitialPlayerResponse")?.let { playerJson ->
+                JsonParser.parseString(playerJson)?.asJsonObject?.let { parsed ->
+                    parsePlayerResponse(parsed, trackId, "page-video", userAgent, preferVideo = true)
+                        ?.takeIf(::probeResolvedStream)
+                        ?.let { return@withContext it }
+                }
+            }
+
+            val scrapedApiKey = extractYtcfgValue(body, "INNERTUBE_API_KEY")
+            val visitorData = extractYtcfgValue(body, "VISITOR_DATA")
+            for (tubeClient in innerTubeClients) {
+                val resolved = requestInnerTubePlayer(
+                    trackId = trackId,
+                    tubeClient = tubeClient,
+                    apiKey = scrapedApiKey ?: tubeClient.apiKey,
+                    visitorData = visitorData,
+                    preferVideo = true
+                )
+                if (resolved != null && probeResolvedStream(resolved)) return@withContext resolved
+            }
+            null
+        } catch (e: Exception) {
+            Log.e("YTMusic", "resolveVideoStream exception", e)
+            null
+        }
+    }
+
     private fun requestInnerTubePlayer(
         trackId: String,
         tubeClient: InnerTubeClient,
         apiKey: String,
-        visitorData: String?
+        visitorData: String?,
+        preferVideo: Boolean = false
     ): ResolvedStream? {
         val clientObj = JsonObject().apply {
             addProperty("clientName", tubeClient.clientName)
@@ -262,7 +316,7 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
                     )
                     return null
                 }
-                parsePlayerResponse(parsed, trackId, tubeClient.label)
+                parsePlayerResponse(parsed, trackId, tubeClient.label, tubeClient.userAgent, preferVideo)
             }
         } catch (e: Exception) {
             Log.d("YTMusic", "resolveStream: InnerTube ${tubeClient.label} error for $trackId", e)
@@ -273,7 +327,9 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
     private fun parsePlayerResponse(
         parsed: JsonObject,
         trackId: String,
-        source: String
+        source: String,
+        requestUserAgent: String,
+        preferVideo: Boolean = false,
     ): ResolvedStream? {
         val playability = parsed.getAsJsonObject("playabilityStatus")
         val status = playability?.get("status")?.asString
@@ -284,6 +340,10 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
         }
 
         val streamingData = parsed.getAsJsonObject("streamingData") ?: return null
+        if (preferVideo) {
+            pickProgressiveVideo(streamingData, trackId, source, requestUserAgent)?.let { return it }
+        }
+
         val formats = streamingData.getAsJsonArray("adaptiveFormats")
             ?: streamingData.getAsJsonArray("formats")
             ?: return null
@@ -321,8 +381,152 @@ class YouTubeMusicSourceProvider : MusicSourceProvider {
             streamUrl = streamUrl,
             bitrateKbps = bestBitrate / 1000,
             mimeType = bestMime,
-            qualityLabel = "Audio Stream"
+            qualityLabel = "Audio Stream",
+            providerId = providerId,
+            requestHeaders = mapOf("User-Agent" to requestUserAgent),
         )
+    }
+
+    /** Prefer video-only adaptive (picture for FLAC/Atmos merge), else muxed progressive. */
+    private fun pickProgressiveVideo(
+        streamingData: JsonObject,
+        trackId: String,
+        source: String,
+        requestUserAgent: String
+    ): ResolvedStream? {
+        pickAdaptiveVideoOnly(streamingData, trackId, source, requestUserAgent)?.let { return it }
+
+        val formats = streamingData.getAsJsonArray("formats") ?: return null
+        var bestUrl: String? = null
+        var bestHeight = -1
+        var bestBitrate = 0
+        var bestMime = "video/mp4"
+
+        for (i in 0 until formats.size()) {
+            val format = formats[i].asJsonObject
+            val mimeType = format.get("mimeType")?.asString ?: continue
+            if (!mimeType.startsWith("video/")) continue
+
+            val videoUrl = format.get("url")?.asString
+                ?: extractDirectUrlFromCipher(format.get("signatureCipher")?.asString)
+                ?: extractDirectUrlFromCipher(format.get("cipher")?.asString)
+                ?: continue
+            val height = format.get("height")?.asInt ?: 0
+            val bitrate = format.get("bitrate")?.asInt ?: 0
+            if (height > 2160) continue
+            if (height > bestHeight || (height == bestHeight && bitrate > bestBitrate)) {
+                bestUrl = videoUrl
+                bestHeight = height
+                bestBitrate = bitrate
+                bestMime = mimeType.substringBefore(";")
+            }
+        }
+
+        val streamUrl = bestUrl ?: return null
+        Log.d("YTMusic", "resolveVideoStream: $source OK muxed ${bestHeight}p for $trackId")
+        return ResolvedStream(
+            streamUrl = streamUrl,
+            bitrateKbps = bestBitrate / 1000,
+            mimeType = bestMime,
+            qualityLabel = if (bestHeight > 0) "Music Video ${bestHeight}p" else "Music Video",
+            format = "video",
+            providerId = providerId,
+            requestHeaders = mapOf("User-Agent" to requestUserAgent),
+            container = bestMime.substringAfter("/"),
+        )
+    }
+
+    /** Adaptive video-only (no audio) so ExoPlayer can merge with FLAC/Atmos. */
+    private fun pickAdaptiveVideoOnly(
+        streamingData: JsonObject,
+        trackId: String,
+        source: String,
+        requestUserAgent: String
+    ): ResolvedStream? {
+        val formats = streamingData.getAsJsonArray("adaptiveFormats") ?: return null
+        var bestUrl: String? = null
+        var bestHeight = -1
+        var bestBitrate = 0
+        var bestMime = "video/mp4"
+
+        for (i in 0 until formats.size()) {
+            val format = formats[i].asJsonObject
+            val mimeType = format.get("mimeType")?.asString ?: continue
+            if (!mimeType.startsWith("video/")) continue
+            // Skip muxed leftovers; adaptive video-only has width/height and no audioQuality.
+            if (format.has("audioQuality") || format.has("audioSampleRate") || format.has("audioChannels")) continue
+            if (!format.has("height") && !format.has("width")) continue
+            // Prefer AVC/MP4 for TV decoder compatibility over VP9/AV1 when close in height.
+            val videoUrl = format.get("url")?.asString
+                ?: extractDirectUrlFromCipher(format.get("signatureCipher")?.asString)
+                ?: extractDirectUrlFromCipher(format.get("cipher")?.asString)
+                ?: continue
+            val height = format.get("height")?.asInt ?: 0
+            val bitrate = format.get("bitrate")?.asInt ?: 0
+            if (height > 2160 || height <= 0) continue
+            val preferMp4 = mimeType.contains("avc1") || mimeType.contains("mp4")
+            val bestPreferMp4 = bestMime.contains("avc1") || bestMime.contains("mp4")
+            val better = when {
+                height > bestHeight -> true
+                height < bestHeight -> false
+                preferMp4 && !bestPreferMp4 -> true
+                !preferMp4 && bestPreferMp4 -> false
+                else -> bitrate > bestBitrate
+            }
+            if (better) {
+                bestUrl = videoUrl
+                bestHeight = height
+                bestBitrate = bitrate
+                bestMime = mimeType.substringBefore(";")
+            }
+        }
+
+        val streamUrl = bestUrl ?: return null
+        Log.d("YTMusic", "resolveVideoStream: $source OK video-only ${bestHeight}p for $trackId")
+        return ResolvedStream(
+            streamUrl = streamUrl,
+            bitrateKbps = bestBitrate / 1000,
+            mimeType = bestMime,
+            qualityLabel = "Music Video ${bestHeight}p (picture)",
+            format = "video",
+            providerId = providerId,
+            requestHeaders = mapOf("User-Agent" to requestUserAgent),
+            container = bestMime.substringAfter("/"),
+        )
+    }
+
+    private fun probeResolvedStream(stream: ResolvedStream): Boolean {
+        val parsedUrl = stream.streamUrl.toHttpUrl()
+        val probeRange = "bytes=0-65535"
+        val request = Request.Builder()
+            .url(parsedUrl)
+            .header("Range", probeRange)
+            .apply {
+                stream.requestHeaders.forEach { (name, value) -> header(name, value) }
+            }
+            .build()
+        return runCatching {
+            streamProbeClient.newCall(request).execute().use { response ->
+                val accepted = response.code == 200 || response.code == 206
+                if (!accepted) {
+                    Log.d(
+                        "YTMusic",
+                        "resolveStream: probe HTTP ${response.code}; trying next InnerTube client"
+                    )
+                } else {
+                    Log.d(
+                        "YTMusic",
+                        "resolveStream: probe accepted HTTP ${response.code} " +
+                            "range=${request.header("Range")} " +
+                            "ua=${request.header("User-Agent")?.substringBefore('/')}"
+                    )
+                }
+                accepted
+            }
+        }.getOrElse { error ->
+            Log.d("YTMusic", "resolveStream: probe failed; trying next InnerTube client", error)
+            false
+        }
     }
 
     private fun scoreAudioFormat(format: JsonObject): Int {

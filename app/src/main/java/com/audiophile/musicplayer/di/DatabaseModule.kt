@@ -40,4 +40,17 @@ object DatabaseModule {
 
     @Provides
     fun providePersonalizedMixDao(database: MusicDatabase) = database.personalizedMixDao()
+
+    @Provides
+    fun provideCanonicalGraphDao(database: MusicDatabase) = database.canonicalGraphDao()
+
+    @Provides
+    fun provideListeningHistoryDao(database: MusicDatabase) = database.listeningHistoryDao()
+
+    @Provides
+    @Singleton
+    fun provideListeningHistoryRepository(
+        dao: com.audiophile.musicplayer.data.local.ListeningHistoryDao
+    ): com.audiophile.musicplayer.data.local.ListeningHistoryRepository =
+        com.audiophile.musicplayer.data.local.ListeningHistoryRepository(dao)
 }

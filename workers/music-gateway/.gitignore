@@ -1,3 +1,5 @@
 node_modules/
 .wrangler/
 .dev.vars
+community_session.json
+zarz_*_session.json

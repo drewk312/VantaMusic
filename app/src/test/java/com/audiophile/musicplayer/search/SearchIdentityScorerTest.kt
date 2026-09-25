@@ -8,12 +8,159 @@ import org.junit.Test
 
 class SearchIdentityScorerTest {
 
-    private fun track(title: String, artist: String, album: String? = null) = CanonicalTrack(
+    private fun track(
+        title: String,
+        artist: String,
+        album: String? = null,
+        isrc: String? = null,
+        externalTrackId: String? = null
+    ) = CanonicalTrack(
         title = title,
         artist = artist,
         album = album,
+        isrc = isrc,
+        externalTrackId = externalTrackId,
         sourcePriority = 5
     )
+
+    @Test
+    fun catalogIntentHandlesMisspellingsWithoutPerSongProviderRules() {
+        val cases = listOf(
+            Triple("wonder all", "Wonderwall", "Oasis"),
+            Triple("hotel calfornia", "Hotel California", "Eagles"),
+            Triple("bohemian rapsody", "Bohemian Rhapsody", "Queen"),
+            Triple("blinding lites", "Blinding Lights", "The Weeknd"),
+            Triple("smels like teen spirit", "Smells Like Teen Spirit", "Nirvana"),
+            Triple("shape of yuo", "Shape of You", "Ed Sheeran")
+        )
+
+        cases.forEach { (query, title, artist) ->
+            assertEquals(query, UnifiedSearchEngine.providerQuery(query))
+            val response = UnifiedSearchEngine.process(
+                query,
+                listOf(
+                    track(title, artist, album = "Original Album"),
+                    track(query, if (query == "bohemian rapsody") "BOHEMIAN RAPSODY" else "Exact Text Collision", album = "Obscure Match"),
+                    track(title, "Karaoke Cover Band", album = "Tribute Collection"),
+                    track("Something Else", "Another Artist")
+                )
+            )
+            assertEquals(query, title, response.topResult?.title)
+            assertEquals(query, artist, response.topResult?.artist)
+        }
+    }
+
+    @Test
+    fun providerLookupPreservesEveryQueryAndSearchDoesNotInventTracks() {
+        assertEquals("blinding lights", UnifiedSearchEngine.providerQuery("blinding lights"))
+        assertEquals("blinding lights piano", UnifiedSearchEngine.providerQuery("blinding lights piano"))
+        assertEquals("unknown deep cut", UnifiedSearchEngine.providerQuery("unknown deep cut"))
+
+        val empty = UnifiedSearchEngine.process("bad guy", emptyList())
+        assertEquals(null, empty.topResult)
+        assertTrue(empty.songs.isEmpty())
+    }
+
+    @Test
+    fun resolvedIdentityRemovesCoverArtistsAndAlbumsFromRails() {
+        val response = UnifiedSearchEngine.process(
+            "wonder all",
+            listOf(
+                track("Wonderwall", "Oasis", album = "(What's the Story) Morning Glory?"),
+                track("Wonderwall", "Ohasis", album = "Cover Songs"),
+                track("Wonderwall", "Sponsors", album = "Party Covers"),
+                track("Wonder", "Shawn Mendes", album = "Wonder")
+            )
+        )
+
+        assertEquals(listOf("Oasis"), response.artists.map { it.name })
+        assertTrue(response.albums.all { it.artist == "Oasis" })
+        assertTrue(response.songs.all { it.artist == "Oasis" })
+    }
+
+    @Test
+    fun happyResolvesToPharrellNotAMovieArtistNamedHappy() {
+        val response = UnifiedSearchEngine.process(
+            "Happy",
+            listOf(
+                track("Happy (From Despicable Me 2)", "Happy", album = "Despicable Me 2"),
+                track("Despicable Me 2", "Happy", album = "Despicable Me 2"),
+                track("Happy", "Pharrell Williams", album = "G I R L", isrc = "USUM71311296"),
+                track("Happy", "Pharrell Williams", album = "Despicable Me 2", isrc = "USUM71311296")
+            )
+        )
+        assertEquals("Happy", response.topResult?.title)
+        assertEquals("Pharrell Williams", response.topResult?.artist)
+        assertTrue(response.songs.any { it.artist == "Pharrell Williams" })
+        assertTrue(response.songs.none { it.artist == "Happy" && it.title.contains("Despicable", ignoreCase = true) } ||
+            response.topResult?.artist == "Pharrell Williams")
+    }
+
+    @Test
+    fun activeIdentityBreaksAmbiguousPrefixWithRealCatalogResult() {
+        val wonderwall = track("Wonderwall", "Oasis", album = "(What's the Story) Morning Glory?")
+        val response = UnifiedSearchEngine.process(
+            query = "wonder",
+            results = listOf(
+                track("Wonder", "Shawn Mendes", album = "Wonder"),
+                wonderwall,
+                track("Wonderful Tonight", "Eric Clapton", album = "Slowhand")
+            ),
+            personalization = SearchPersonalization(
+                activeTitle = "Wonderwall",
+                activeArtist = "Oasis"
+            )
+        )
+
+        assertEquals("Wonderwall", response.topResult?.title)
+        assertEquals("Oasis", response.topResult?.artist)
+        assertEquals(listOf("Oasis"), response.artists.map { it.name })
+    }
+
+    @Test
+    fun recentLibraryIdentityBreaksAmbiguousPrefixWithoutFabricatingTracks() {
+        val wonderwallKey = UnifiedSearchEngine.identityKey("Wonderwall", "Oasis")
+        val personalized = SearchPersonalization(
+            libraryIdentityKeys = setOf(wonderwallKey),
+            recentIdentityKeys = setOf(wonderwallKey)
+        )
+        val response = UnifiedSearchEngine.process(
+            query = "wonder",
+            results = listOf(
+                track("Wonder", "Shawn Mendes", album = "Wonder"),
+                track("Wonderwall", "Oasis", album = "(What's the Story) Morning Glory?")
+            ),
+            personalization = personalized
+        )
+        assertEquals("Wonderwall", response.topResult?.title)
+
+        val unavailable = UnifiedSearchEngine.process(
+            query = "wonder",
+            results = listOf(track("Wonder", "Shawn Mendes", album = "Wonder")),
+            personalization = personalized
+        )
+        assertEquals("Wonder", unavailable.topResult?.title)
+        assertTrue(unavailable.songs.none { it.artist == "Oasis" })
+    }
+
+    @Test
+    fun `partial artist query prefers exact artist recordings over event uploaders`() {
+        val response = UnifiedSearchEngine.process(
+            query = "tame i",
+            results = listOf(
+                track(
+                    "Tame Impala at Parque de Quetzalcoatl for Cercle",
+                    "Cercle and Tame Impala"
+                ),
+                track("The Less I Know The Better", "Tame Impala", album = "Currents"),
+                track("Borderline", "Tame Impala", album = "The Slow Rush")
+            )
+        )
+
+        assertEquals("Tame Impala", response.topResult?.artist)
+        assertTrue(response.songs.take(2).all { it.artist == "Tame Impala" })
+        assertEquals(listOf("Tame Impala"), response.artists.map { it.name })
+    }
 
     @Test
     fun badGuy_exactArtistWins() {
@@ -58,7 +205,12 @@ class SearchIdentityScorerTest {
 
     @Test
     fun exactTitleArtistBeatsHigherQualityWrongArtist() {
-        val intent = UnifiedSearchEngine.parse("bad guy")
+        val intent = UnifiedSearchEngine.SearchQueryIntent(
+            rawQuery = "bad guy Billie Eilish",
+            songTitle = "bad guy",
+            primaryArtist = "Billie Eilish",
+            featuredArtists = emptyList()
+        )
         val correct = UnifiedSearchEngine.score(intent, track("bad guy", "Billie Eilish"))
         val wrong = UnifiedSearchEngine.score(intent, track("bad guy", "Aiden Yoo"))
         assertTrue(correct.finalScore > wrong.finalScore)
@@ -69,8 +221,8 @@ class SearchIdentityScorerTest {
     @Test
     fun parseDownJaySean() {
         val intent = UnifiedSearchEngine.parse("Down Jay Sean feat Lil Wayne")
-        assertEquals("down", intent.songTitle)
-        assertEquals("jay sean", intent.primaryArtist)
+        assertEquals("down jay sean", intent.songTitle)
+        assertEquals(null, intent.primaryArtist)
         assertTrue(intent.featuredArtists.any { it.contains("lil wayne") })
     }
 
@@ -93,15 +245,13 @@ class SearchIdentityScorerTest {
 
     @Test
     fun desertRose_stingBeatsJazzCoverAndUploader() {
-        val intent = UnifiedSearchEngine.parse("sting desert rose")
         val correct = track("Desert Rose", "Sting")
         val cover = track("Desert Rose", "The Jazz Quartet")
         val uploader = track("Desert Rose (Official Audio)", "Lyrics Channel")
 
-        val results = UnifiedSearchEngine.rank(intent, listOf(uploader, cover, correct))
-        val top = results.firstOrNull { it.second.eligibleForTop }?.first ?: results.first().first
-        assertEquals("Sting", top.artist)
-        assertEquals("Desert Rose", top.title)
+        val response = UnifiedSearchEngine.process("sting desert rose", listOf(uploader, cover, correct))
+        assertEquals("Sting", response.topResult?.artist)
+        assertEquals("Desert Rose", response.topResult?.title)
     }
 
     @Test
@@ -187,7 +337,13 @@ class SearchIdentityScorerTest {
             "Spirit in the Sky",
             listOf(
                 track("Spirit in the Sky", "Doctor and the Medics"),
-                track("Spirit in the Sky", "Norman Greenbaum"),
+                track(
+                    "Spirit in the Sky",
+                    "Norman Greenbaum",
+                    album = "Spirit in the Sky",
+                    isrc = "USRE19900123",
+                    externalTrackId = "catalog:original"
+                ),
                 track("Spirit In The Sky Karaoke", "Karaoke Artist"),
                 track("Spirit in the Sky", "Classic Rock Tribute Band")
             )

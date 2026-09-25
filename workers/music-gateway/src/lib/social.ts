@@ -5,8 +5,11 @@ import type {
   LibrarySnapshotDto,
 } from "../sync/types";
 import type { Env } from "../types";
+import { kvWritesEnabled } from "./cache";
 
 const ACTIVITY_TTL_SECONDS = 86_400; // 1 day
+const ACTIVITY_MIN_INTERVAL_MS = 30_000;
+const activityLastWrite = new Map<string, number>();
 
 function friendsKey(userId: string): string {
   return `friends:${userId.trim().toLowerCase()}`;
@@ -38,9 +41,10 @@ async function safePut(
   kv: KVNamespace | undefined,
   key: string,
   value: string,
-  options?: KVNamespacePutOptions
+  options?: KVNamespacePutOptions,
+  writesEnabled = true
 ): Promise<boolean> {
-  if (!kv) return false;
+  if (!kv || !writesEnabled) return false;
   try {
     await kv.put(key, value, options);
     return true;
@@ -89,14 +93,14 @@ export async function addFriend(env: Env, userId: string, friendId: string): Pro
   const friendIds = await getFriendIds(env, ownerId);
   if (!friendIds.includes(targetId)) {
     friendIds.push(targetId);
-    await safePut(env.SOCIAL_KV, friendsKey(ownerId), JSON.stringify(friendIds));
+    await safePut(env.SOCIAL_KV, friendsKey(ownerId), JSON.stringify(friendIds), undefined, kvWritesEnabled(env));
   }
 
   // Symmetric friendship for MVP cross-device feeds.
   const reverseIds = await getFriendIds(env, targetId);
   if (!reverseIds.includes(ownerId)) {
     reverseIds.push(ownerId);
-    await safePut(env.SOCIAL_KV, friendsKey(targetId), JSON.stringify(reverseIds));
+    await safePut(env.SOCIAL_KV, friendsKey(targetId), JSON.stringify(reverseIds), undefined, kvWritesEnabled(env));
   }
 
   return { friendIds };
@@ -113,13 +117,21 @@ export async function getActivity(env: Env, userId: string): Promise<ActivityEve
 }
 
 export async function putActivity(env: Env, userId: string, event: ActivityEventDto): Promise<void> {
+  const ownerId = normalizeUserId(userId);
+  const lastWrite = activityLastWrite.get(ownerId) ?? 0;
+  const now = Date.now();
+  if (now - lastWrite < ACTIVITY_MIN_INTERVAL_MS) {
+    console.log("VANTA_SOCIAL_RATE_LIMIT", JSON.stringify({ userId: ownerId, deltaMs: now - lastWrite }));
+    return;
+  }
+  activityLastWrite.set(ownerId, now);
   const normalized = {
     ...event,
-    userId: normalizeUserId(event.userId || userId),
+    userId: ownerId,
   };
   await safePut(env.SOCIAL_KV, activityKey(normalized.userId), JSON.stringify(normalized), {
     expirationTtl: ACTIVITY_TTL_SECONDS,
-  });
+  }, kvWritesEnabled(env));
 }
 
 export async function getFriendActivityFeed(
@@ -186,7 +198,7 @@ export async function putLibrarySnapshot(
     ).slice(0, 50),
   };
 
-  await safePut(env.SOCIAL_KV, libraryKey(ownerId), JSON.stringify(merged));
+  await safePut(env.SOCIAL_KV, libraryKey(ownerId), JSON.stringify(merged), undefined, kvWritesEnabled(env));
   return { snapshotId, serverTracksMerged: mergedTracks.length };
 }
 

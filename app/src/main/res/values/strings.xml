@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">VANTA Music</string>
+    <string name="startup_title">VANTA</string>
+    <string name="startup_preparing_audio_engine">Preparing the lossless audio engine</string>
+    <string name="startup_audio_engine_error">VANTA could not initialize its audio engine. Restart the app.</string>
+    <string name="widget_expanded_desc">VANTA Hi-Res player with album art and full playback controls.</string>
+    <string name="widget_compact_desc">VANTA compact pill with instant playback controls.</string>
 </resources>

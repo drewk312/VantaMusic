@@ -50,6 +50,17 @@ object StartupSafeguard {
             }
     }
 
+    fun shouldResetNavigationState(context: Context): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getInt(KEY_CRASH_COUNT, 0) >= 2
+    }
+
+    fun acknowledgeNavigationRecovery(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putInt(KEY_CRASH_COUNT, 0)
+        }
+    }
+
     fun recoverVolatileState(context: Context) {
         Log.w(TAG, "Clearing volatile playback prefs after repeated startup failures")
         context.getSharedPreferences("playback_state", Context.MODE_PRIVATE).edit {

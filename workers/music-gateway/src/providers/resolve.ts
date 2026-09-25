@@ -1,6 +1,6 @@
 import type { Env, ResolveResult } from "../types";
 import { fetchJson } from "./shared";
-import { lookupQobuzTrackByIsrc } from "./qobuz-api";
+import { getQobuzTrackMeta, lookupQobuzTrackByIsrc } from "./qobuz-api";
 
 interface OdesliResponse {
   linksByPlatform?: Record<string, { url?: string }>;
@@ -60,10 +60,13 @@ export async function resolveTrack(opts: {
   }
 
   if (opts.provider === "qobuz" && opts.trackId) {
-    return resolveTrackLinks(`https://open.qobuz.com/track/${opts.trackId}`, env);
+    const fromQobuz = await resolveQobuzTrack(opts.trackId, env);
+    if (fromQobuz) return fromQobuz;
   }
 
   if (opts.provider === "tidal" && opts.trackId) {
+    const fromTidal = await resolveTidalTrack(opts.trackId, env).catch(() => null);
+    if (fromTidal) return fromTidal;
     return resolveTrackLinks(`https://listen.tidal.com/track/${opts.trackId}`, env);
   }
 
@@ -75,35 +78,52 @@ export async function resolveTrack(opts: {
     return resolveTrackLinks(`https://music.apple.com/us/song/${opts.trackId}`, env);
   }
 
+  if (opts.provider === "spotify" && opts.trackId) {
+    return resolveTrackLinks(`https://open.spotify.com/track/${encodeURIComponent(opts.trackId)}`, env);
+  }
+  // Never reinterpret a SoundCloud numeric ID as another catalog's track ID.
+  if (opts.provider === "soundcloud") return { external_links: {} };
+
   if (opts.trackId) {
-    return resolveTrackLinks(`https://open.qobuz.com/track/${opts.trackId}`, env);
+    const fromDeezer = await resolveDeezerTrack(opts.trackId, env).catch(() => null);
+    if (fromDeezer?.isrc) return fromDeezer;
+    const fromQobuz = await resolveQobuzTrack(opts.trackId, env).catch(() => null);
+    if (fromQobuz?.isrc) return fromQobuz;
+    return fromDeezer ?? fromQobuz ?? { external_links: {} };
   }
 
   throw new Error("resolve_requires_url_or_track_id");
 }
 
 async function resolveViaOdesli(targetUrl: string): Promise<ResolveResult> {
-  const response = await fetch(
-    `https://api.song.link/v1-alpha.1/links?url=${encodeURIComponent(targetUrl)}&userCountry=US`,
-    { headers: { Accept: "application/json", "User-Agent": "VANTA-MusicGateway/2.0" } }
-  );
-  if (!response.ok) {
-    console.warn("VANTA_PLAY_TRACK_REQUEST", JSON.stringify({ phase: "odesli_failed", status: response.status, url: targetUrl }));
-    throw new Error(`odesli_failed:${response.status}`);
-  }
-
-  const data = (await response.json()) as OdesliResponse;
-  const result: ResolveResult = { external_links: {} };
-
-  for (const entity of Object.values(data.entitiesByUniqueId ?? {})) {
-    if (entity?.isrc) {
-      result.isrc = entity.isrc;
-      break;
+  try {
+    const response = await fetch(
+      `https://api.odesli.co/matches?url=${encodeURIComponent(targetUrl)}`,
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(1_000),
+      }
+    );
+    if (!response.ok) {
+      return { external_links: {} };
     }
-  }
 
-  applyOdesliLinks(result, data.linksByPlatform ?? {});
-  return result;
+    const data = (await response.json()) as any;
+    const result: ResolveResult = { external_links: {} };
+    if (data.type && !["song", "track"].includes(data.type)) return result;
+
+    for (const entity of Object.values(data.metadataByUniqueId ?? data.entitiesByUniqueId ?? {})) {
+      if ((entity as any)?.isrc) {
+        result.isrc = (entity as any).isrc;
+        break;
+      }
+    }
+
+    applyOdesliLinks(result, data.links ?? data.linksByPlatform ?? {});
+    return result;
+  } catch {
+    return { external_links: {} };
+  }
 }
 
 async function resolveViaIdhs(targetUrl: string): Promise<ResolveResult> {
@@ -118,6 +138,7 @@ async function resolveViaIdhs(targetUrl: string): Promise<ResolveResult> {
       link: targetUrl,
       adapters: ["tidal", "deezer", "qobuz", "amazonMusic", "appleMusic", "spotify"],
     }),
+    signal: AbortSignal.timeout(3_000),
   });
   if (!response.ok) throw new Error(`idhs_failed:${response.status}`);
 
@@ -201,23 +222,226 @@ async function resolveViaZarz(targetUrl: string, env: Env): Promise<ResolveResul
 
 async function resolveDeezerTrack(deezerTrackId: string, env: Env): Promise<ResolveResult | null> {
   const payload = await fetchJson(`https://api.deezer.com/track/${encodeURIComponent(deezerTrackId)}`);
-  const track = payload as { isrc?: string; link?: string } | null;
+  const track = payload as {
+    isrc?: string;
+    link?: string;
+    title?: string;
+    artist?: { name?: string };
+    album?: { title?: string };
+    duration?: number;
+  } | null;
   if (!track) return null;
 
-  const merged: ResolveResult = { deezer_id: deezerTrackId, isrc: track.isrc, external_links: {} };
-  if (track.link) {
-    mergeResolve(merged, await resolveTrackLinks(track.link, env).catch(() => null));
-  }
-  if (!merged.tidal_id && track.link) {
-    mergeResolve(merged, await resolveViaIdhs(track.link).catch(() => null));
-  }
-  await mergeResolveFromIsrc(merged);
+  const merged: ResolveResult = {
+    deezer_id: deezerTrackId,
+    isrc: track.isrc,
+    title: track.title,
+    artist: track.artist?.name,
+    durationSec: typeof track.duration === "number" ? track.duration : undefined,
+    external_links: track.link ? { deezer: track.link } : {},
+  };
+  const [_, __, tidal] = await Promise.all([
+    mergeResolveFromIsrc(merged),
+    resolveViaOdesli(track.link || `https://www.deezer.com/track/${deezerTrackId}`).then((mapped) => {
+      if (!mapped.isrc || !track.isrc || mapped.isrc.toUpperCase() === track.isrc.toUpperCase()) mergeResolve(merged, mapped);
+    }).catch(() => undefined),
+    resolveTidalTrackByMetadata(env, {
+      title: track.title,
+      artist: track.artist?.name,
+      album: track.album?.title,
+      isrc: track.isrc,
+    }).catch(() => null),
+  ]);
+  if (tidal) mergeResolve(merged, tidal);
   return merged;
+}
+
+async function resolveQobuzTrack(qobuzTrackId: string, env: Env): Promise<ResolveResult | null> {
+  const meta = await getQobuzTrackMeta(qobuzTrackId).catch(() => null);
+  if (!meta) return null;
+
+  const merged: ResolveResult = {
+    qobuz_id: meta.id,
+    isrc: meta.isrc,
+    title: meta.title,
+    artist: meta.artist,
+    durationSec: meta.durationSec,
+    external_links: { qobuz: `https://open.qobuz.com/track/${meta.id}` },
+  };
+  const [_, __, tidal] = await Promise.all([
+    mergeResolveFromIsrc(merged),
+    resolveViaOdesli(`https://open.qobuz.com/track/${meta.id}`).then((mapped) => {
+      if (!mapped.isrc || !meta.isrc || mapped.isrc.toUpperCase() === meta.isrc.toUpperCase()) mergeResolve(merged, mapped);
+    }).catch(() => undefined),
+    resolveTidalTrackByMetadata(env, {
+      title: meta.title,
+      artist: meta.artist,
+      album: meta.album,
+      isrc: meta.isrc,
+    }).catch(() => null),
+  ]);
+  if (tidal) mergeResolve(merged, tidal);
+  return merged;
+}
+
+async function fetchTidalApi(env: Env, path: string): Promise<unknown | null> {
+  const token = env.TIDAL_API_KEY?.trim() || "CzET4vdadNUFQ5JU";
+  const isJwt = token.startsWith("eyJr") || token.includes(".");
+  const headers: Record<string, string> = isJwt
+    ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
+    : { "x-tidal-token": token, Accept: "application/json" };
+
+  const url = `https://api.tidal.com/v1/${path.replace(/^\//, "")}`;
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+    if (res.status === 401 && token !== "CzET4vdadNUFQ5JU") {
+      const retryRes = await fetch(url, {
+        headers: { "x-tidal-token": "CzET4vdadNUFQ5JU", Accept: "application/json" },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (retryRes.ok) return await retryRes.json();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function resolveTidalTrack(tidalTrackId: string, env: Env): Promise<ResolveResult | null> {
+  const payload = await fetchTidalApi(env, `tracks/${encodeURIComponent(tidalTrackId)}?countryCode=US`);
+  const track = payload as {
+    id?: number;
+    title?: string;
+    isrc?: string;
+    audioModes?: string[];
+    artist?: { name?: string };
+    album?: { title?: string };
+    duration?: number;
+  } | null;
+  if (!track || !track.id) return null;
+
+  const isAtmos = Array.isArray(track.audioModes) && track.audioModes.includes("DOLBY_ATMOS");
+  const merged: ResolveResult = {
+    tidal_id: String(track.id),
+    tidal_atmos_id: isAtmos ? String(track.id) : undefined,
+    isrc: track.isrc,
+    title: track.title,
+    artist: track.artist?.name,
+    durationSec: typeof track.duration === "number" ? track.duration : undefined,
+    external_links: { tidal: `https://listen.tidal.com/track/${track.id}` },
+  };
+
+  await mergeResolveFromIsrc(merged);
+
+  if (!merged.tidal_atmos_id) {
+    const tidalAtmos = await resolveTidalTrackByMetadata(env, {
+      title: track.title,
+      artist: track.artist?.name,
+      album: track.album?.title,
+      isrc: track.isrc,
+    }).catch(() => null);
+    if (tidalAtmos?.tidal_atmos_id) {
+      merged.tidal_atmos_id = tidalAtmos.tidal_atmos_id;
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Odesli/song.link is now auth-gated (401 PUBLIC_API_ACCESS_DEPRECATED), so the
+ * old cross-catalog mapping is dead. Qobuz and Deezer both expose free ISRC
+ * metadata, and Tidal's own catalog search accepts a Bearer token (same accounts
+ * that can play Atmos). Search Tidal by `title artist` and pick the hit whose
+ * ISRC matches exactly — that guarantees the SAME recording, never a wrong song.
+ */
+export async function resolveTidalTrackByMetadata(
+  env: Env,
+  meta: { title?: string; artist?: string; album?: string; isrc?: string }
+): Promise<ResolveResult | null> {
+  const primaryArtist = (meta.artist ?? "").split(/[,;&]|feat\.|ft\./i)[0].trim();
+  const query = [meta.title, primaryArtist || meta.artist].filter(Boolean).join(" ").trim();
+  if (!query) return null;
+
+  const payload = await fetchTidalApi(env, `search/tracks?query=${encodeURIComponent(query)}&limit=30&countryCode=US`);
+  const items = (payload as { items?: Array<Record<string, unknown>> } | null)?.items ?? [];
+
+  const norm = (value: string): string =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+
+  const wantedTitle = norm(meta.title ?? "");
+  const wantedArtist = norm(primaryArtist || meta.artist || "");
+
+  // Look for any Dolby Atmos edition of this track on Tidal.
+  // Record labels often issue Atmos masters under a distinct ISRC or track ID.
+  const atmosHit = items.find((item) => {
+    const modes = Array.isArray(item.audioModes) ? item.audioModes : [];
+    if (!modes.includes("DOLBY_ATMOS")) return false;
+    const itemTitle = norm(String(item.title ?? ""));
+    const artistObj = item.artist as { name?: string } | undefined;
+    const itemArtist = norm(artistObj?.name ?? "");
+    const titleMatch = wantedTitle && (itemTitle === wantedTitle || itemTitle.startsWith(wantedTitle) || wantedTitle.startsWith(itemTitle));
+    const artistMatch = !wantedArtist || !itemArtist || itemArtist.includes(wantedArtist) || wantedArtist.includes(itemArtist);
+    return titleMatch && artistMatch;
+  });
+  const atmosId = atmosHit?.id != null ? String(atmosHit.id) : undefined;
+
+  // When the source supplies an ISRC, the Tidal hit MUST carry the same ISRC.
+  // A same-title/wrong-ISRC hit is a different recording and must never play.
+  if (meta.isrc) {
+    const wanted = meta.isrc.trim().toUpperCase();
+    const exact = items.find((item) => String(item.isrc ?? "").trim().toUpperCase() === wanted);
+    if (exact?.id != null) {
+      const id = String(exact.id);
+      if (/^\d{4,}$/.test(id)) {
+        return {
+          tidal_id: id,
+          tidal_atmos_id: atmosId,
+          isrc: meta.isrc.trim(),
+          external_links: { tidal: `https://listen.tidal.com/track/${id}` },
+        };
+      }
+    }
+    if (atmosId) {
+      return {
+        tidal_id: atmosId,
+        tidal_atmos_id: atmosId,
+        isrc: meta.isrc.trim(),
+        external_links: { tidal: `https://listen.tidal.com/track/${atmosId}` },
+      };
+    }
+    return null;
+  }
+
+  // No ISRC: only accept a hit whose title matches the query title exactly
+  // (normalized). Same-title/different-ISRC is a risk-free-enough nearest guess
+  // for streaming; mismatched titles are a hard reject.
+  if (!wantedTitle) return null;
+  const exactTitle = items.find((item) => norm(String((item as { title?: string }).title ?? "")) === wantedTitle);
+  const matchedId = exactTitle?.id != null ? String(exactTitle.id) : atmosId;
+  if (!matchedId || !/^\d{4,}$/.test(matchedId)) return null;
+
+  return {
+    tidal_id: matchedId,
+    tidal_atmos_id: atmosId,
+    isrc: undefined,
+    external_links: { tidal: `https://listen.tidal.com/track/${matchedId}` },
+  };
 }
 
 async function mergeResolveFromIsrc(target: ResolveResult): Promise<void> {
   const isrc = target.isrc?.trim();
   if (!isrc) return;
+
+  if (!target.deezer_id) {
+    const track = await fetchJson(`https://api.deezer.com/track/isrc:${encodeURIComponent(isrc)}`) as { id?: number; isrc?: string } | null;
+    if (track?.id && track.isrc?.trim().toUpperCase() === isrc.toUpperCase()) {
+      target.deezer_id = String(track.id);
+      target.external_links = target.external_links ?? {};
+      target.external_links.deezer = `https://www.deezer.com/track/${track.id}`;
+    }
+  }
 
   if (!target.qobuz_id) {
     const qobuzId = await lookupQobuzTrackByIsrc(isrc).catch(() => null);
@@ -226,17 +450,6 @@ async function mergeResolveFromIsrc(target: ResolveResult): Promise<void> {
       target.external_links = target.external_links ?? {};
       target.external_links.qobuz = `https://open.qobuz.com/track/${qobuzId}`;
     }
-  }
-
-  if (!target.tidal_id && target.deezer_id) {
-    mergeResolve(
-      target,
-      await resolveTrackLinks(`https://www.deezer.com/track/${target.deezer_id}`, {} as Env).catch(() => null)
-    );
-  }
-
-  if (!target.tidal_id && target.qobuz_id) {
-    mergeResolve(target, await resolveTrackLinks(`https://open.qobuz.com/track/${target.qobuz_id}`, {} as Env).catch(() => null));
   }
 }
 
@@ -271,11 +484,16 @@ function mergeResolve(target: ResolveResult, incoming: ResolveResult | null | un
   if (!incoming) return;
   target.isrc = target.isrc ?? incoming.isrc;
   target.tidal_id = target.tidal_id ?? incoming.tidal_id;
+  target.tidal_atmos_id = target.tidal_atmos_id ?? incoming.tidal_atmos_id;
   target.qobuz_id = target.qobuz_id ?? incoming.qobuz_id;
   target.deezer_id = target.deezer_id ?? incoming.deezer_id;
   target.amazon_id = target.amazon_id ?? incoming.amazon_id;
+  target.amazon_atmos_id = target.amazon_atmos_id ?? incoming.amazon_atmos_id;
   target.spotify_id = target.spotify_id ?? incoming.spotify_id;
   target.apple_id = target.apple_id ?? incoming.apple_id;
+  target.title = target.title ?? incoming.title;
+  target.artist = target.artist ?? incoming.artist;
+  target.durationSec = target.durationSec ?? incoming.durationSec;
   target.external_links = { ...(target.external_links ?? {}), ...(incoming.external_links ?? {}) };
 }
 

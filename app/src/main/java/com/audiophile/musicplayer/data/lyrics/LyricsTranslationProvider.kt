@@ -52,7 +52,7 @@ class LyricsTranslationProvider(
                     if (response != null) {
                         val translated = response.lines()
                             .map { it.trim() }
-                            .filter { it.isNotBlank() && !it.startsWith("---") }
+                            .filterNot { it.startsWith("---") }
                         var ti = 0
                         chunk.forEach { original ->
                             if (cache.containsKey(original)) {
