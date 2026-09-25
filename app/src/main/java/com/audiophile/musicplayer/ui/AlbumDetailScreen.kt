@@ -205,7 +205,7 @@ fun AlbumDetailScreen(
                 item {
                     Text("${catalogTracks.size} songs", color = AppTextSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                 }
-                itemsIndexed(catalogTracks, key = { _, track -> track.isrc ?: "${track.discNumber}|${track.trackNumber}|${track.title}" }) { index, track ->
+                itemsIndexed(catalogTracks, key = { index, track -> track.isrc?.let { "${it}_$index" } ?: "${track.discNumber}_${track.trackNumber}_${track.title}_$index" }) { index, track ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).clickable { onPlayCatalogTrack(track) },
                         verticalAlignment = Alignment.CenterVertically,
@@ -274,7 +274,7 @@ fun AlbumDetailScreen(
                     )
                 }
 
-                itemsIndexed(tracks) { index, track ->
+                itemsIndexed(tracks, key = { index, track -> "${track.track.trackId}_$index" }) { index, track ->
                     val display = remember(track.track) { TrackDisplayResolver.resolve(track.track) }
                     val status = track.sourceValidityStatus()
                     val qualityInfo = remember(track.sources, status) {

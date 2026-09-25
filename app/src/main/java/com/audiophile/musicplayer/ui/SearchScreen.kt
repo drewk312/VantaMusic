@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
@@ -522,14 +523,14 @@ fun SearchScreen(
                             Spacer(Modifier.height(12.dp))
                             if (selectedSearchTab == "All") {
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    items(playlists.take(6), key = { it.id ?: it.title }) { playlist ->
+                                    itemsIndexed(playlists.take(6), key = { index, playlist -> "${playlist.id ?: playlist.title}_$index" }) { _, playlist ->
                                         SearchPlaylistCard(playlist, onOpen = { onOpenCatalogPlaylist(playlist) })
                                     }
                                 }
                             }
                         }
                         if (selectedSearchTab == "Playlists") {
-                            items(playlists.chunked(2), key = { row -> row.joinToString("|") { it.id ?: it.title } }) { row ->
+                            itemsIndexed(playlists.chunked(2), key = { rowIndex, _ -> "search_playlist_row_$rowIndex" }) { _, row ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     row.forEach { playlist ->
                                         SearchPlaylistCard(

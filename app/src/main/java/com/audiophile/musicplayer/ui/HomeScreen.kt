@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -384,7 +385,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
                 ) {
-                    items(recentlyPlayed, key = { it.track.trackId }) { track ->
+                    itemsIndexed(recentlyPlayed, key = { index, track -> "recent_${track.track.trackId}_$index" }) { _, track ->
                         ArtworkCard(
                             track = track,
                             onPlay = { onPlayTrack(track) }
@@ -406,7 +407,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
                 ) {
-                    items(heavyRotation, key = { it.track.trackId }) { track ->
+                    itemsIndexed(heavyRotation, key = { index, track -> "heavy_${track.track.trackId}_$index" }) { _, track ->
                         ArtworkCard(
                             track = track,
                             onPlay = { onPlayTrack(track) }
@@ -439,7 +440,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(horizontal = VantaSpacing.screenHorizontal)
                 ) {
-                    items(becauseYouPlayed, key = { it.track.trackId }) { track ->
+                    itemsIndexed(becauseYouPlayed, key = { index, track -> "because_${track.track.trackId}_$index" }) { _, track ->
                         ArtworkCard(
                             track = track,
                             onPlay = { onPlayTrack(track) }
@@ -1307,7 +1308,7 @@ private fun HomeCatalogHighlights(
 ) {
     if (forYouArtist != null && forYouTracks.isNotEmpty()) {
         HomeCatalogSection(title = "Because you listened to $forYouArtist") {
-            items(forYouTracks, key = { "fy:${it.id}" }) { track ->
+            itemsIndexed(forYouTracks, key = { index, track -> "fy_${track.id}_$index" }) { _, track ->
                 GatewayTrackCard(result = track, badge = "FOR YOU", onClick = { onPlayTrack(track) })
             }
         }
@@ -1334,28 +1335,28 @@ private fun HomeCatalogHighlights(
     }
     if (homeFeed.playlists.isNotEmpty()) {
         HomeCatalogSection(title = "Playlists For You") {
-            items(homeFeed.playlists, key = { it.id }) { playlist ->
+            itemsIndexed(homeFeed.playlists, key = { index, playlist -> "pl_${playlist.id}_$index" }) { _, playlist ->
                 HomePlaylistCard(playlist = playlist, onClick = { onOpenPlaylist(playlist) })
             }
         }
     }
     homeFeed.freshDrops.takeIf { it.isNotEmpty() }?.let { drops ->
         HomeCatalogSection(title = "Fresh Drops") {
-            items(drops, key = { it.id }) { drop ->
+            itemsIndexed(drops, key = { index, drop -> "drop_${drop.id}_$index" }) { _, drop ->
                 GatewayTrackCard(result = drop, badge = "NEW", onClick = { onPlayTrack(drop) })
             }
         }
     }
     homeFeed.popularTracks.takeIf { it.isNotEmpty() }?.let { popular ->
         HomeCatalogSection(title = "Popular Right Now") {
-            items(popular, key = { it.id }) { track ->
+            itemsIndexed(popular, key = { index, track -> "pop_${track.id}_$index" }) { _, track ->
                 GatewayTrackCard(result = track, badge = "HOT", onClick = { onPlayTrack(track) })
             }
         }
     }
     homeFeed.trendingNow.takeIf { it.isNotEmpty() }?.let { trending ->
         HomeCatalogSection(title = "Trending Now") {
-            items(trending, key = { it.id }) { track ->
+            itemsIndexed(trending, key = { index, track -> "trend_${track.id}_$index" }) { _, track ->
                 GatewayTrackCard(result = track, badge = "TREND", onClick = { onPlayTrack(track) })
             }
         }

@@ -109,7 +109,7 @@ fun QueueView(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                itemsIndexed(upNext, key = { _, track -> track.track.trackId }) { index, track ->
+                itemsIndexed(upNext, key = { index, track -> "${track.track.trackId}_$index" }) { index, track ->
                     QueueTrackRow(index, track, isFirst = index == 0, onMoveQueueItem, onRemoveQueueItem, onOpenTrackSheet)
                 }
             }

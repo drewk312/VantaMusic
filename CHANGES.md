@@ -11,6 +11,8 @@
   - `MainActivity.kt`: Replaced opaque black system bar backgrounds (`window.statusBarColor` and `window.navigationBarColor`) with transparent drawing (`Color.TRANSPARENT`) and disabled navigation contrast enforcement. The AMOLED background and UI chrome now flow seamlessly under the navigation gesture bar with zero distracting black bars left behind.
 - **Immersive Fullscreen Mode**:
   - `SettingsScreen.kt` & `MainActivity.kt`: Added a dedicated "Immersive Fullscreen" toggle switch under Appearance settings. When enabled, system status and navigation bars are hidden using `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` (swipe from screen edge to reveal), providing a pure distraction-free edge-to-edge listening experience.
+- **Compose Stability & Duplicate Key Hardening**:
+  - `QueueView.kt`, `AlbumDetailScreen.kt`, `SearchScreen.kt`, & `HomeScreen.kt`: Hardened all `LazyColumn` and `LazyRow` item keys with position-scoped indexed keys (`key = { index, ... -> "..._$index" }`), eliminating crashes when a queue, album, or home shelf contains duplicate tracks or repeated playlists.
 
 ## 1.02 Hotfixes (Initial)
 
