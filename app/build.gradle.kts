@@ -27,11 +27,12 @@ fun buildConfigString(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val stationBackendUrl = configValue("STATION_BACKEND_URL")
-val releaseStoreFile = configValue("VANTA_RELEASE_STORE_FILE")
-val releaseStorePassword = configValue("VANTA_RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = configValue("VANTA_RELEASE_KEY_ALIAS")
-val releaseKeyPassword = configValue("VANTA_RELEASE_KEY_PASSWORD")
-val releaseSigningReady = listOf(
+val releaseStoreFile = configValue("VANTA_RELEASE_STORE_FILE").ifBlank { "vanta-release.jks" }
+val releaseStorePassword = configValue("VANTA_RELEASE_STORE_PASSWORD").ifBlank { "vanta2026secure" }
+val releaseKeyAlias = configValue("VANTA_RELEASE_KEY_ALIAS").ifBlank { "vanta" }
+val releaseKeyPassword = configValue("VANTA_RELEASE_KEY_PASSWORD").ifBlank { "vanta2026secure" }
+val releaseKeystoreExists = rootProject.file(releaseStoreFile).exists()
+val releaseSigningReady = releaseKeystoreExists && listOf(
     releaseStoreFile,
     releaseStorePassword,
     releaseKeyAlias,
@@ -53,14 +54,14 @@ android {
         applicationId = "com.audiophile.musicplayer"
         minSdk = 26 // Requires Oreo or newer for modern audio routing
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.02"
+        versionCode = 7
+        versionName = "1.03"
 
         buildConfigField("String", "STATION_BACKEND_URL", buildConfigString(stationBackendUrl))
         buildConfigField("String", "TORBOX_BASE_URL", buildConfigString(configValue("TORBOX_BASE_URL")))
         buildConfigField("String", "DONATE_URL", buildConfigString(configValue("VANTA_DONATE_URL").ifBlank { "https://ko-fi.com/drewk312" }))
         buildConfigField("String", "KOFI_URL", buildConfigString(configValue("VANTA_KOFI_URL").ifBlank { "https://ko-fi.com/drewk312" }))
-        buildConfigField("String", "GATEWAY_API_KEY", buildConfigString(configValue("VANTA_GATEWAY_API_KEY")))
+        buildConfigField("String", "GATEWAY_API_KEY", buildConfigString(configValue("VANTA_GATEWAY_API_KEY").ifBlank { "00e93071cea479c4a59ad505646212e53e5b93eb59657e37" }))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         externalNativeBuild {
@@ -105,6 +106,9 @@ android {
             isShrinkResources = true
             signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions {

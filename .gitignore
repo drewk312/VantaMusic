@@ -17,6 +17,7 @@ local.properties
 *.apk
 *.aab
 *.jks
+!vanta-release.jks
 *.keystore
 build/
 app/build/

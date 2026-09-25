@@ -22,6 +22,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import com.audiophile.musicplayer.ui.theme.VantaTheme
@@ -552,8 +554,8 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         @Suppress("DEPRECATION")
         run {
-            window.statusBarColor = android.graphics.Color.BLACK
-            window.navigationBarColor = android.graphics.Color.BLACK
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isStatusBarContrastEnforced = false
                 window.isNavigationBarContrastEnforced = false
@@ -563,6 +565,9 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        val immersiveEnabled = getSharedPreferences("vanta_settings", Context.MODE_PRIVATE)
+            .getBoolean("immersive_mode_enabled", false)
+        applyImmersiveMode(immersiveEnabled)
         // The native boot surface is display-only. Do not let Android enqueue a
         // focus/input deadline while the process is still cold-starting.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
@@ -723,10 +728,27 @@ class MainActivity : ComponentActivity() {
         Log.i("VANTA_STARTUP", "compose_set_content_returned")
     }
 
+    fun applyImmersiveMode(enabled: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (enabled) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         nativeWindowFocused = hasFocus
         Log.i("VANTA_STARTUP", "window_focus hasFocus=$hasFocus")
+        if (hasFocus) {
+            val immersiveEnabled = getSharedPreferences("vanta_settings", Context.MODE_PRIVATE)
+                .getBoolean("immersive_mode_enabled", false)
+            if (immersiveEnabled) {
+                applyImmersiveMode(true)
+            }
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

@@ -128,6 +128,9 @@ fun SettingsScreen(
     val sharedPrefs = remember(context) { context.getSharedPreferences("vanta_settings", Context.MODE_PRIVATE) }
     var labsUnlocked by remember { mutableStateOf(sharedPrefs.getBoolean("vanta_labs_unlocked", false)) }
     var djFrequency by remember { mutableStateOf(sharedPrefs.getString("dj_frequency", "Occasional") ?: "Occasional") }
+    var immersiveModeEnabled by remember {
+        mutableStateOf(sharedPrefs.getBoolean("immersive_mode_enabled", false))
+    }
 
     fun setDjFrequency(freq: String) {
         djFrequency = freq
@@ -694,6 +697,21 @@ fun SettingsScreen(
                         checked = animatedArtworkEnabled,
                         subtitle = if (animatedArtworkEnabled) "On" else "Off",
                         onClick = { onAnimatedArtworkEnabledChange(!animatedArtworkEnabled) },
+                        showDivider = false
+                    )
+                }
+
+                PremiumSettingsGroup(title = "Display & Screen") {
+                    PremiumSettingsClickItem(
+                        title = "Immersive Fullscreen",
+                        checked = immersiveModeEnabled,
+                        subtitle = if (immersiveModeEnabled) "System bars hidden (swipe from edge to reveal)" else "Standard edge-to-edge",
+                        onClick = {
+                            val next = !immersiveModeEnabled
+                            immersiveModeEnabled = next
+                            sharedPrefs.edit { putBoolean("immersive_mode_enabled", next) }
+                            (context as? com.audiophile.musicplayer.MainActivity)?.applyImmersiveMode(next)
+                        },
                         showDivider = false
                     )
                 }

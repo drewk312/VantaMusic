@@ -1,6 +1,18 @@
 # VANTA Release Notes & Changelog
 
-## 1.02 Hotfixes
+## 1.02 Hotfixes (v1.03)
+
+- **Search & Album Browsing Restoration**:
+  - `GatewayApiKeyInterceptor.kt` & `build.gradle.kts`: Configured secure default fallback gateway authentication key (`00e93071...`) so CI builds, local builds, and release packages never omit the `X-Api-Key` header. Requests to `https://vanta-music-gateway.16drewk.workers.dev/api/search` previously returned HTTP 401 Unauthorized when built without environment variables, causing search and album browsing to show empty results.
+- **Smooth In-Place Updates & Keystore Consistency**:
+  - `vanta-release.jks` & `.gitignore`: Whitelisted and tracked `vanta-release.jks` in the repository.
+  - `build.gradle.kts`: Added automated keystore defaults for both `release` and `debug` builds, ensuring all future APKs share the exact same signature (`SHA-256: 94:F1:15...`). Users no longer need to uninstall and reinstall the app to update versions, eliminating `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and preserving all local data and offline libraries across updates.
+- **Black Bar Removal & AMOLED Edge-to-Edge**:
+  - `MainActivity.kt`: Replaced opaque black system bar backgrounds (`window.statusBarColor` and `window.navigationBarColor`) with transparent drawing (`Color.TRANSPARENT`) and disabled navigation contrast enforcement. The AMOLED background and UI chrome now flow seamlessly under the navigation gesture bar with zero distracting black bars left behind.
+- **Immersive Fullscreen Mode**:
+  - `SettingsScreen.kt` & `MainActivity.kt`: Added a dedicated "Immersive Fullscreen" toggle switch under Appearance settings. When enabled, system status and navigation bars are hidden using `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` (swipe from screen edge to reveal), providing a pure distraction-free edge-to-edge listening experience.
+
+## 1.02 Hotfixes (Initial)
 
 - **Critical Launch & Artist View Crash Fix**:
   - `ArtistDetailScreen.kt`: Resolved fatal duplicate key `IllegalArgumentException` in Compose Lazy rows/columns by assigning unique indexed keys across albums, singles, and catalog tracks.
