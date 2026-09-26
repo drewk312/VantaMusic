@@ -1,21 +1,24 @@
 <div align="center">
 
+<img src="./screenshots/vanta_logo.jpg" width="160" alt="VANTA Luxury Audio Emblem" style="border-radius: 50%; box-shadow: 0 10px 30px rgba(0,0,0,0.8);" />
+
 # 🌌 VANTA
-### Audiophile Hi-Res Lossless & Dolby Atmos Spatial Music Player
+### The Reference Hi-Res Lossless & Dolby Atmos Spatial Music Player
 
 [![Platform](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/drewk312/VantaMusic)
-[![Audio Engine](https://img.shields.io/badge/Audio-32--bit_Float_Bit--Perfect-blue?style=for-the-badge&logo=soundcharts&logoColor=white)](https://github.com/drewk312/VantaMusic)
-[![Spatial](https://img.shields.io/badge/Spatial-Dolby_Atmos_7.1.4_HRTF-purple?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
-[![License](https://img.shields.io/badge/License-Proprietary_Freeware-black?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
-[![Privacy](https://img.shields.io/badge/Privacy-Zero_Ads_%26_Trackers-success?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
-[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/drewk312)
-[![Discord](https://img.shields.io/badge/Discord-Join_the_Community-7289da?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/7P5erYcx2x)
+[![Audio Engine](https://img.shields.io/badge/Audio_Engine-32--bit_Bit--Perfect-gold?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
+[![Spatial Sound](https://img.shields.io/badge/Spatial_Audio-Dolby_Atmos_7.1.4_HRTF-7952B3?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
+[![Spotify Sync](https://img.shields.io/badge/Spotify-1--Click_OAuth_Sync-1DB954?style=for-the-badge&logo=spotify&logoColor=white)](https://github.com/drewk312/VantaMusic)
+[![License](https://img.shields.io/badge/License-Freeware-000000?style=for-the-badge)](https://github.com/drewk312/VantaMusic)
+[![Discord](https://img.shields.io/badge/Community-VANTA_HQ_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/7P5erYcx2x)
+
+<br/>
 
 <p align="center">
-  <b>VANTA</b> is a high-performance Android music player engineered for audiophiles who demand uncompromised sound fidelity, true Dolby Atmos 7.1.4 binaural spatial rendering, and studio-grade DSP on their headphones and speakers.
+  <b>VANTA</b> is a handcrafted, flagship music player engineered for audiophiles who demand true uncompressed acoustic fidelity. Featuring a proprietary binaural <b>7.1.4 Dolby Atmos spatial engine</b>, bit-perfect <b>32-bit/192kHz lossless playback</b>, and <b>1-Click Spotify Library Sync</b>, VANTA turns any standard pair of headphones or speakers into an acoustically calibrated private soundstage.
 </p>
 
-[📥 Download Latest APK](#-download--install) • [✨ Key Features](#-features) • [📸 Screenshots](#-multi-device-showcase) • [🗺️ Roadmap](#-roadmap--upcoming) • [🛡️ Security & Privacy](#-security--privacy) • [🤝 Thanks](#-special-thanks) • [☕ Support](#-support-the-project)
+[📥 Download Latest APK](#-instant-download--setup) • [💎 Acoustic Architecture](#-acoustic-architecture) • [📸 Device Showcase](#-multi-device-showcase) • [🛡️ Privacy & Security](#-security--privacy-guarantee) • [💬 Community](#-join-the-community)
 
 ---
 
@@ -23,137 +26,105 @@
 
 ## 📸 Multi-Device Showcase
 
-### 📺 Android TV & 10-Foot Jukebox Theater
-<p align="center">
-  <img src="./screenshots/vanta_tv_player.png" width="48%" alt="Android TV Jukebox Theater" />
-  &nbsp;
-  <img src="./screenshots/vanta_tv_browse.png" width="48%" alt="Android TV Browse & Radio" />
-</p>
+### 📱 Flagship Mobile Luxury Experience
+> Deep AMOLED Obsidian aesthetics, animated artwork motion canvas, dynamic synchronized lyrics, and real-time audio waveform scrubbing.
 
-### 🚐 RV, In-Car & Landscape Cockpit
 <p align="center">
-  <img src="./screenshots/vanta_rv_player.png" width="48%" alt="RV Landscape Player Mode" />
-  &nbsp;
-  <img src="./screenshots/vanta_rv_lyrics.png" width="48%" alt="RV Landscape Synced Lyrics" />
-</p>
-
-### 📱 Mobile AMOLED Luxury Interface
-<p align="center">
-  <img src="./screenshots/vanta_mobile_player.png" width="38%" alt="Mobile Now Playing & Visualizer" />
+  <img src="./screenshots/vanta_mobile_player.png" width="46%" alt="VANTA Mobile Now Playing" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="./screenshots/vanta_mobile_home.png" width="38%" alt="Mobile Home & Discover" />
+  <img src="./screenshots/vanta_mobile_home.png" width="46%" alt="VANTA Mobile Discover & Library" />
 </p>
 
 ---
 
-## ✨ Features
+### 📺 Android TV & 10-Foot Living Room Theater
+> Tailored for D-pad remote navigation on Google TV, Fire TV, and Nvidia Shield with ambient reactive backdrops and living-room jukebox staging.
 
-### 🎧 Custom Binaural HRTF Spatial Audio Engine
-* **Physical 7.1.4 Speaker Simulation**: Decodes multi-channel spatial streams into physical 3D coordinates (CICP 19 standard: Left, Right, Center, LFE Sub, Surround, Back, and 4 Height/Overhead channels).
-* **Valve Steam Audio Acoustic Pipeline**: Uses high-resolution Head-Related Transfer Functions (HRTF) to reconstruct a lifelike, three-dimensional acoustic space in any pair of standard headphones.
-* **Punchy LFE & High-Frequency Air**: Custom analog-modeled saturation limiter, dedicated subwoofer boost, and a +2.2 dB high-frequency presence filter eliminate the "muffled/quiet" veil common to virtual spatial decoders.
-
-### 💎 Bit-Perfect 32-bit Lossless Playback
-* Direct high-resolution output engine bypassing standard Android 48 kHz mixer resampling.
-* Native decoding for 24-bit/192kHz FLAC, ALAC, WAV, and immersive spatial formats.
-
-### 🎚️ Smart Sound Check (Volume Normalization)
-* Tired of quiet Atmos masters followed by ear-shattering stereo FLAC tracks?
-* VANTA's intelligent format-aware Sound Check levels perceived loudness across albums and playlists, giving Atmos tracks proper headroom while attenuating overly aggressive stereo limiters.
-
-### 🎛️ Studio-Grade JamesDSP Suite
-* **15-Band Parametric Equalizer**: Fine-tune specific frequencies with surgical precision.
-* **AutoEQ Database Integration**: One-tap frequency compensation profiles for over 5,000+ headphone models.
-* **Analog Tube Drive & Limiter**: Add warm harmonic saturation without digital clipping.
-
-### 🌌 Luxury AMOLED Dark Interface
-* **Spotify-Style Canvas Visual Mode**: Immersive full-screen animated motion artwork with audio-reactive bass pumping, cinematic camera drift, and ambient luminous particles.
-* **Intelligent Queue Forming**: Tapping any single song automatically forms a curated "Up Next" queue so your music never abruptly stops.
-* **Instant Shuffle**: Dedicated shuffle toggle right in the player transport controls and player overflow menu.
-* **Smart Search Engine**: Multi-word artist + song title parsing and intelligent candidate scoring to guarantee exact tracks display immediately without missing matches.
-* Adaptive real-time color extraction from album artwork.
-* Smooth, high-refresh-rate Compose UI optimized for one-handed operation, foldables, and tablets.
-* Synchronized dynamic lyrics support.
-
-### 📺 Android TV & RV Camper Theater
-* **10-Foot Leanback Interface**: Dedicated TV experience tailored for D-pad remotes (Google TV, Fire TV, Nvidia Shield) with ambient audio reactive glow.
-* **RV & In-Car Landscape Cockpit**: Responsive panoramic mode with prominent transport buttons, high-visibility track metadata, and large touch targets for automotive and RV mounts.
-* **Cinematic Jukebox Lyrics**: Immersive line-by-line synced lyrics stage turning your television or tablet into a living room jukebox.
-
-### 🔄 In-App Seamless Updating
-* Built-in Over-The-Air (OTA) updater automatically checks for the latest releases with single-tap installation.
+<p align="center">
+  <img src="./screenshots/vanta_tv_home.png" width="48%" alt="VANTA Android TV Home" />
+  &nbsp;
+  <img src="./screenshots/vanta_tv_player.png" width="48%" alt="VANTA Android TV Now Playing" />
+</p>
 
 ---
 
-## 🗺️ Roadmap & Upcoming
+### 🚐 RV, Cockpit & Landscape Panoramic Mode
+> High-contrast oversized touch targets, full-width time alignment, and cinematic line-by-line synced lyrics engineered for automotive and dashboard mounts.
 
-* 🔍 **Spotify-Style Lyrics Match Search**: Search songs instantly by typing lines or fragments of lyrics when you can't recall the title or artist name.
-* 🎧 **Expanded AutoEQ Profiles**: Ongoing additions for newly released planar magnetic and IEM headphone target curves.
-* ⚡ **Advanced Native C++ Audio Optimizations**: Further reducing latency and memory usage on multi-channel spatial streams.
-
----
-
-## 📥 Download & Install
-
-You can download the latest official release APK directly from our GitHub Releases page:
-
-👉 **[Download VANTA v1.05 (Latest Release)](https://github.com/drewk312/VantaMusic/releases/latest)**
-
-### Installation Instructions:
-1. Download `vanta.apk` from the link above or the **Releases** tab.
-2. Tap the downloaded file on your Android device.
-3. If prompted, allow *"Install from unknown sources"* in your browser or file manager settings.
-4. Enjoy your music in bit-perfect spatial clarity!
-
-> **System Requirements**: Android 8.0 (Oreo) or newer. Works with any wired or wireless (Bluetooth LDAC / aptX HD) headphones.
+<p align="center">
+  <img src="./screenshots/vanta_rv_player.png" width="48%" alt="VANTA RV Cockpit Player" />
+  &nbsp;
+  <img src="./screenshots/vanta_rv_lyrics.png" width="48%" alt="VANTA Panoramic Synced Lyrics" />
+</p>
 
 ---
 
-## 🛡️ Security & Privacy
+## 💎 Acoustic Architecture & Features
 
-VANTA is completely free, non-commercial software built by audio enthusiasts with privacy and sound fidelity as our top priorities:
+### 🎧 Custom 7.1.4 Binaural HRTF Spatial Audio Engine
+* **Physical 7.1.4 Speaker Simulation**: Decodes multi-channel spatial audio into physical 3D acoustic coordinates (CICP 19 standard: Left, Right, Center, LFE Subwoofer, Side Surrounds, Rear Surrounds, and 4 Overhead Height channels).
+* **Valve Steam Audio Acoustic Pipeline**: Leverages high-resolution Head-Related Transfer Functions (HRTF) to recreate natural room acoustics and depth perception in standard stereo headphones.
+* **Analog Limiter & High-Frequency Air**: Custom analog-modeled saturation limiter, subwoofer warmth enhancement, and a +2.2 dB air presence filter eliminate the quiet, veiled sound typical of standard software virtualizers.
 
-* **Zero Advertisements**: No banner ads, interstitial popups, or sponsored media.
-* **Zero User Trackers**: No third-party telemetry, behavioral tracking, or data harvesting.
-* **100% VirusTotal Clean**: Scanned across 70+ top antivirus engines with zero detections.
-  * 🔗 **[View Official VirusTotal Analysis Report](https://www.virustotal.com/gui/file/ca7a8628e69c6f5af7062318a840b12ddddfc49ee2ee57e9c2b81db82c989542?nocache=1)** *(0 / 72 detections)*
-* **Release Binary Integrity Check (SHA-256)**:
+### 💎 Bit-Perfect 32-Bit Lossless Signal Path
+* Direct hardware audio pipeline bypassing Android's default 48 kHz mixer resampling.
+* Native decoding for 24-bit/192kHz FLAC, ALAC, WAV, and immersive multichannel containers.
+* Comprehensive audio inspector built directly into the Now Playing menu for real-time container, codec, sample rate, bit depth, and bitrate verification.
+
+### 🟢 1-Click Spotify Library Sync
+* Connect your Spotify account with **1 tap** using secure RFC 7636 PKCE authorization.
+* Zero token pasting or API setup required—automatically imports your **Liked Songs** and **Personal Playlists** directly into VANTA.
+* Automatic silent token refresh protected by Android Keystore hardware encryption.
+
+### 🎛️ Studio-Grade DSP & Parametric EQ Suite
+* **15-Band Parametric Equalizer**: Surgical frequency shaping with variable Q factors and gain compensation.
+* **5,000+ AutoEQ Profiles**: Instant one-tap target compensation curves for thousands of popular over-ear, on-ear, and IEM headphones.
+* **Warm Tube Saturation & Dynamic Limiter**: Gentle analog harmonic drive without digital harshness or clipping.
+
+### 🎚️ Format-Aware Intelligent Sound Check
+* Automatically levels perceived loudness between quiet multichannel Atmos recordings and aggressively compressed stereo masters for smooth, continuous listening.
+
+---
+
+## 📥 Instant Download & Setup
+
+Download the signed release package directly from GitHub Releases:
+
+👉 **[Download VANTA v1.05 APK (Latest Official Release)](https://github.com/drewk312/VantaMusic/releases/latest)**
+
+### Quick Installation:
+1. Tap the download link above to get `vanta.apk`.
+2. Open the downloaded file on your Android device (Android 8.0 Oreo or newer).
+3. If prompted by your browser, tap **Allow from this source**.
+4. Launch **VANTA** and experience your music in pure spatial clarity.
+
+---
+
+## 🛡️ Security & Privacy Guarantee
+
+VANTA is strictly non-commercial, privacy-respecting software built by music lovers for music lovers:
+
+* **Zero Advertisements**: No banner ads, popup interruptions, or commercial breaks.
+* **Zero Telemetry or Trackers**: No third-party analytics, behavioral tracking, or data profiling.
+* **100% VirusTotal Certified Clean**: Fully analyzed across 70+ industry-leading security engines with zero detections.  
+  🔗 [Inspect VirusTotal Analysis Report](https://www.virustotal.com/gui/file/ca7a8628e69c6f5af7062318a840b12ddddfc49ee2ee57e9c2b81db82c989542?nocache=1) *(0 / 72 detections)*
+* **Release Checksum (SHA-256)**:
   ```text
   1D808628A0BA2AF3EB2029E34D8CBE72E0BD4F5AAA7EE090CC04E20D467581C7
   ```
 
 ---
 
-## ☕ Support the Project
+## 💬 Join the Community
 
-VANTA is independently built and maintained without venture capital, subscriptions, or ads. If you enjoy the app and want to support ongoing DSP development, server hosting, and new features:
+Connect with fellow audiophiles, share custom EQ profiles, suggest features, and get live help:
+
+* **Discord**: [Join VANTA HQ on Discord](https://discord.gg/7P5erYcx2x)
+* **Bug Reports & Feedback**: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
+* **Support the Project**: [ko-fi.com/drewk312](https://ko-fi.com/drewk312)
+
+---
 
 <div align="center">
-
-[![Ko-fi Support](https://img.shields.io/badge/Support_on_Ko--fi-drewk312-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/drewk312)
-
-**[ko-fi.com/drewk312](https://ko-fi.com/drewk312)**
-
+  <sub>Crafted for uncompromised acoustic fidelity. © drewk312.</sub>
 </div>
-
----
-
-## 💬 Community & Bug Reports
-
-Join the official Discord to chat with the developer, request features, and hang out with other audiophiles!
-👉 **[Join VANTA HQ on Discord](https://discord.gg/7P5erYcx2x)**
-
-Have a feature request, question, or found a bug?
-* Submit an issue on the **[Issues Tab](https://github.com/drewk312/VantaMusic/issues)**.
-* Check out our release changelogs in the **[Releases](https://github.com/drewk312/VantaMusic/releases)** section.
-
----
-
-## 🤝 Special Thanks
-
-Huge thanks to everyone who supported this project along the way:
-
-* **Inzo184** (`@inzo1848842`)
-* **Ink & Echo Admin** (`@developerbios`)
-* **Riknar** (`@riknarr`)
-* *...and to everyone in the community supporting the player!*
