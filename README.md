@@ -110,7 +110,7 @@ VANTA is strictly non-commercial, privacy-respecting software built by music lov
   🔗 [Inspect VirusTotal Analysis Report](https://www.virustotal.com/gui/file/ca7a8628e69c6f5af7062318a840b12ddddfc49ee2ee57e9c2b81db82c989542?nocache=1) *(0 / 72 detections)*
 * **Release Checksum (SHA-256)**:
   ```text
-  1D808628A0BA2AF3EB2029E34D8CBE72E0BD4F5AAA7EE090CC04E20D467581C7
+  AE63815DA6E1A3286F7CF1EA42382754A67B4513C9C41DFF8F077DA0FFD146D1
   ```
 
 ---
