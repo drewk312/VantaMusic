@@ -205,7 +205,21 @@ fun ImportsScreen(
                 icon = Icons.AutoMirrored.Filled.QueueMusic,
                 title = "Import an audio file",
                 subtitle = "Choose a song or album from your files",
-                onClick = { filePickerLauncher.launch(arrayOf("audio/*")) }
+                onClick = {
+                    filePickerLauncher.launch(
+                        arrayOf(
+                            "audio/*",
+                            "video/mp4",
+                            "application/mp4",
+                            "audio/mp4",
+                            "audio/x-m4a",
+                            "audio/eac3",
+                            "audio/ac3",
+                            "application/octet-stream",
+                            "*/*"
+                        )
+                    )
+                }
             )
             ImportActionRow(
                 icon = Icons.Filled.Link,

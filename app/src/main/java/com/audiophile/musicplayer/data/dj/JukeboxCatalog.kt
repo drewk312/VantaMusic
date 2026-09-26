@@ -62,12 +62,12 @@ object JukeboxCatalog {
             id = "fifties_rock_roll",
             name = "50s Rock 'n' Roll & Doo-Wop",
             description = "Rockabilly, street-corner doo-wop, and the birth of rock 'n' roll",
-            genreKeywords = listOf("rock and roll", "50s", "doo-wop", "rockabilly", "early rock"),
+            genreKeywords = listOf("rock and roll", "50s", "doo-wop", "rockabilly", "early rock", "50s rock", "50's rock", "50s rock and roll", "50's rock and roll", "1950s rock"),
             decadeStart = 1950,
             decadeEnd = 1959,
             emoji = "⚡",
             seedArtists = listOf("Chuck Berry", "Little Richard", "Gene Vincent", "Jerry Lee Lewis", "Buddy Holly", "Bo Diddley", "Fats Domino", "Bill Haley & His Comets"),
-            forbiddenGenres = listOf("Disco", "Funk", "Punk", "Synthwave", "Electronic")
+            forbiddenGenres = listOf("Disco", "Funk", "Punk", "Synthwave", "Electronic", "Modern Pop", "Hip-Hop", "Rap", "Trap", "R&B", "Pop Hits")
         ),
         JukeboxStation(
             id = "sixties_invasion",
@@ -410,7 +410,8 @@ data class StreamingSeedParams(
     val trackTitle: String? = null,
     val hintKeywords: List<String> = emptyList(),
     val seedArtists: List<String> = emptyList(),
-    val genomeMode: String? = null
+    val genomeMode: String? = null,
+    val forbiddenGenres: List<String> = emptyList()
 )
 
 fun JukeboxStation.toStreamingSeed(): StreamingSeedParams {
@@ -423,7 +424,8 @@ fun JukeboxStation.toStreamingSeed(): StreamingSeedParams {
                 seedKind = "GENRE",
                 hintKeywords = genreKeywords,
                 seedArtists = seedArtists,
-                genomeMode = genomeMode?.name
+                genomeMode = genomeMode?.name,
+                forbiddenGenres = forbiddenGenres
             )
         }
         JukeboxStationType.ERA, JukeboxStationType.PRESET -> {
@@ -434,7 +436,8 @@ fun JukeboxStation.toStreamingSeed(): StreamingSeedParams {
                 eraEnd = decadeEnd,
                 hintKeywords = allKeywords,
                 seedArtists = seedArtists,
-                genomeMode = genomeMode?.name
+                genomeMode = genomeMode?.name,
+                forbiddenGenres = forbiddenGenres
             )
         }
         JukeboxStationType.GENRE -> {
@@ -443,7 +446,8 @@ fun JukeboxStation.toStreamingSeed(): StreamingSeedParams {
                 seedKind = "GENRE",
                 hintKeywords = allKeywords,
                 seedArtists = seedArtists,
-                genomeMode = genomeMode?.name
+                genomeMode = genomeMode?.name,
+                forbiddenGenres = forbiddenGenres
             )
         }
         JukeboxStationType.ARTIST_SEED -> {

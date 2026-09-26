@@ -41,6 +41,7 @@ enum class VantaActionSheetAction {
     REMOVE_FROM_QUEUE,
     MOVE_QUEUE_ITEM,
     SHUFFLE_QUEUE,
+    VIEW_FILE_INFO,
 }
 
 data class VantaActionAvailability(
@@ -71,7 +72,9 @@ sealed class VantaActionContext {
         val explicit: Boolean,
         val isNowPlaying: Boolean = false,
         val qualityInfo: com.audiophile.musicplayer.data.display.VantaQualityInfo? = null,
-        val acousticness: Double? = null
+        val acousticness: Double? = null,
+        val streamUrl: String? = null,
+        val durationMs: Long? = null
     ) : VantaActionContext()
 
     data class Album(
@@ -177,6 +180,7 @@ class VantaActionResolver {
                 if (context.isNowPlaying) {
                     actions.add(VantaActionAvailability(VantaActionSheetAction.SHUFFLE_QUEUE, visible = true, enabled = true))
                 }
+                actions.add(VantaActionAvailability(VantaActionSheetAction.VIEW_FILE_INFO, visible = true, enabled = true))
             }
             is VantaActionContext.Album -> {
                 actions.add(VantaActionAvailability(VantaActionSheetAction.PLAY, visible = true, enabled = true))
@@ -438,6 +442,7 @@ fun VantaActionSheet(
                     VantaActionSheetAction.SHUFFLE_QUEUE,
                     VantaActionSheetAction.DOWNLOAD_LOCAL,
                     VantaActionSheetAction.SLEEP_TIMER,
+                    VantaActionSheetAction.VIEW_FILE_INFO,
                     VantaActionSheetAction.REMOVE_FROM_QUEUE,
                     VantaActionSheetAction.MOVE_QUEUE_ITEM
                 ) && it.visible
@@ -479,6 +484,7 @@ private fun ActionItem(
         VantaActionSheetAction.REMOVE_FROM_QUEUE -> Icons.Filled.RemoveCircle
         VantaActionSheetAction.MOVE_QUEUE_ITEM -> Icons.Filled.ArrowUpward
         VantaActionSheetAction.SHUFFLE_QUEUE -> Icons.Filled.Shuffle
+        VantaActionSheetAction.VIEW_FILE_INFO -> Icons.Filled.Info
     }
 
     val label = when (availability.action) {
@@ -503,6 +509,7 @@ private fun ActionItem(
         VantaActionSheetAction.REMOVE_FROM_QUEUE -> "Remove from Queue"
         VantaActionSheetAction.MOVE_QUEUE_ITEM -> "Move Up Next"
         VantaActionSheetAction.SHUFFLE_QUEUE -> "Shuffle Queue"
+        VantaActionSheetAction.VIEW_FILE_INFO -> "View File Info"
     }
 
     VantaSheetAction(

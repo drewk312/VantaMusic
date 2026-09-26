@@ -2049,6 +2049,8 @@ class PlaybackService : MediaLibraryService() {
             "audio/flac", "audio/x-flac" -> MimeTypes.AUDIO_FLAC
             "audio/mpeg", "audio/mp3", "audio/x-mpeg", "audio/x-mp3" -> MimeTypes.AUDIO_MPEG
             "audio/mp4", "audio/aac", "audio/x-m4a", "audio/mp4a-latm" -> MimeTypes.AUDIO_MP4
+            "audio/eac3", "audio/e-ac3", "audio/x-eac3", "audio/eac3-joc" -> MimeTypes.AUDIO_E_AC3
+            "audio/ac3", "audio/x-ac3" -> MimeTypes.AUDIO_AC3
             "audio/ogg", "application/ogg" -> MimeTypes.AUDIO_OGG
             "audio/opus" -> MimeTypes.AUDIO_OPUS
             "audio/wav", "audio/wave", "audio/x-wav" -> MimeTypes.AUDIO_WAV
@@ -2059,16 +2061,20 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun inferMimeTypeFromUrl(url: String?): String? {
-        val ext = url
-            ?.substringBefore('?')
-            ?.substringBefore('#')
-            ?.substringAfterLast('.', "")
-            ?.lowercase()
-            ?: return null
+        val clean = url?.trim().orEmpty()
+        if (clean.isBlank()) return null
+        val decoded = runCatching { android.net.Uri.decode(clean) }.getOrDefault(clean)
+        val ext = decoded
+            .substringBefore('?')
+            .substringBefore('#')
+            .substringAfterLast('.', "")
+            .lowercase()
         return when (ext) {
             "flac" -> MimeTypes.AUDIO_FLAC
             "mp3" -> MimeTypes.AUDIO_MPEG
-            "m4a", "aac" -> MimeTypes.AUDIO_MP4
+            "m4a", "mp4", "aac" -> MimeTypes.AUDIO_MP4
+            "eac3", "ec3" -> MimeTypes.AUDIO_E_AC3
+            "ac3" -> MimeTypes.AUDIO_AC3
             "ogg", "oga" -> MimeTypes.AUDIO_OGG
             "opus" -> MimeTypes.AUDIO_OPUS
             "wav" -> MimeTypes.AUDIO_WAV

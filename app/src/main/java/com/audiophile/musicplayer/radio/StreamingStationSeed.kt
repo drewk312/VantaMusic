@@ -40,7 +40,8 @@ data class StreamingStationSeed(
     val seedTitle: String? = null,
     val seedArtists: List<String> = emptyList(),
     val hintKeywords: List<String> = emptyList(),
-    val genomeMode: com.audiophile.musicplayer.radio.genome.PandoraStationMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED
+    val genomeMode: com.audiophile.musicplayer.radio.genome.PandoraStationMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED,
+    val forbiddenGenres: List<String> = emptyList()
 ) {
     val primaryQuery: String
         get() = StationQuerySanitizer.resolvePrimaryQuery(
@@ -182,8 +183,19 @@ object StreamingStationSeedResolver {
             )
         }
 
-        JukeboxCatalog.resolveStation(trimmed)?.let { return fromJukeboxStation(it) }
-        StationSearchResolver.resolveSingle(trimmed)?.let { return fromJukeboxStation(it) }
+        val sanitized = raw.replace("'", "").trim()
+        val directMatch = JukeboxCatalog.resolveStation(trimmed)
+            ?: JukeboxCatalog.resolveStation(sanitized)
+            ?: StationSearchResolver.resolveSingle(trimmed)
+            ?: StationSearchResolver.resolveSingle(sanitized)
+        if (directMatch != null) return fromJukeboxStation(directMatch)
+
+        if (sanitized.contains("50s rock", ignoreCase = true) ||
+            sanitized.contains("fifties rock", ignoreCase = true) ||
+            sanitized.equals("50s rock and roll", ignoreCase = true)
+        ) {
+            JukeboxCatalog.findStation("fifties_rock_roll")?.let { return fromJukeboxStation(it) }
+        }
 
         songsLikePattern.matchEntire(trimmed)?.let { match ->
             val title = match.groupValues[1].trim()
@@ -372,7 +384,8 @@ object StreamingStationSeedResolver {
             eraEnd = station.decadeEnd,
             seedArtists = artists,
             hintKeywords = station.genreKeywords,
-            genomeMode = station.genomeMode ?: com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED
+            genomeMode = station.genomeMode ?: com.audiophile.musicplayer.radio.genome.PandoraStationMode.BALANCED,
+            forbiddenGenres = station.forbiddenGenres
         )
     }
 
@@ -519,7 +532,8 @@ fun StreamingSeedParams.toStationSeed(): StreamingStationSeed {
         seedTitle = trackTitle,
         seedArtists = artists,
         hintKeywords = hintKeywords,
-        genomeMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.fromName(genomeMode)
+        genomeMode = com.audiophile.musicplayer.radio.genome.PandoraStationMode.fromName(genomeMode),
+        forbiddenGenres = forbiddenGenres
     )
 }
 
@@ -532,5 +546,6 @@ fun StreamingStationSeed.toStreamingSeedParams(): StreamingSeedParams = Streamin
     trackTitle = seedTitle,
     hintKeywords = hintKeywords,
     seedArtists = seedArtists,
-    genomeMode = genomeMode.name
+    genomeMode = genomeMode.name,
+    forbiddenGenres = forbiddenGenres
 )

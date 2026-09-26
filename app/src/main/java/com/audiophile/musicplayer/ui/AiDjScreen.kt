@@ -169,7 +169,8 @@ fun AiDjScreen(
                 },
                 onStartEra = { era ->
                     Log.d("VANTA_RADIO", "action=era era=$era")
-                    onStartStreamingStation("${era}s hits")
+                    val cleanEra = era.trim().lowercase().removeSuffix("s")
+                    onStartStreamingStation("${cleanEra}s hits")
                 },
                 onStartGenre = { genre ->
                     Log.d("VANTA_RADIO", "action=genre genre=$genre")

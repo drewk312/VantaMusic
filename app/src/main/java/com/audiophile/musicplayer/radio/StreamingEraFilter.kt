@@ -8,26 +8,36 @@ object StreamingEraFilter {
     private val yearInText = Regex("""\b(19[5-9]\d|20[0-2]\d)\b""")
     private val decadeInText = Regex("""\b([5-9]0)s\b""", RegexOption.IGNORE_CASE)
 
-    fun inferYear(text: String): Int? {
-        val match = yearInText.find(text) ?: return null
-        return match.groupValues[1].toIntOrNull()
+    fun inferYear(releaseDate: String?, text: String? = null): Int? {
+        if (!releaseDate.isNullOrBlank()) {
+            val dateYear = yearInText.find(releaseDate)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            if (dateYear != null) return dateYear
+        }
+        if (!text.isNullOrBlank()) {
+            val textYear = yearInText.find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            if (textYear != null) return textYear
+        }
+        return null
     }
+
+    fun inferYear(text: String): Int? = inferYear(null, text)
 
     fun eraFitScore(
         seed: StreamingStationSeed,
         title: String,
         artist: String,
-        album: String?
+        album: String?,
+        releaseDate: String? = null
     ): Float {
         val start = seed.eraStart ?: return 0f
         val end = seed.eraEnd ?: return 0f
         val haystack = "$title $artist ${album.orEmpty()}"
-        val year = inferYear(haystack)
+        val year = inferYear(releaseDate, haystack)
         if (year != null) {
             return when {
                 year in start..end -> 35f
                 year in (start - 3)..(end + 1) -> 8f
-                else -> -50f
+                else -> -100f
             }
         }
         val targetShort = (start % 100).toString().padStart(2, '0')
@@ -53,7 +63,8 @@ object StreamingEraFilter {
         seed: StreamingStationSeed,
         title: String,
         artist: String,
-        album: String?
+        album: String?,
+        releaseDate: String? = null
     ): Boolean {
         val start = seed.eraStart ?: return true
         val end = seed.eraEnd ?: return true
@@ -61,12 +72,12 @@ object StreamingEraFilter {
         val haystack = "$title $artist ${album.orEmpty()}".lowercase()
         if (modernTraps.any { haystack.contains(it) }) return false
 
-        val year = inferYear(haystack)
+        val year = inferYear(releaseDate, haystack)
         if (year != null && (year < start - 2 || year > end + 2)) {
             return false
         }
 
-        return eraFitScore(seed, title, artist, album) >= -12f
+        return eraFitScore(seed, title, artist, album, releaseDate) >= -12f
     }
 
     fun passesEraGate(trackYear: Int, trackTitle: String, spec: com.audiophile.musicplayer.radio.sonic.SonicStationSpec): Boolean {

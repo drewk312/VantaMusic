@@ -364,6 +364,69 @@ class StreamingStationCandidateRankerTest {
         assertTrue("echo=$echoScore base=$baseScore", baseScore > echoScore)
     }
 
+    @Test
+    fun isStationJunk_rejectsPharrellHappyOnFiftiesRockStation() {
+        val fiftiesSeed = StreamingStationSeed(
+            id = "fifties_rock_roll",
+            displayName = "50's Rock & Roll",
+            kind = StreamingStationKind.GENRE,
+            eraStart = 1950,
+            eraEnd = 1959,
+            seedArtists = listOf("Chuck Berry", "Little Richard", "Elvis Presley"),
+            hintKeywords = listOf("50s rock", "rock and roll"),
+            forbiddenGenres = listOf("Disco", "Modern Pop", "Hip-Hop", "Rap", "Trap", "R&B", "Pop Hits")
+        )
+        val pharrell = sampleResult(
+            title = "Happy",
+            artist = "Pharrell Williams",
+            album = "G I R L"
+        ).copy(releaseDate = "2013-11-21")
+
+        assertTrue(StreamingStationCandidateRanker.isStationJunk(pharrell, fiftiesSeed))
+    }
+
+    @Test
+    fun isStationJunk_acceptsChuckBerryOnFiftiesRockStation() {
+        val fiftiesSeed = StreamingStationSeed(
+            id = "fifties_rock_roll",
+            displayName = "50's Rock & Roll",
+            kind = StreamingStationKind.GENRE,
+            eraStart = 1950,
+            eraEnd = 1959,
+            seedArtists = listOf("Chuck Berry", "Little Richard", "Elvis Presley"),
+            hintKeywords = listOf("50s rock", "rock and roll"),
+            forbiddenGenres = listOf("Disco", "Modern Pop", "Hip-Hop", "Rap", "Trap", "R&B", "Pop Hits")
+        )
+        val chuckBerry = sampleResult(
+            title = "Johnny B. Goode",
+            artist = "Chuck Berry",
+            album = "Chuck Berry Is on Top"
+        ).copy(releaseDate = "1958-03-31")
+
+        assertFalse(StreamingStationCandidateRanker.isStationJunk(chuckBerry, fiftiesSeed))
+    }
+
+    @Test
+    fun isStationJunk_rejectsForbiddenGenreCandidate() {
+        val fiftiesSeed = StreamingStationSeed(
+            id = "fifties_rock_roll",
+            displayName = "50's Rock & Roll",
+            kind = StreamingStationKind.GENRE,
+            eraStart = 1950,
+            eraEnd = 1959,
+            seedArtists = listOf("Chuck Berry"),
+            hintKeywords = listOf("50s rock"),
+            forbiddenGenres = listOf("Trap", "Modern Pop")
+        )
+        val trapTrack = sampleResult(
+            title = "Trap Anthem",
+            artist = "Modern Artist",
+            album = "Trap Hits"
+        )
+
+        assertTrue(StreamingStationCandidateRanker.isStationJunk(trapTrack, fiftiesSeed))
+    }
+
     private fun sampleResult(
         title: String,
         artist: String,

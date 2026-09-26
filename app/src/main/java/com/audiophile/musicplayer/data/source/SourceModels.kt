@@ -423,6 +423,9 @@ fun isPlaylistCompilationArtifact(
 
 /** Metadata-only guard shared by persistence, UI history, queue restore and playback. */
 fun com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources.isMusicContentAllowed(): Boolean {
+    if (sources.any { it.sourceType == com.audiophile.musicplayer.data.local.entities.SourceType.LOCAL || it.externalProviderId == "local" }) {
+        return true
+    }
     if (!ContentPurityFilter.isAllowed(
             title = track.title.orEmpty(),
             artist = track.artist.orEmpty(),

@@ -108,6 +108,8 @@ object PlaybackStreamNormalizer {
             "wav" in hay -> "wav"
             "ogg" in hay -> "ogg"
             "opus" in hay -> "opus"
+            "eac3" in hay || "e-ac-3" in hay || "ec-3" in hay || "ec3" in hay -> "eac3"
+            "ac3" in hay -> "ac3"
             "mp3" in hay -> "mp3"
             "m4a" in hay -> "m4a"
             "mp4" in hay -> "mp4"
@@ -139,6 +141,9 @@ object PlaybackStreamNormalizer {
             path.endsWith(".alac") ||
             path.endsWith(".aiff") ||
             path.endsWith(".aif") ||
+            path.endsWith(".eac3") ||
+            path.endsWith(".ec3") ||
+            path.endsWith(".ac3") ||
             path.endsWith(".m4a") ||
             path.endsWith(".mp4") ||
             path.endsWith(".mp3") ||

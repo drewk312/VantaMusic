@@ -251,14 +251,28 @@ object StreamingStationQueryPlanner {
         base += label
         base += "$label hits"
         base += "$label essentials"
+        seed.hintKeywords.filter { it.isNotBlank() && !StationQuerySanitizer.isStationMetaPhrase(it) }.forEach {
+            base += it
+            base += "$it classics"
+        }
         seed.eraStart?.let { start ->
             val end = seed.eraEnd ?: start + 9
             val short = (start % 100).toString().padStart(2, '0')
             base += "${short}s greatest hits"
             base += "${short}s rock hits"
-            base += "${short}s pop hits"
-            base += "${short}s r&b hits"
-            base += "${short}s alternative hits"
+            if (start == 1950) {
+                base += "${short}s rock and roll"
+                base += "${short}s rockabilly"
+                base += "${short}s doo wop"
+                base += "${short}s rhythm and blues"
+                base += "${short}s classics"
+            } else {
+                base += "${short}s pop hits"
+                base += "${short}s r&b hits"
+                if (start >= 1980) {
+                    base += "${short}s alternative hits"
+                }
+            }
             var year = start
             while (year <= end) {
                 base += "$year hit songs"

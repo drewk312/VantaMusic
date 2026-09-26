@@ -62,6 +62,22 @@ object StreamingStationCandidateRanker {
             return true
         }
 
+        if (seed.eraStart != null) {
+            if (!StreamingEraFilter.passesEraGate(seed, result.title, result.artist, result.album, result.releaseDate)) {
+                return true
+            }
+        }
+
+        if (seed.forbiddenGenres.isNotEmpty()) {
+            val trackInfo = "${result.title} ${result.artist} ${result.album.orEmpty()}".lowercase()
+            if (seed.forbiddenGenres.any { forbidden ->
+                val f = forbidden.lowercase().trim()
+                f.isNotBlank() && trackInfo.contains(f)
+            }) {
+                return true
+            }
+        }
+
         if (conflictsWithGenre(seed, result)) return true
         if (isTitleOnlyGenreMatch(seed, result)) return true
         if (genreRadioTitlePattern.matches(result.title.trim())) return true
@@ -132,7 +148,8 @@ object StreamingStationCandidateRanker {
     private fun conflictsWithGenre(seed: StreamingStationSeed, result: SourceSearchResult): Boolean {
         if (seed.kind != StreamingStationKind.GENRE &&
             seed.kind != StreamingStationKind.JUKEBOX_PRESET &&
-            seed.kind != StreamingStationKind.MOOD
+            seed.kind != StreamingStationKind.MOOD &&
+            seed.kind != StreamingStationKind.ERA
         ) {
             return false
         }
@@ -217,7 +234,7 @@ object StreamingStationCandidateRanker {
         if (result.durationMs != null && result.durationMs in 120_000L..420_000L) score += 5.0
 
         score += taste.artistPenalty(result.artist).toDouble()
-        score += StreamingEraFilter.eraFitScore(seed, result.title, result.artist, result.album).toDouble()
+        score += StreamingEraFilter.eraFitScore(seed, result.title, result.artist, result.album, result.releaseDate).toDouble()
 
         softPenaltyMarkers.forEach { marker ->
             if (title.contains(marker)) score -= 12.0

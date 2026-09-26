@@ -123,10 +123,16 @@ fun TrackDetailSheet(
                 Log.d("VANTA_ACTION_MENU", "clicked action='share'")
                 onShare()
             })
-            if (showDiagnostics) {
-                VantaSheetDivider()
-                VantaSheetAction(icon = Icons.Filled.Info, label = "About this song", onClick = onSourceDetails)
-            }
+            VantaSheetDivider()
+            VantaSheetAction(
+                icon = Icons.Filled.Info,
+                label = "View File Info",
+                subtitle = "Inspect audio codec, bitrate, sample rate & path",
+                onClick = {
+                    Log.d("VANTA_ACTION_MENU", "clicked action='view_file_info'")
+                    onSourceDetails()
+                }
+            )
         }
 
         if (enhancedMetadata != null) {

@@ -9734,6 +9734,9 @@ class MainViewModel @Inject constructor(
                     setStatusMessage("Queue shuffled")
                     Log.d("VANTA_ACTION_HANDLE", "action='SHUFFLE_QUEUE' result='success'")
                 }
+                VantaActionSheetAction.VIEW_FILE_INFO -> {
+                    // Handled in UI
+                }
             }
 
         }

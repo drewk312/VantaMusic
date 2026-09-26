@@ -21,6 +21,18 @@ object StationSearchResolver {
         val normalized = normalize(query)
         if (normalized.length < 2) return emptyList()
 
+        if (normalized.contains("50s rock") || normalized.contains("fifties rock") ||
+            (normalized.contains("50") && normalized.contains("rock"))
+        ) {
+            val rock50s = listOfNotNull(
+                JukeboxCatalog.stations.find { it.id == "fifties_rock_roll" },
+                JukeboxCatalog.stations.find { it.id == "rockabilly_stomp" },
+                JukeboxCatalog.stations.find { it.id == "golden_oldies" },
+                JukeboxCatalog.stations.find { it.id == "doo_wop_classics" }
+            )
+            if (rock50s.isNotEmpty()) return rock50s
+        }
+
         if (normalized.contains("oldies") || normalized == "50s" || normalized == "60s" || normalized == "golden oldies") {
             val oldies = listOfNotNull(
                 JukeboxCatalog.stations.find { it.id == "golden_oldies" },

@@ -21,6 +21,8 @@ object PlaybackMediaType {
             "audio/flac", "audio/x-flac" -> "audio/flac"
             "audio/mpeg", "audio/mp3", "audio/x-mpeg", "audio/x-mp3" -> "audio/mpeg"
             "audio/mp4", "audio/aac", "audio/x-m4a", "audio/mp4a-latm" -> "audio/mp4"
+            "audio/eac3", "audio/e-ac3", "audio/x-eac3", "audio/eac3-joc" -> "audio/eac3"
+            "audio/ac3", "audio/x-ac3" -> "audio/ac3"
             "audio/ogg", "application/ogg" -> "audio/ogg"
             "audio/opus" -> "audio/opus"
             "audio/wav", "audio/wave", "audio/x-wav" -> "audio/wav"
@@ -33,19 +35,24 @@ object PlaybackMediaType {
     fun inferFromUrl(url: String?): String? {
         val clean = url?.trim().orEmpty()
         if (clean.isBlank()) return null
+        val decoded = (runCatching { java.net.URLDecoder.decode(clean, "UTF-8") }.getOrNull()
+            ?: runCatching { android.net.Uri.decode(clean) }.getOrNull()
+            ?: clean).lowercase()
         val path = runCatching { java.net.URI(clean).path.orEmpty().lowercase() }
             .getOrDefault(clean.substringBefore('?').substringBefore('#').lowercase())
         return when {
             path.endsWith(".mpd") || path.endsWith("/manifest/mpd") || path.endsWith("/api/manifest/mpd") -> DASH
             path.endsWith(".m3u8") -> HLS
-            path.endsWith(".flac") -> "audio/flac"
-            path.endsWith(".mp3") -> "audio/mpeg"
-            path.endsWith(".m4a") || path.endsWith(".aac") -> "audio/mp4"
-            path.endsWith(".ogg") || path.endsWith(".oga") -> "audio/ogg"
-            path.endsWith(".opus") -> "audio/opus"
-            path.endsWith(".wav") -> "audio/wav"
-            path.endsWith(".wma") -> "audio/x-ms-wma"
-            path.endsWith(".iamf") -> "audio/iamf"
+            path.endsWith(".flac") || decoded.contains(".flac") -> "audio/flac"
+            path.endsWith(".mp3") || decoded.contains(".mp3") -> "audio/mpeg"
+            path.endsWith(".m4a") || path.endsWith(".mp4") || path.endsWith(".aac") || decoded.contains(".m4a") || decoded.contains(".mp4") -> "audio/mp4"
+            path.endsWith(".eac3") || path.endsWith(".ec3") || decoded.contains(".eac3") || decoded.contains(".ec3") -> "audio/eac3"
+            path.endsWith(".ac3") || decoded.contains(".ac3") -> "audio/ac3"
+            path.endsWith(".ogg") || path.endsWith(".oga") || decoded.contains(".ogg") -> "audio/ogg"
+            path.endsWith(".opus") || decoded.contains(".opus") -> "audio/opus"
+            path.endsWith(".wav") || decoded.contains(".wav") -> "audio/wav"
+            path.endsWith(".wma") || decoded.contains(".wma") -> "audio/x-ms-wma"
+            path.endsWith(".iamf") || decoded.contains(".iamf") -> "audio/iamf"
             hostLooksLikeQobuzCdn(clean) -> "audio/flac"
             else -> null
         }

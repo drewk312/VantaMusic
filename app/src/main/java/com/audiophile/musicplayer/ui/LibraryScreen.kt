@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.audiophile.musicplayer.data.display.TrackDisplayResolver
 import com.audiophile.musicplayer.data.local.entities.LocalSongEntity
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import com.audiophile.musicplayer.data.local.toPlayableQueueItem
 import com.audiophile.musicplayer.ui.preview.ArtworkPlaceholder
 import com.audiophile.musicplayer.common.VantaLogger
 
@@ -111,6 +112,9 @@ fun LibraryScreen(
             .sortedByDescending { it.createdAt }
             .take(16)
     }
+    val allSongs = remember(localSongs) {
+        localSongs.sortedWith(compareBy({ it.title.lowercase() }, { it.artist.lowercase() }))
+    }
     val allLikedSongs = remember(localSongs) { localSongs.filter { it.isFavorite } }
     val likedSongs = remember(allLikedSongs) { allLikedSongs.take(12) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
@@ -147,7 +151,7 @@ fun LibraryScreen(
 
         if (selectedView == LibraryView.Songs) {
             LibrarySongList(
-                songs = addedSongs,
+                songs = allSongs,
                 uiState = uiState,
                 onPlay = onPlay,
                 onOpenTrackSheet = onOpenTrackSheet
@@ -426,9 +430,25 @@ private fun LibrarySongList(
     onPlay: (UnifiedTrackWithSources) -> Unit,
     onOpenTrackSheet: ((UnifiedTrackWithSources) -> Unit)?
 ) {
+    if (songs.isEmpty()) {
+        VantaEmptyState(
+            title = "No songs found",
+            description = "Scan your device storage or import audio files to see your songs here.",
+            icon = Icons.Filled.MusicNote
+        )
+        return
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = "${songs.size} song${if (songs.size == 1) "" else "s"}",
+            color = AppTextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+        )
         songs.forEach { song ->
-            val unified = libraryTrackForSong(song, uiState.library)
+            val unified = libraryTrackForSong(song, uiState.library) ?: song.toPlayableQueueItem()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

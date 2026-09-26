@@ -41,10 +41,7 @@ class PlaybackSourceRouter(
             triedLocalOrDirect = true
             when (val outcome = local.resolve(requestFor(track, source, requestedQuality, localUri = source.streamUrl))) {
                 is PlaybackSourceOutcome.Ready -> {
-                    if (!isSpatialRequested || outcome.stream.isDolbyAtmos || outcome.stream.isSpatialAudio || outcome.stream.isSurround) {
-                        return outcome
-                    }
-                    if (stereoFallbackOutcome == null) stereoFallbackOutcome = outcome
+                    return outcome
                 }
                 is PlaybackSourceOutcome.Failed -> failures += outcome.failure
             }

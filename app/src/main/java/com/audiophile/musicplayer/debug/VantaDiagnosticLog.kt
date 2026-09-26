@@ -32,6 +32,8 @@ object VantaDiagnosticLog {
 
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
+    fun getAppContext(): Context? = appContext
+
     fun init(context: Context) {
         if (installed) return
         installed = true

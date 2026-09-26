@@ -284,13 +284,14 @@ class LocalMediaImporter(
             )
         } catch (e: Exception) {
             Log.w("LocalMediaImporter", "Falling back to MediaStore metadata for: $uri", e)
+            val info = queryUriFileInfo(uri)
             LocalAudioMetadata(
-                title = cleanTag(fallbackTitle) ?: getFileName(uri),
+                title = cleanTag(fallbackTitle) ?: info.title,
                 artist = cleanTag(fallbackArtist) ?: "Unknown Artist",
                 album = cleanTag(fallbackAlbum),
-                durationMs = fallbackDurationMs?.takeIf { it > 0L },
+                durationMs = fallbackDurationMs?.takeIf { it > 0L } ?: info.durationMs,
                 genre = null,
-                mimeType = cleanTag(fallbackMimeType),
+                mimeType = cleanTag(fallbackMimeType) ?: info.mimeType,
                 bitrateKbps = null,
                 artworkUrl = null
             )
@@ -317,23 +318,59 @@ class LocalMediaImporter(
         }
     }
 
-    private fun getFileName(uri: Uri): String {
-        var name = "Imported Track"
-        appContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val nameIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
-                if (nameIdx >= 0) {
-                    name = cursor.getString(nameIdx)
+    private data class UriFileInfo(
+        val displayName: String?,
+        val title: String,
+        val mimeType: String?,
+        val durationMs: Long?
+    )
+
+    private fun queryUriFileInfo(uri: Uri): UriFileInfo {
+        var rawName: String? = null
+        var mimeType: String? = null
+        var durationMs: Long? = null
+        try {
+            appContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                    if (nameIdx >= 0) rawName = cursor.getString(nameIdx)
+                    val mimeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE)
+                    if (mimeIdx >= 0) mimeType = cursor.getString(mimeIdx)
+                    val durIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DURATION)
+                    if (durIdx >= 0) durationMs = cursor.getLong(durIdx).takeIf { it > 0L }
                 }
             }
+        } catch (_: Exception) {}
+
+        if (mimeType.isNullOrBlank()) {
+            mimeType = runCatching { appContext.contentResolver.getType(uri) }.getOrNull()
         }
-        // strip extension
-        return if (name.contains(".")) {
-            name.substringBeforeLast(".")
-        } else {
-            name
+
+        val name = rawName ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Imported Track"
+        val lowerName = name.lowercase(java.util.Locale.US)
+        val inferredMime = when {
+            lowerName.endsWith(".m4a") -> "audio/mp4"
+            lowerName.endsWith(".mp4") -> "audio/mp4"
+            lowerName.endsWith(".eac3") || lowerName.endsWith(".ec3") -> "audio/eac3"
+            lowerName.endsWith(".ac3") -> "audio/ac3"
+            lowerName.endsWith(".flac") -> "audio/flac"
+            lowerName.endsWith(".wav") -> "audio/wav"
+            lowerName.endsWith(".mp3") -> "audio/mpeg"
+            lowerName.endsWith(".opus") -> "audio/opus"
+            lowerName.endsWith(".ogg") -> "audio/ogg"
+            else -> mimeType
         }
+
+        val title = if (name.contains(".")) name.substringBeforeLast(".") else name
+        return UriFileInfo(
+            displayName = rawName,
+            title = title,
+            mimeType = inferredMime ?: mimeType,
+            durationMs = durationMs
+        )
     }
+
+    private fun getFileName(uri: Uri): String = queryUriFileInfo(uri).title
 
     private fun estimateBitrate(mimeType: String?): Int {
         return 0

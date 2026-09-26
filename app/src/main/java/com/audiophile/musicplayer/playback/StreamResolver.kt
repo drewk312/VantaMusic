@@ -279,14 +279,18 @@ class StreamResolver(
         stream: ResolvedStream,
         excludedStreamUrls: Set<String>,
         requestedQuality: RequestedAudioQuality
-    ): Boolean =
-        stream.streamUrl.isNotBlank() &&
+    ): Boolean {
+        if (stream.providerId == "local") {
+            return stream.streamUrl.isNotBlank() && stream.streamUrl !in excludedStreamUrls
+        }
+        return stream.streamUrl.isNotBlank() &&
             (!(requestedQuality == RequestedAudioQuality.LOSSLESS_16 || requestedQuality == RequestedAudioQuality.HI_RES_24) ||
                 (!stream.isDolbyAtmos && !stream.isEclipsaAudio && !stream.isSpatialAudio)) &&
             SpatialDecoderCapabilities.supportsAtmosStream(stream) &&
             !stream.streamUrl.contains("soundhelix", ignoreCase = true) &&
             !CloudLibraryHelpers.isSampleOrPreviewUrl(stream.streamUrl) &&
             stream.streamUrl !in excludedStreamUrls
+    }
 
     private suspend fun persistResolvedIfCatalog(
         track: UnifiedTrackWithSources,

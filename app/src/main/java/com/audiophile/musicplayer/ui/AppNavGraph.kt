@@ -224,6 +224,7 @@ fun AppNavGraph(
     var showSleepTimerSheet by rememberSaveable { mutableStateOf(false) }
     var showAddToPlaylistSheet by rememberSaveable { mutableStateOf(false) }
     var showSourceDetailsSheet by rememberSaveable { mutableStateOf(false) }
+    var fileInfoTarget by remember { mutableStateOf<FileInfoTarget?>(null) }
     var sleepTimerActiveMinutes by rememberSaveable { mutableStateOf<Int?>(null) }
     var playlistsForSheet by remember { mutableStateOf<List<com.audiophile.musicplayer.data.local.entities.PlaylistEntity>>(emptyList()) }
     val ctx = LocalContext.current
@@ -434,10 +435,14 @@ fun AppNavGraph(
     BackHandler(enabled = showSourceDetailsSheet) {
         showSourceDetailsSheet = false
     }
+    BackHandler(enabled = fileInfoTarget != null) {
+        fileInfoTarget = null
+    }
     val transientBackActive = activeActionContext != null ||
         showSleepTimerSheet ||
         showAddToPlaylistSheet ||
-        showSourceDetailsSheet
+        showSourceDetailsSheet ||
+        fileInfoTarget != null
     BackHandler(enabled = !transientBackActive && radioStationId != null) {
         radioStationId = null
     }
@@ -1200,7 +1205,10 @@ fun AppNavGraph(
                                 canShare = true,
                                 qualityLabel = nowPlayingState.qualityInfo?.bestQualityLabel(),
                                 explicit = nowPlayingState.explicit ?: false,
-                                isNowPlaying = true
+                                isNowPlaying = true,
+                                qualityInfo = nowPlayingState.qualityInfo,
+                                streamUrl = nowPlayingState.streamUrl,
+                                durationMs = nowPlayingState.durationMs
                             )
                         }
                     },
@@ -1552,6 +1560,21 @@ fun AppNavGraph(
                             mainViewModel.setStatusMessage("Couldn't open share sheet.")
                         }
                     }
+                    VantaActionSheetAction.VIEW_FILE_INFO -> {
+                        when (context) {
+                            is VantaActionContext.Track -> {
+                                fileInfoTarget = FileInfoTarget(
+                                    title = context.title,
+                                    artist = context.artist,
+                                    album = context.album,
+                                    streamUrl = context.streamUrl,
+                                    qualityInfo = context.qualityInfo,
+                                    durationMs = context.durationMs
+                                )
+                            }
+                            else -> {}
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -1591,10 +1614,26 @@ fun AppNavGraph(
     }
 
     if (showSourceDetailsSheet) {
-        SourceDetailsSheet(
-            nowPlayingState = nowPlayingState,
-            enhancedMetadata = uiState.activeTrackEnhancedMetadata,
+        FileInfoSheet(
+            title = nowPlayingState.title ?: "Unknown",
+            artist = nowPlayingState.artist,
+            album = nowPlayingState.album,
+            streamUrl = nowPlayingState.streamUrl,
+            qualityInfo = nowPlayingState.qualityInfo,
+            durationMs = nowPlayingState.durationMs,
             onDismiss = { showSourceDetailsSheet = false }
+        )
+    }
+
+    fileInfoTarget?.let { target ->
+        FileInfoSheet(
+            title = target.title,
+            artist = target.artist,
+            album = target.album,
+            streamUrl = target.streamUrl,
+            qualityInfo = target.qualityInfo,
+            durationMs = target.durationMs,
+            onDismiss = { fileInfoTarget = null }
         )
     }
 }
@@ -1620,16 +1659,18 @@ fun mapTrackToContext(
         ?: track.sources.maxByOrNull { it.bitrate }
     val sourceStatus = track.sourceValidityStatus()
     val canEnterPlayback = sourceStatus.canEnterPlaybackFlow()
-    val qualityLabel = bestSource?.let {
-        VantaQualityInfo.fromTrackSource(it, sourceStatus)?.bestQualityLabel()
+    val resolvedQualityInfo = bestSource?.let {
+        VantaQualityInfo.fromTrackSource(it, sourceStatus)
     }
+    val qualityLabel = resolvedQualityInfo?.bestQualityLabel()
+    val streamUrl = bestSource?.streamUrl ?: matched?.streamUrl
     return VantaActionContext.Track(
         trackId = track.track.trackId.toString(),
         title = title,
         artist = artist,
         album = track.track.albumName,
         artworkUrl = track.track.coverArtUrl,
-        sourceProviderId = bestSource?.externalProviderId,
+        sourceProviderId = bestSource?.externalProviderId ?: (if (matched != null) "local" else null),
         externalTrackId = bestSource?.externalTrackId,
         isPlayable = canEnterPlayback,
         isInLibrary = inLib,
@@ -1641,9 +1682,21 @@ fun mapTrackToContext(
         canShare = true,
         qualityLabel = qualityLabel,
         explicit = track.track.explicit ?: false,
-        isNowPlaying = isNowPlaying
+        isNowPlaying = isNowPlaying,
+        qualityInfo = resolvedQualityInfo,
+        streamUrl = streamUrl,
+        durationMs = track.track.durationMs
     )
 }
+
+private data class FileInfoTarget(
+    val title: String,
+    val artist: String?,
+    val album: String?,
+    val streamUrl: String?,
+    val qualityInfo: VantaQualityInfo?,
+    val durationMs: Long?
+)
 
 
 
