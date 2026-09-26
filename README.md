@@ -25,23 +25,23 @@
 
 ### 📺 Android TV & 10-Foot Jukebox Theater
 <p align="center">
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_tv_player.png" width="48%" alt="Android TV Jukebox Theater" />
+  <img src="./screenshots/vanta_tv_player.png" width="48%" alt="Android TV Jukebox Theater" />
   &nbsp;
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_tv_browse.png" width="48%" alt="Android TV Browse & Radio" />
+  <img src="./screenshots/vanta_tv_browse.png" width="48%" alt="Android TV Browse & Radio" />
 </p>
 
 ### 🚐 RV, In-Car & Landscape Cockpit
 <p align="center">
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_rv_player.png" width="48%" alt="RV Landscape Player Mode" />
+  <img src="./screenshots/vanta_rv_player.png" width="48%" alt="RV Landscape Player Mode" />
   &nbsp;
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_rv_lyrics.png" width="48%" alt="RV Landscape Synced Lyrics" />
+  <img src="./screenshots/vanta_rv_lyrics.png" width="48%" alt="RV Landscape Synced Lyrics" />
 </p>
 
 ### 📱 Mobile AMOLED Luxury Interface
 <p align="center">
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_mobile_player.png" width="38%" alt="Mobile Now Playing & Visualizer" />
+  <img src="./screenshots/vanta_mobile_player.png" width="38%" alt="Mobile Now Playing & Visualizer" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="https://raw.githubusercontent.com/drewk312/VantaMusic/main/screenshots/vanta_mobile_home.png" width="38%" alt="Mobile Home & Discover" />
+  <img src="./screenshots/vanta_mobile_home.png" width="38%" alt="Mobile Home & Discover" />
 </p>
 
 ---

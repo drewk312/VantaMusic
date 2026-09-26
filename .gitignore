@@ -68,9 +68,6 @@ CLAUDE.md
 .refs/*/ios/Pods/
 .refs/*/android/.gradle/
 
-# Screenshots (generated)
-screenshots/
-
 # Python
 __pycache__/
 *.pyc
@@ -99,11 +96,14 @@ run-desktop.ps1
 ui_*.xml
 window*.xml
 
-# Screenshots (keep repo clean; store design assets elsewhere)
+# Screenshots (keep repo clean; allow official showcase screenshots)
 *.png
 *.jpg
 *.jpeg
 *.webp
+!screenshots/*.png
+!screenshots/*.jpg
+
 
 # JamesDSP temporary git clones
 app/src/main/cpp/jdsp-repo/
