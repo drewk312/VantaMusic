@@ -155,11 +155,13 @@ interface LibraryDao {
 
     @Transaction
     suspend fun addSongsToPlaylist(playlistId: Long, songIds: List<Long>) {
-        insertPlaylistSongs(
-            songIds.mapIndexed { index, songId ->
-                PlaylistSongCrossRef(playlistId = playlistId, songId = songId, position = index)
-            }
-        )
+        songIds.chunked(250).forEachIndexed { chunkIndex, chunk ->
+            insertPlaylistSongs(
+                chunk.mapIndexed { index, songId ->
+                    PlaylistSongCrossRef(playlistId = playlistId, songId = songId, position = chunkIndex * 250 + index)
+                }
+            )
+        }
     }
 
     @Query("""

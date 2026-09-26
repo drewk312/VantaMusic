@@ -145,14 +145,14 @@ class CloudflareGatewaySource(
         }
     }
 
-    /** Full track list for a Spotify editorial playlist (e.g. from the home feed). */
-    suspend fun spotifyPlaylistTracks(playlistId: String, limit: Int = 100): List<SourceSearchResult> = withContext(Dispatchers.IO) {
+    /** Full track list for a Spotify playlist. */
+    suspend fun spotifyPlaylistTracks(playlistId: String, limit: Int = 1000): List<SourceSearchResult> = withContext(Dispatchers.IO) {
         try {
-            val capped = limit.coerceIn(1, 300)
+            val capped = limit.coerceIn(1, 2000)
             val url = "$gatewayUrl/spotify/playlist/${URLEncoder.encode(playlistId, "UTF-8")}/tracks?limit=$capped"
             val body = client.newBuilder()
-                .readTimeout(18, TimeUnit.SECONDS)
-                .callTimeout(20, TimeUnit.SECONDS)
+                .readTimeout(35, TimeUnit.SECONDS)
+                .callTimeout(40, TimeUnit.SECONDS)
                 .build()
                 .newCall(Request.Builder().url(url).build())
                 .execute().use { response ->

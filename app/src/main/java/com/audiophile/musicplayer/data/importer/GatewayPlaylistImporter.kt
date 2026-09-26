@@ -48,10 +48,10 @@ class GatewayPlaylistImporter(
             val link = parsePlaylistUrl(url)
                 ?: error("Not a public Spotify or Apple Music playlist link")
             val tracks = when (link.platform) {
-                "spotify" -> gateway.spotifyPlaylistTracks(link.playlistId, limit = 300)
+                "spotify" -> gateway.spotifyPlaylistTracks(link.playlistId, limit = 1000)
                 "apple" -> gateway.applePlaylistTracks(
                     playlistId = link.playlistId,
-                    limit = 300,
+                    limit = 1000,
                     storefront = link.storefront ?: "us",
                 )
                 else -> emptyList()

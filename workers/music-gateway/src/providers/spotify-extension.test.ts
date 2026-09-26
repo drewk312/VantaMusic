@@ -111,3 +111,81 @@ it("imports public playlist tracks from the embed page without any Spotify token
   assert.equal(result.tracks[0].artist, "KAROL G, Judeline");
   assert.equal(result.tracks[0].duration, 226);
 });
+
+it("continues fetching via Web API pagination when embed has 100 tracks and maxTracks > 100", async (t) => {
+  const { importSpotifyPlaylistExtension } = await import("./spotify-extension");
+  const embedTracks = Array.from({ length: 100 }, (_, i) => ({
+    uri: `spotify:track:3h5T5JypYU7huFiVYhv1${String(i).padStart(2, "0")}`,
+    title: `Embed Track ${i}`,
+    subtitle: "Artist",
+    duration: 180000,
+  }));
+
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const urlStr = String(input);
+    const u = new URL(urlStr);
+    if (u.pathname.startsWith("/embed/playlist/")) {
+      const nextData = {
+        props: {
+          pageProps: {
+            state: {
+              data: {
+                entity: {
+                  name: "Large Playlist",
+                  coverArt: { sources: [{ url: "https://i.scdn.co/image/cover" }] },
+                  trackList: embedTracks,
+                },
+              },
+            },
+          },
+        },
+      };
+      return new Response(
+        `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(nextData)}</script></html>`,
+        { status: 200 },
+      );
+    }
+    if (urlStr.includes("api/token")) {
+      return Response.json({
+        accessToken: "mock-token",
+        clientId: "mock-client-id",
+        accessTokenExpirationTimestampMs: Date.now() + 3600000,
+      });
+    }
+    if (urlStr === "https://open.spotify.com" || urlStr === "https://open.spotify.com/") {
+      const b64 = Buffer.from(JSON.stringify({ clientVersion: "1.2.3" })).toString("base64");
+      return new Response(`<html><script id="appServerConfig" type="text/plain">${b64}</script></html>`);
+    }
+    if (urlStr.includes("clienttoken.spotify.com")) {
+      return Response.json({
+        response_type: "RESPONSE_GRANTED_TOKEN_RESPONSE",
+        granted_token: { token: "mock-granted-token", expires_after_seconds: 3600 },
+      });
+    }
+    if (u.pathname.endsWith("/tracks")) {
+      assert.equal(u.searchParams.get("offset"), "100");
+      return Response.json({
+        items: [{
+          track: {
+            id: "3h5T5JypYU7huFiVYhv199",
+            name: "Paginated Track 101",
+            artists: [{ name: "Artist 101" }],
+            album: { name: "Album 101", images: [{ url: "https://i.scdn.co/image/101" }] },
+            duration_ms: 200000,
+            external_ids: { isrc: "USUM10100001" },
+          },
+        }],
+        next: null,
+      });
+    }
+    return new Response("unexpected", { status: 500 });
+  });
+
+  const result = await importSpotifyPlaylistExtension("37i9dQZF1DXcBWIGoYBM5M", 200);
+  assert.equal(result.name, "Large Playlist");
+  assert.equal(result.tracks.length, 101);
+  assert.equal(result.tracks[0].title, "Embed Track 0");
+  assert.equal(result.tracks[100].title, "Paginated Track 101");
+  assert.equal(result.tracks[100].isrc, "USUM10100001");
+});
+

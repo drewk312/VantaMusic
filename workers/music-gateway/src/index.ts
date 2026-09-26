@@ -417,9 +417,9 @@ async function handleRequestWithFailures(request: Request, env: Env, requestIdVa
   if (pathname.startsWith("/spotify/playlist/") && (pathname.endsWith("/tracks") || pathname.endsWith("/tracks/"))) {
     incrementRoute("apple_editorial");
     const playlistId = url.pathname.split("/")[3] ?? "";
-    const limit = Number.parseInt(url.searchParams.get("limit") || "100", 10);
+    const limit = Number.parseInt(url.searchParams.get("limit") || "1000", 10);
     try {
-      const tracks = await importSpotifyPlaylist(playlistId, env, Number.isFinite(limit) ? limit : 100);
+      const tracks = await importSpotifyPlaylist(playlistId, env, Number.isFinite(limit) ? limit : 1000);
       return json({ playlistId, source: "spotify", tracks }, 200, rateHeaders);
     } catch {
       return json({ playlistId, source: "spotify", tracks: [] }, 200, rateHeaders);

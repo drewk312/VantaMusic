@@ -144,12 +144,12 @@ function cleanSpotifyPlaylistId(playlistId: string): string {
 async function importSpotifyPlaylistWithToken(
   cleanId: string,
   token: string,
-  maxTracks = 300,
+  maxTracks = 1000,
 ): Promise<GatewayTrack[]> {
   const tracks: GatewayTrack[] = [];
   let offset = 0;
   const pageSize = 100;
-  const cap = Math.min(Math.max(maxTracks, 1), 500);
+  const cap = Math.min(Math.max(maxTracks, 1), 2000);
 
   while (tracks.length < cap) {
     const limit = Math.min(pageSize, cap - tracks.length);
@@ -170,7 +170,7 @@ async function importSpotifyPlaylistWithToken(
     }
     if (!data.next || items.length === 0) break;
     offset += items.length;
-    if (offset > 2000) break;
+    if (offset > 5000) break;
   }
   return tracks;
 }
@@ -179,7 +179,7 @@ async function importSpotifyPlaylistWithToken(
  * Public playlist import. Prefers Client Credentials when configured; otherwise
  * uses the embed-page scrape (no user login). Web-player token is a last resort.
  */
-export async function importSpotifyPlaylist(playlistId: string, env: Env, maxTracks = 300): Promise<GatewayTrack[]> {
+export async function importSpotifyPlaylist(playlistId: string, env: Env, maxTracks = 1000): Promise<GatewayTrack[]> {
   const cleanId = cleanSpotifyPlaylistId(playlistId);
   if (!cleanId) return [];
 

@@ -176,7 +176,7 @@ export async function importSpotifyPlaylistEmbed(
     const cover = entity.coverArt as { sources?: Array<{ url?: string }> } | undefined;
     const artworkURL = normalizePublicHttpsUrl(cover?.sources?.[0]?.url) ?? undefined;
     const list = (entity.trackList as unknown[]) ?? [];
-    const cap = Math.min(Math.max(maxTracks, 1), 500);
+    const cap = Math.min(Math.max(maxTracks, 1), 2000);
     const tracks: GatewayTrack[] = [];
     for (const row of list) {
       if (!row || typeof row !== "object") continue;
@@ -196,16 +196,19 @@ export async function importSpotifyPlaylistEmbed(
  */
 export async function importSpotifyPlaylistExtension(
   playlistId: string,
-  maxTracks = 300,
+  maxTracks = 1000,
 ): Promise<{ name?: string; artworkURL?: string; tracks: GatewayTrack[] }> {
   const embed = await importSpotifyPlaylistEmbed(playlistId, maxTracks);
-  if (embed.tracks.length > 0) return embed;
+  // If the playlist has fewer than 100 tracks, the embed returned the entire playlist.
+  if (embed.tracks.length > 0 && (embed.tracks.length < 100 || maxTracks <= embed.tracks.length)) {
+    return embed;
+  }
 
   const cleanId = cleanPlaylistId(playlistId);
-  if (!cleanId || !/^[a-zA-Z0-9]+$/.test(cleanId)) return { tracks: [] };
+  if (!cleanId || !/^[a-zA-Z0-9]+$/.test(cleanId)) return embed.tracks.length > 0 ? embed : { tracks: [] };
 
   const auth = await session();
-  if (!auth) return { tracks: [] };
+  if (!auth) return embed.tracks.length > 0 ? embed : { tracks: [] };
 
   const headers = {
     Authorization: `Bearer ${auth.access}`,
@@ -227,10 +230,10 @@ export async function importSpotifyPlaylistExtension(
     // metadata is optional; tracks still matter
   }
 
-  const tracks: GatewayTrack[] = [];
-  let offset = 0;
+  const tracks: GatewayTrack[] = [...embed.tracks];
+  let offset = tracks.length;
   const pageSize = 100;
-  const cap = Math.min(Math.max(maxTracks, 1), 500);
+  const cap = Math.min(Math.max(maxTracks, 1), 2000);
 
   while (tracks.length < cap) {
     const limit = Math.min(pageSize, cap - tracks.length);
@@ -240,14 +243,15 @@ export async function importSpotifyPlaylistExtension(
     );
     if (!page) break;
     const items = (page.items as Array<{ track?: Record<string, unknown> | null }> | undefined) ?? [];
+    if (items.length === 0) break;
     for (const row of items) {
       const mapped = mapWebApiTrack(row.track ?? undefined);
       if (mapped) tracks.push(mapped);
       if (tracks.length >= cap) break;
     }
-    if (!page.next || items.length === 0) break;
+    if (!page.next) break;
     offset += items.length;
-    if (offset > 2000) break;
+    if (offset > 5000) break;
   }
 
   return { name, artworkURL, tracks };
