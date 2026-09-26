@@ -52,6 +52,7 @@ NUL
 
 # Agent instructions / config
 AGENTS.md
+CLAUDE.md
 .ai/
 .agents/
 .junie/
