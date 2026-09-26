@@ -64,4 +64,53 @@ class SearchRankerSurgicalTest {
         assertEquals("Billy Joel", response.songs.first().artist)
         assertEquals(response.songs.first(), response.topResult)
     }
+
+    @Test
+    fun whiskyLullabySearch_resolvesCorrectSongAndTopResult() {
+        val query = "whisky lullably by brad paisley"
+
+        // Verify provider query typo correction & stripping of "by"
+        val providerQ = UnifiedSearchEngine.providerQuery(query)
+        assertEquals("whiskey lullaby brad paisley", providerQ)
+
+        // Verify fallback queries
+        val fallbacks = UnifiedSearchEngine.fallbackProviderQueries(query)
+        assertTrue(fallbacks.contains("whiskey lullaby brad paisley"))
+        assertTrue(fallbacks.contains("whiskey lullaby"))
+        assertTrue(fallbacks.contains("brad paisley"))
+
+        val results = listOf(
+            CanonicalTrack(
+                title = "Whiskey Lullaby (feat. Alison Krauss)",
+                artist = "Brad Paisley",
+                album = "Mud on the Tires",
+                durationMs = 259_000L,
+                sourceStatus = SearchItemStatus.SOURCE_FOUND,
+                externalTrackId = "deezer:1"
+            ),
+            CanonicalTrack(
+                title = "Mud on the Tires",
+                artist = "Brad Paisley",
+                album = "Mud on the Tires",
+                durationMs = 210_000L,
+                sourceStatus = SearchItemStatus.SOURCE_FOUND,
+                externalTrackId = "deezer:2"
+            ),
+            CanonicalTrack(
+                title = "Alcohol",
+                artist = "Brad Paisley",
+                album = "Time Well Wasted",
+                durationMs = 290_000L,
+                sourceStatus = SearchItemStatus.SOURCE_FOUND,
+                externalTrackId = "deezer:3"
+            )
+        )
+
+        val response = UnifiedSearchEngine.process(query, results)
+
+        assertTrue("Expected songs to not be empty", response.songs.isNotEmpty())
+        assertEquals("Whiskey Lullaby (feat. Alison Krauss)", response.songs.first().title)
+        assertEquals("Brad Paisley", response.songs.first().artist)
+        assertEquals("Whiskey Lullaby (feat. Alison Krauss)", response.topResult?.title)
+    }
 }

@@ -42,7 +42,7 @@ object IntentParser {
         "instrumental" in normalizedQuery || "inst " in normalizedQuery -> RequestedVariant.INSTRUMENTAL
         "karaoke" in normalizedQuery -> RequestedVariant.KARAOKE
         "piano" in normalizedQuery -> RequestedVariant.PIANO
-        "lullaby" in normalizedQuery -> RequestedVariant.LULLABY
+        "lullaby version" in normalizedQuery || "lullaby rendition" in normalizedQuery || "baby lullaby" in normalizedQuery -> RequestedVariant.LULLABY
         "orchestra" in normalizedQuery || "symphony" in normalizedQuery -> RequestedVariant.ORCHESTRA
         "tribute" in normalizedQuery -> RequestedVariant.TRIBUTE
         "cover" in normalizedQuery -> RequestedVariant.COVER

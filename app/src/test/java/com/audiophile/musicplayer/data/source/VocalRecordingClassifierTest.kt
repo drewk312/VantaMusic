@@ -122,4 +122,22 @@ class VocalRecordingClassifierTest {
             )
         )
     }
+
+    @Test
+    fun allowsWhiskeyLullabyByDefault() {
+        assertTrue(
+            VocalRecordingClassifier.shouldAllowInCatalog(
+                title = "Whiskey Lullaby (feat. Alison Krauss)",
+                artist = "Brad Paisley",
+                album = "Mud on the Tires"
+            )
+        )
+        assertTrue(
+            VocalRecordingClassifier.lyricsExpected(
+                title = "Whiskey Lullaby (feat. Alison Krauss)",
+                artist = "Brad Paisley",
+                album = "Mud on the Tires"
+            )
+        )
+    }
 }

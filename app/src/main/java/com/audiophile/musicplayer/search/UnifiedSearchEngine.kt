@@ -39,15 +39,59 @@ data class SearchPersonalization(
  */
 object UnifiedSearchEngine {
 
-    /** Provider lookups keep the user's text intact. Catalog-derived intent is
-     * resolved from live results instead of a hand-maintained song list. */
+    /** Provider lookups normalize phrasing and common typos. */
     fun providerQuery(rawQuery: String): String {
         val trimmed = rawQuery.trim()
-        return if (trimmed.contains(" by ", ignoreCase = true)) {
+        val withoutBy = if (trimmed.contains(" by ", ignoreCase = true)) {
             trimmed.replace(Regex("(?i)\\s+by\\s+"), " ").trim()
         } else {
             trimmed
         }
+        return normalizeTyposForProvider(withoutBy)
+    }
+
+    fun normalizeTyposForProvider(query: String): String {
+        var result = query
+        val replacements = listOf(
+            Regex("""(?i)\blullably\b""") to "lullaby",
+            Regex("""(?i)\blullabye\b""") to "lullaby",
+            Regex("""(?i)\bwhisky\b""") to "whiskey",
+            Regex("""(?i)\bacapella\b""") to "a cappella",
+            Regex("""(?i)\bacappella\b""") to "a cappella"
+        )
+        for ((pattern, replacement) in replacements) {
+            result = result.replace(pattern, replacement)
+        }
+        return result
+    }
+
+    fun fallbackProviderQueries(rawQuery: String): List<String> {
+        val trimmed = rawQuery.trim()
+        val list = mutableListOf<String>()
+        val withoutBy = if (trimmed.contains(" by ", ignoreCase = true)) {
+            trimmed.replace(Regex("(?i)\\s+by\\s+"), " ").trim()
+        } else {
+            trimmed
+        }
+
+        val normalized = normalizeTyposForProvider(withoutBy)
+        if (!normalized.equals(withoutBy, ignoreCase = true)) {
+            list.add(normalized)
+        }
+
+        if (trimmed.contains(" by ", ignoreCase = true)) {
+            val parts = trimmed.split(Regex("(?i)\\s+by\\s+"), limit = 2)
+            if (parts.size == 2) {
+                val titlePart = normalizeTyposForProvider(parts[0].trim())
+                val artistPart = parts[1].trim()
+                if (titlePart.isNotBlank() && artistPart.isNotBlank()) {
+                    list.add("$titlePart $artistPart")
+                    list.add(titlePart)
+                    list.add(artistPart)
+                }
+            }
+        }
+        return list.distinct()
     }
 
     /**
@@ -245,6 +289,20 @@ object UnifiedSearchEngine {
         val artistTokens = normArtist.split(" ").filter { it.isNotBlank() }.toSet()
         val combinedTokens = titleTokens + artistTokens
         val allQueryTokensInTrack = queryTokens.isNotEmpty() && queryTokens.all { it in combinedTokens }
+        val fuzzyQueryTokensMatch = queryTokens.isNotEmpty() && queryTokens.all { qTok ->
+            combinedTokens.any { cTok ->
+                cTok == qTok || (qTok.length >= 4 && cTok.length >= 4 && levenshteinDistance(qTok, cTok) <= 1)
+            }
+        }
+        val titleSim = expectedTitle?.let { maxOf(textSimilarity(it, normTitle), textSimilarity(it, normCleanTitle)) } ?: 0.0
+        val fuzzyTitleMatch = expectedTitle != null && (
+            titleSim >= 0.70 ||
+            expectedTitle.split(" ").filter { it.length >= 3 }.all { eTok ->
+                titleTokens.any { tTok ->
+                    tTok == eTok || (eTok.length >= 4 && tTok.length >= 4 && levenshteinDistance(eTok, tTok) <= 1)
+                }
+            }
+        )
         val combinedArtistTitle = "$normArtist $normTitle"
         val combinedTitleArtist = "$normTitle $normArtist"
         val strictCombinedMatch = rawNorm == combinedArtistTitle || rawNorm == combinedTitleArtist
@@ -261,11 +319,12 @@ object UnifiedSearchEngine {
             strictTitleMatch -> 500
             cleanTitleMatch -> 440
             expectedTitle != null && (normTitle.contains(expectedTitle) || normCleanTitle.contains(expectedTitle) || expectedTitle.contains(normTitle) || expectedTitle.contains(normCleanTitle)) -> 250
+            fuzzyTitleMatch -> 390
             rawNorm.contains(normTitle) && normTitle.length >= 3 -> 200
-            allQueryTokensInTrack -> 180
+            allQueryTokensInTrack || fuzzyQueryTokensMatch -> 180
             else -> scoreText(intent.rawQuery, title) / 2
         }
-        if (allQueryTokensInTrack && !strictCombinedMatch && !cleanCombinedMatch && !strictTitleMatch && !cleanTitleMatch) {
+        if ((allQueryTokensInTrack || fuzzyQueryTokensMatch) && !strictCombinedMatch && !cleanCombinedMatch && !strictTitleMatch && !cleanTitleMatch && !fuzzyTitleMatch) {
             score += 120
         }
 
@@ -373,7 +432,9 @@ object UnifiedSearchEngine {
             normCleanTitle.contains(expectedTitle) ||
             expectedTitle.contains(normTitle) ||
             expectedTitle.contains(normCleanTitle) ||
+            fuzzyTitleMatch ||
             allQueryTokensInTrack ||
+            fuzzyQueryTokensMatch ||
             (rawNorm.contains(normTitle) && normTitle.length >= 3)
         val artistMatchesCandidate = expectedArtist == null || artistMatch || artistOverlap >= 0.5
 
@@ -759,7 +820,12 @@ object UnifiedSearchEngine {
             val combinedArtistTitle = "$actualArtist $titleNorm"
             val combinedTitleArtist = "$titleNorm $actualArtist"
             val combinedSim = maxOf(textSimilarity(rawNorm, combinedArtistTitle), textSimilarity(rawNorm, combinedTitleArtist))
-            return evaluation.eligibleForTop || similarity >= 0.50 || combinedSim >= 0.55 || rawNorm.contains(titleNorm)
+            val fuzzyTokensMatch = expectedTitle.split(" ").filter { it.length >= 3 }.all { eTok ->
+                titleNorm.split(" ").any { tTok ->
+                    tTok == eTok || (eTok.length >= 4 && tTok.length >= 4 && levenshteinDistance(eTok, tTok) <= 1)
+                }
+            }
+            return evaluation.eligibleForTop || similarity >= 0.50 || combinedSim >= 0.55 || rawNorm.contains(titleNorm) || fuzzyTokensMatch
         }
 
         return expectedArtist.isNullOrBlank() || artistIdentityMatches(expectedArtist, actualArtist)
@@ -841,7 +907,7 @@ object UnifiedSearchEngine {
             "instrumental" in q || "inst " in q -> VariantClassifier.VariantType.INSTRUMENTAL
             "karaoke" in q -> VariantClassifier.VariantType.KARAOKE
             "piano" in q -> VariantClassifier.VariantType.PIANO
-            "lullaby" in q -> VariantClassifier.VariantType.INSTRUMENTAL
+            "lullaby version" in q || "lullaby rendition" in q || "baby lullaby" in q -> VariantClassifier.VariantType.COVER
             "orchestra" in q || "symphony" in q -> VariantClassifier.VariantType.INSTRUMENTAL
             "tribute" in q -> VariantClassifier.VariantType.COVER
             "cover" in q -> VariantClassifier.VariantType.COVER

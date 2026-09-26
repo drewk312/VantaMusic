@@ -25,8 +25,7 @@ object VariantClassifier {
 
     private val instrumentalMarkers = listOf(
         "instrumental", "inst.", "inst ", "no vocals", "no vocal", "backing track",
-        "performance track", "minus one", "minus-one", "tv track", "drumless",
-        "lullaby", "lullabies"
+        "performance track", "minus one", "minus-one", "tv track", "drumless"
     )
     private val karaokeMarkers = listOf("karaoke", "sing along", "singalong")
     private val pianoMarkers = listOf("piano version", "piano cover", "piano instrumental", "for piano")
@@ -35,7 +34,8 @@ object VariantClassifier {
         "in the style of", "as made famous", "renditions", "rendition", "translations",
         "symphony orchestra", "orchestra performs", "performs the",
         "choreography", "dance cover", "dance tutorial",
-        " drum cover", "guitar cover", "violin cover", "(cover", "cover)", " cover -"
+        " drum cover", "guitar cover", "violin cover", "(cover", "cover)", " cover -",
+        "lullaby version", "lullaby rendition", "lullaby renditions", "baby lullaby"
     )
 
     private val byArtistReuploadPattern = Regex("""(?i)\s+by\s+(.+)$""")

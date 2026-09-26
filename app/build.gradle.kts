@@ -54,8 +54,8 @@ android {
         applicationId = "com.audiophile.musicplayer"
         minSdk = 26 // Requires Oreo or newer for modern audio routing
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.04"
+        versionCode = 9
+        versionName = "1.05"
 
         buildConfigField("String", "STATION_BACKEND_URL", buildConfigString(stationBackendUrl))
         buildConfigField("String", "TORBOX_BASE_URL", buildConfigString(configValue("TORBOX_BASE_URL")))

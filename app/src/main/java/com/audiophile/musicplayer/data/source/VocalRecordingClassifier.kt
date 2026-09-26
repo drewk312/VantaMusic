@@ -46,8 +46,11 @@ object VocalRecordingClassifier {
 
     /** Album names that almost always mean non-vocal or tribute inventory. */
     private val nonVocalAlbumMarkers = listOf(
-        "lullaby",
-        "lullabies",
+        "lullaby rendition",
+        "lullaby renditions",
+        "lullaby version",
+        "baby lullaby",
+        "baby lullabies",
         "renditions",
         "rendition",
         "translations",
@@ -116,7 +119,7 @@ object VocalRecordingClassifier {
     fun userRequestedNonVocal(userQuery: String?): Boolean {
         if (userQuery.isNullOrBlank()) return false
         val q = userQuery.lowercase()
-        return listOf("instrumental", "karaoke", "piano", "lullaby", "acoustic", "live", "remix")
+        return listOf("instrumental", "karaoke", "piano", "lullaby version", "baby lullaby", "acoustic", "live", "remix")
             .any { term -> term in q }
     }
 

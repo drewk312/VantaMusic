@@ -88,7 +88,7 @@ class SearchRepository(
             }
         }
         val localMatches = searchLibraryOnly(textQuery)
-        val sourceResults = sourceRegistry.searchAll(
+        val primarySourceResults = sourceRegistry.searchAll(
             providerQuery,
             timeoutMs = 8_000L,
             includeSupplemental = false
@@ -103,6 +103,33 @@ class SearchRepository(
                     userQuery = textQuery
                 )
             }
+
+        var sourceResults = primarySourceResults
+        if (sourceResults.isEmpty()) {
+            val fallbacks = UnifiedSearchEngine.fallbackProviderQueries(textQuery)
+            for (fallback in fallbacks) {
+                if (fallback.equals(providerQuery, ignoreCase = true)) continue
+                val recovered = sourceRegistry.searchAll(
+                    fallback,
+                    timeoutMs = 5_000L,
+                    includeSupplemental = false
+                ).filter { result ->
+                    ContentPurityFilter.isAllowed(
+                        title = result.title,
+                        artist = result.artist,
+                        album = result.album,
+                        durationMs = result.durationMs,
+                        source = result.providerId,
+                        userQuery = textQuery
+                    )
+                }
+                if (recovered.isNotEmpty()) {
+                    Log.d("VANTA_SEARCH", "SearchRepository recovered ${recovered.size} tracks using fallback query='$fallback'")
+                    sourceResults = recovered
+                    break
+                }
+            }
+        }
         val searchDurationMs = System.currentTimeMillis() - searchStartMs
         Log.d("VANTA_SEARCH", "SearchRepository local=${localMatches.size} source=${sourceResults.size}")
         Log.d("VANTA_SEARCH_PERF", "query='$textQuery' local=${localMatches.size} source=${sourceResults.size} totalDurationMs=$searchDurationMs")

@@ -502,12 +502,22 @@ fun SearchScreen(
                     }
 
                     if (selectedSearchTab == "Albums") {
-                        item(key = "release_count") { Text("${albums.size} releases", color = AppTextSecondary, fontSize = 12.sp) }
-                        items(albums.chunked(2)) { row ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                row.forEach { album ->
-                                    SearchAlbumCard(album, onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
-                                        showStationAction = false)
+                        if (albums.isEmpty()) {
+                            item(key = "empty_albums_tab") {
+                                VantaEmptyState(
+                                    title = "No Albums Found",
+                                    description = "No albums found for \"$trimmedQuery\".",
+                                    icon = Icons.Filled.Search
+                                )
+                            }
+                        } else {
+                            item(key = "release_count") { Text("${albums.size} releases", color = AppTextSecondary, fontSize = 12.sp) }
+                            items(albums.chunked(2)) { row ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    row.forEach { album ->
+                                        SearchAlbumCard(album, onNavigateToAlbum = { onNavigateToAlbum(album.title, album.artist, album.artworkUrl) },
+                                            showStationAction = false)
+                                    }
                                 }
                             }
                         }
@@ -544,6 +554,15 @@ fun SearchScreen(
                             }
                         }
                     }
+                    if (selectedSearchTab == "Playlists" && playlists.isEmpty()) {
+                        item(key = "empty_playlists_tab") {
+                            VantaEmptyState(
+                                title = "No Playlists Found",
+                                description = "No playlists found for \"$trimmedQuery\".",
+                                icon = Icons.Filled.Search
+                            )
+                        }
+                    }
 
                     if ((selectedSearchTab == "All" || selectedSearchTab == "Songs") && songs.isNotEmpty()) {
                         item(key = "songs_label") {
@@ -571,6 +590,15 @@ fun SearchScreen(
                             )
                         }
                     }
+                    if (selectedSearchTab == "Songs" && songs.isEmpty() && localTracks.isEmpty()) {
+                        item(key = "empty_songs_tab") {
+                            VantaEmptyState(
+                                title = "No Songs Found",
+                                description = "No songs found for \"$trimmedQuery\". Try checking spelling or searching by artist name.",
+                                icon = Icons.Filled.Search
+                            )
+                        }
+                    }
 
                     if ((selectedSearchTab == "All" && matchedArtist == null || selectedSearchTab == "Artists") && artists.isNotEmpty()) {
                         item(key = "artists") {
@@ -583,6 +611,15 @@ fun SearchScreen(
                                         showStationAction = false)
                                 }
                             }
+                        }
+                    }
+                    if (selectedSearchTab == "Artists" && artists.isEmpty() && matchedArtist == null) {
+                        item(key = "empty_artists_tab") {
+                            VantaEmptyState(
+                                title = "No Artists Found",
+                                description = "No artists found for \"$trimmedQuery\".",
+                                icon = Icons.Filled.Search
+                            )
                         }
                     }
                     if (selectedSearchTab == "All" && matchedArtist == null && albums.isNotEmpty()) {
