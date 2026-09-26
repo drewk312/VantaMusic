@@ -61,6 +61,7 @@ fun ArtistDetailScreen(
     onNavigateToAlbum: (albumName: String, artistName: String) -> Unit,
     onNavigateToTrackSheet: (track: UnifiedTrackWithSources) -> Unit,
     onPlayCatalogTrack: (CanonicalTrack) -> Unit = {},
+    onPlayLocalTrack: (UnifiedTrackWithSources) -> Unit = {},
     onAddToQueue: (UnifiedTrackWithSources) -> Unit = {},
     searchTracks: List<CanonicalTrack> = emptyList(),
     miniPlayerVisible: Boolean = false,
@@ -73,9 +74,24 @@ fun ArtistDetailScreen(
         com.audiophile.musicplayer.search.SearchPresentation.albums(catalog?.albums.orEmpty(), allCatalogTracks,
             com.audiophile.musicplayer.data.canonical.CanonicalArtist(name = artistName))
     }
-    val localTracks = tracks.distinctBy { it.track.title.trim().lowercase() }
+    val localTracks = remember(tracks) {
+        tracks.distinctBy {
+            it.track.localLibraryId?.let { id -> "local:$id" } ?: "${it.track.title.trim().lowercase()}|${it.track.artist.trim().lowercase()}"
+        }
+    }
+    val localSongKeys = remember(localTracks) {
+        localTracks.map {
+            com.audiophile.musicplayer.search.SearchPresentation.key(it.track.title)
+        }.toSet()
+    }
+    val catalogRemaining = remember(allCatalogTracks, localSongKeys) {
+        allCatalogTracks.filter {
+            com.audiophile.musicplayer.search.SearchPresentation.key(it.title) !in localSongKeys
+        }
+    }
     val hasSongs = allCatalogTracks.isNotEmpty() || localTracks.isNotEmpty()
     var showAllAlbums by androidx.compose.runtime.saveable.rememberSaveable(artistName) { mutableStateOf(false) }
+    var showAllLocalSongs by androidx.compose.runtime.saveable.rememberSaveable(artistName) { mutableStateOf(false) }
     var showAllSongs by androidx.compose.runtime.saveable.rememberSaveable(artistName) { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     androidx.compose.runtime.LaunchedEffect(artistName) { listState.scrollToItem(0) }
@@ -154,28 +170,63 @@ fun ArtistDetailScreen(
                     }
                 }
             }
-            if (hasSongs) {
-                item(key = "song_heading") {
+
+            // In Your Library Section
+            if (localTracks.isNotEmpty()) {
+                item(key = "local_songs_heading") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(if (showAllSongs) "All songs" else "Top songs", color = AppText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        if (maxOf(allCatalogTracks.size, localTracks.size) > 5) androidx.compose.material3.TextButton(onClick = { showAllSongs = !showAllSongs }) {
-                            Text(if (showAllSongs) "Show less" else "See all", color = AppAccent)
+                        Column {
+                            Text(if (catalogRemaining.isEmpty()) (if (showAllLocalSongs) "All songs" else "Songs") else "In Your Library",
+                                color = AppText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Text("${localTracks.size} song${if (localTracks.size == 1) "" else "s"}", color = AppTextSecondary, fontSize = 12.sp)
+                        }
+                        if (localTracks.size > 5) androidx.compose.material3.TextButton(onClick = { showAllLocalSongs = !showAllLocalSongs }) {
+                            Text(if (showAllLocalSongs) "Show less" else "See all (${localTracks.size})", color = AppAccent)
                         }
                     }
                 }
-                if (allCatalogTracks.isNotEmpty()) {
-                    itemsIndexed(if (showAllSongs) allCatalogTracks else allCatalogTracks.take(5), key = { index, track -> "catalog_${track.externalTrackId ?: track.title}_$index" }) { index, track ->
-                        CatalogTrackRow(track, index + 1, onTap = { onPlayCatalogTrack(track) },
-                            onAlbumTap = { track.album?.let { onNavigateToAlbum(it, artistName) } },
-                            modifier = Modifier.padding(horizontal = 24.dp))
-                    }
-                } else {
-                    itemsIndexed(if (showAllSongs) localTracks else localTracks.take(5), key = { index, track -> "local_${track.track.trackId}_$index" }) { _, track ->
-                        TrackRow(track, onTap = { onNavigateToTrackSheet(track) }, modifier = Modifier.padding(horizontal = 24.dp))
+                val visibleLocal = if (showAllLocalSongs) localTracks else localTracks.take(5)
+                itemsIndexed(visibleLocal, key = { index, track -> "local_${track.track.localLibraryId ?: track.track.trackId}_$index" }) { index, track ->
+                    TrackRow(
+                        track = track,
+                        onTap = { onPlayLocalTrack(track) },
+                        onMoreTap = { onNavigateToTrackSheet(track) },
+                        showIndex = true,
+                        index = index + 1,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                }
+            }
+
+            // Popular Songs / Catalog Section
+            if (catalogRemaining.isNotEmpty()) {
+                item(key = "catalog_song_heading") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text(if (localTracks.isEmpty()) (if (showAllSongs) "All songs" else "Top songs") else "Popular Songs",
+                                color = AppText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            if (catalogRemaining.size > 5) {
+                                Text("${catalogRemaining.size} songs", color = AppTextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                        if (catalogRemaining.size > 5) androidx.compose.material3.TextButton(onClick = { showAllSongs = !showAllSongs }) {
+                            Text(if (showAllSongs) "Show less" else "See all (${catalogRemaining.size})", color = AppAccent)
+                        }
                     }
                 }
-            } else if (!catalogLoading) item(key = "empty_artist_state") {
+                val visibleCatalog = if (showAllSongs) catalogRemaining else catalogRemaining.take(10)
+                itemsIndexed(visibleCatalog, key = { index, track -> "catalog_${track.externalTrackId ?: track.title}_$index" }) { index, track ->
+                    CatalogTrackRow(
+                        track = track,
+                        index = index + 1,
+                        onTap = { onPlayCatalogTrack(track) },
+                        onAlbumTap = { track.album?.let { onNavigateToAlbum(it, artistName) } },
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                }
+            } else if (!hasSongs && !catalogLoading) item(key = "empty_artist_state") {
                 VantaEmptyState(title = "Could not load this artist", description = "Try again when your connection is available.",
                     icon = Icons.Filled.Person, actionLabel = "Find music", onAction = onPlayArtistRadio)
             }
@@ -249,6 +300,7 @@ fun TrackRow(
     track: UnifiedTrackWithSources,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
+    onMoreTap: (() -> Unit)? = null,
     showIndex: Boolean = false,
     index: Int = 0
 ) {
@@ -259,7 +311,7 @@ fun TrackRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onTap)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -299,7 +351,18 @@ fun TrackRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Icon(Icons.Filled.MoreHoriz, contentDescription = "More", tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(24.dp).clickable(onClick = onTap))
+        Icon(
+            Icons.Filled.PlayArrow,
+            contentDescription = "Play ${display.title}",
+            tint = AppAccent,
+            modifier = Modifier.size(24.dp).clickable(onClick = onTap)
+        )
+        Icon(
+            Icons.Filled.MoreHoriz,
+            contentDescription = "More",
+            tint = Color.White.copy(alpha = 0.5f),
+            modifier = Modifier.size(24.dp).clickable(onClick = onMoreTap ?: onTap)
+        )
     }
 }
 

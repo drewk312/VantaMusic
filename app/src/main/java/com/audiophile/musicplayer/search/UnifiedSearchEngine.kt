@@ -201,7 +201,11 @@ object UnifiedSearchEngine {
             val category = detectCategory(track, normalizedQuery)
             if (category == Category.SONG) {
                 if (track.isLikelyMusicTrack() || track.sourceStatus == SearchItemStatus.METADATA_ONLY) {
-                    val key = "${normalize(track.title)}|${normalize(track.artist)}"
+                    val cleanTitle = normalize(track.title)
+                        .replace(Regex("""\b(remaster|remastered|deluxe|radio edit|single edit|album version|clean version|explicit version|mono|stereo)\b.*"""), "")
+                        .trim()
+                    val canonicalArtist = normalize(primaryArtist(track.artist))
+                    val key = if (cleanTitle.isNotBlank()) "$cleanTitle|$canonicalArtist" else "${normalize(track.title)}|${normalize(track.artist)}"
                     if (seenSongKeys.add(key)) {
                         songs.add(track)
                     }
@@ -805,9 +809,15 @@ object UnifiedSearchEngine {
         val actualArtist = normalize(track.artist)
 
         // Query token coverage check: if track matches all query words across title + artist, it is ALWAYS relevant
-        val queryTokens = rawNorm.split(" ").filter { it.isNotBlank() }
+        val stopWords = setOf("by", "feat", "ft", "featuring", "with", "the", "a", "an", "and", "&")
+        val queryTokens = rawNorm.split(" ").filter { it.isNotBlank() && it !in stopWords }
         val trackTokens = (titleNorm.split(" ") + actualArtist.split(" ")).filter { it.isNotBlank() }.toSet()
-        if (queryTokens.isNotEmpty() && queryTokens.all { it in trackTokens }) {
+        val fuzzyCoverage = queryTokens.isNotEmpty() && queryTokens.all { qTok ->
+            trackTokens.any { tTok ->
+                tTok == qTok || (qTok.length >= 4 && tTok.length >= 4 && levenshteinDistance(qTok, tTok) <= 1)
+            }
+        }
+        if (fuzzyCoverage) {
             return true
         }
 
@@ -820,8 +830,8 @@ object UnifiedSearchEngine {
             val combinedArtistTitle = "$actualArtist $titleNorm"
             val combinedTitleArtist = "$titleNorm $actualArtist"
             val combinedSim = maxOf(textSimilarity(rawNorm, combinedArtistTitle), textSimilarity(rawNorm, combinedTitleArtist))
-            val fuzzyTokensMatch = expectedTitle.split(" ").filter { it.length >= 3 }.all { eTok ->
-                titleNorm.split(" ").any { tTok ->
+            val fuzzyTokensMatch = expectedTitle.split(" ").filter { it.length >= 3 && it !in stopWords }.all { eTok ->
+                trackTokens.any { tTok ->
                     tTok == eTok || (eTok.length >= 4 && tTok.length >= 4 && levenshteinDistance(eTok, tTok) <= 1)
                 }
             }

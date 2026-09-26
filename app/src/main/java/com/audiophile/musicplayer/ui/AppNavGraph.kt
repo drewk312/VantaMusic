@@ -53,6 +53,7 @@ import com.audiophile.musicplayer.data.dj.AiDjViewModel
 import com.audiophile.musicplayer.data.dj.AiDjUiState
 import com.audiophile.musicplayer.data.dj.JukeboxCatalog
 import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
+import com.audiophile.musicplayer.data.local.toPlayableQueueItem
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
 import com.audiophile.musicplayer.playback.PlaybackService
 import kotlinx.coroutines.launch
@@ -680,10 +681,25 @@ fun AppNavGraph(
                                 canonicalArtistId = dr.id?.toLongOrNull()
                             )
                         }
+                        val matchingLocal = uiState.localSongs.filter { song ->
+                            dr.name.equals(song.artist, ignoreCase = true) ||
+                            com.audiophile.musicplayer.data.display.DisplayMetadataCleaner.splitArtistCredits(song.artist).primary.equals(dr.name, ignoreCase = true) ||
+                            song.artist.contains(dr.name, ignoreCase = true)
+                        }.mapNotNull { song ->
+                            libraryTrackForSong(song, uiState.library) ?: song.toPlayableQueueItem()
+                        }
+                        val matchingLibrary = uiState.library.filter {
+                            dr.name.equals(it.track.artist, ignoreCase = true) ||
+                            com.audiophile.musicplayer.data.display.DisplayMetadataCleaner.splitArtistCredits(it.track.artist).primary.equals(dr.name, ignoreCase = true) ||
+                            it.track.artist.contains(dr.name, ignoreCase = true)
+                        }
+                        val combinedLocalTracks = (matchingLocal + matchingLibrary).distinctBy {
+                            it.track.localLibraryId?.let { id -> "local:$id" } ?: "${it.track.title.trim().lowercase()}|${it.track.artist.trim().lowercase()}"
+                        }
                         ArtistDetailScreen(
                         artistName = dr.name,
                         artistId = dr.id,
-                        tracks = uiState.library.filter { dr.name.equals(it.track.artist, ignoreCase = true) },
+                        tracks = combinedLocalTracks,
                         albums = uiState.libraryAlbums,
                         catalog = uiState.artistCatalog?.takeIf { it.artist.name.equals(dr.name, ignoreCase = true) },
                         catalogLoading = uiState.artistCatalogLoading,
@@ -695,22 +711,33 @@ fun AppNavGraph(
                             nowPlayingViewModel.restore()
                         },
                         onPlayArtist = {
-                            val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
-                                searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                            if (combinedLocalTracks.isNotEmpty()) {
+                                mainViewModel.playQueue(combinedLocalTracks, 0)
+                            } else {
+                                val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
+                                    searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                                }
+                                if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs)
+                                else mainViewModel.playArtistRadio(dr.name)
                             }
-                            if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs)
-                            else mainViewModel.playArtistRadio(dr.name)
+                            nowPlayingViewModel.restore()
                         },
                         onShuffleTopSongs = {
-                            val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
-                                searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                            if (combinedLocalTracks.isNotEmpty()) {
+                                mainViewModel.playQueue(combinedLocalTracks.shuffled(), 0)
+                            } else {
+                                val songs = uiState.artistCatalog?.tracks.orEmpty().ifEmpty {
+                                    searchUiState.songs.filter { dr.name.equals(it.artist, ignoreCase = true) }
+                                }
+                                if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs, shuffle = true)
+                                else mainViewModel.playArtistRadio(dr.name)
                             }
-                            if (songs.isNotEmpty()) mainViewModel.playCatalogQueue(songs, shuffle = true)
-                            else {
-                                val local = uiState.library.filter { dr.name.equals(it.track.artist, ignoreCase = true) }
-                                    .filter { it.sourceValidityStatus().canEnterPlaybackFlow() }.shuffled()
-                                if (local.isNotEmpty()) mainViewModel.playQueue(local, 0)
-                            }
+                            nowPlayingViewModel.restore()
+                        },
+                        onPlayLocalTrack = { track ->
+                            val idx = combinedLocalTracks.indexOf(track).coerceAtLeast(0)
+                            mainViewModel.playQueue(combinedLocalTracks, idx)
+                            nowPlayingViewModel.restore()
                         },
                         onNavigateToAlbum = { albumName, artistName ->
                             openChildDetail(DetailRoute(DetailRoute.Type.Album, albumName, null, secondaryName = artistName))
@@ -734,6 +761,19 @@ fun AppNavGraph(
                                 canonicalAlbumId = dr.id?.toLongOrNull()
                             )
                         }
+                        val matchingAlbumLocal = uiState.localSongs.filter {
+                            dr.name.equals(it.album, ignoreCase = true) &&
+                                (dr.secondaryName.isNullOrBlank() || dr.secondaryName.equals(it.artist, ignoreCase = true))
+                        }.mapNotNull { song ->
+                            libraryTrackForSong(song, uiState.library) ?: song.toPlayableQueueItem()
+                        }
+                        val matchingAlbumLibrary = uiState.library.filter {
+                            it.track.albumName.equals(dr.name, ignoreCase = true) &&
+                                (dr.secondaryName.isNullOrBlank() || it.track.artist.equals(dr.secondaryName, ignoreCase = true))
+                        }
+                        val combinedAlbumTracks = (matchingAlbumLocal + matchingAlbumLibrary).distinctBy {
+                            it.track.localLibraryId?.let { id -> "local:$id" } ?: "${it.track.title.trim().lowercase()}|${it.track.artist.trim().lowercase()}"
+                        }
                         AlbumDetailScreen(
                         albumName = dr.name,
                         artistName = dr.secondaryName ?: "",
@@ -741,7 +781,7 @@ fun AppNavGraph(
                         releaseYear = dr.releaseYear,
                         genre = dr.genre,
                         explicit = dr.explicit,
-                        tracks = uiState.library.filter { it.track.albumName.equals(dr.name, ignoreCase = true) },
+                        tracks = combinedAlbumTracks,
                         catalog = uiState.albumCatalog?.takeIf {
                             it.album.title.equals(dr.name, ignoreCase = true) &&
                                 (dr.secondaryName.isNullOrBlank() || it.album.artist.equals(dr.secondaryName, ignoreCase = true))

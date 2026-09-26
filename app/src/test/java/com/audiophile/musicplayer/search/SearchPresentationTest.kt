@@ -73,4 +73,27 @@ class SearchPresentationTest {
         assertEquals("", SearchPresentation.key(""))
         assertEquals("morgan wallen", SearchPresentation.key("Morgan Wallen"))
     }
+
+    @Test
+    fun remastersAndDeluxeDuplicatesCollapseIntoSingleBestTrack() {
+        val studio = CanonicalTrack(title = "Whiskey Lullaby", artist = "Brad Paisley", sourcePriority = 10, sourceStatus = SearchItemStatus.SOURCE_FOUND)
+        val remaster = CanonicalTrack(title = "Whiskey Lullaby - Remastered 2020", artist = "Brad Paisley", sourcePriority = 10, sourceStatus = SearchItemStatus.SOURCE_FOUND)
+        val deluxe = CanonicalTrack(title = "Whiskey Lullaby (Deluxe Edition)", artist = "Brad Paisley", sourcePriority = 10, sourceStatus = SearchItemStatus.SOURCE_FOUND)
+        val radioEdit = CanonicalTrack(title = "Whiskey Lullaby (Radio Edit)", artist = "Brad Paisley", sourcePriority = 10, sourceStatus = SearchItemStatus.SOURCE_FOUND)
+        val otherSong = CanonicalTrack(title = "Mud on the Tires", artist = "Brad Paisley", sourcePriority = 10, sourceStatus = SearchItemStatus.SOURCE_FOUND)
+
+        val result = SearchPresentation.songs(listOf(studio, remaster, deluxe, radioEdit, otherSong))
+        assertEquals("Should collapse duplicate versions into 1 track plus the distinct other song", 2, result.size)
+        assertEquals("Whiskey Lullaby", result[0].title)
+        assertEquals("Mud on the Tires", result[1].title)
+    }
+
+    @Test
+    fun searchTypoAndStopwordsSurfacesSong() {
+        val track = CanonicalTrack(title = "Whiskey Lullaby", artist = "Brad Paisley feat. Alison Krauss", sourceStatus = SearchItemStatus.SOURCE_FOUND)
+        val response = UnifiedSearchEngine.process("whisky lullably by brad paisley", listOf(track))
+        assertEquals(1, response.songs.size)
+        assertEquals("Whiskey Lullaby", response.songs.first().title)
+    }
 }
+
