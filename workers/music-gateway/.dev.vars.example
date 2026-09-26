@@ -1,0 +1,26 @@
+# Copy to .dev.vars (git-ignored) and fill in real values.
+# These are the LIVE credentials for the deployed Worker. Never commit .dev.vars.
+# Real deployments hold the same values as Cloudflare Worker secret bindings:
+#   npx wrangler secret put FIREBASE_PROJECT_ID
+#   npx wrangler secret put COMMUNITY_SESSION_ID
+#   npx wrangler secret put COMMUNITY_SESSION_SECRET
+#   ...
+
+FIREBASE_PROJECT_ID=
+COMMUNITY_INSTALL_ID=
+COMMUNITY_SESSION_ID=
+COMMUNITY_SESSION_SECRET=
+COMMUNITY_SESSION_EXPIRES=
+COMMUNITY_APP_VERSION=
+COMMUNITY_PLATFORM=
+GATEWAY_STATUS_KEY=
+SESSION_ENCRYPTION_KEY=
+
+# Operator-only relay hosts/keys. Production reads these from Worker secrets
+# (npx wrangler secret bulk); the derivations live nowhere in source since
+# 2026-09-14. Relay values are comma-separated origins.
+COMMUNITY_RELAY_QOBUZ=
+COMMUNITY_RELAY_TIDAL=
+COMMUNITY_RELAY_AMAZON=
+COMMUNITY_API_KEY=
+MUSICDL_DEBUG_KEY=

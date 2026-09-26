@@ -1,0 +1,4 @@
+148ddf0d7792c32d49b1923a43e8351562317987d9d78d006067adf4988ddb29  app/src/main/jniLibs/arm64-v8a/libiamfJNI.so
+0edf0caf24d335f4a10e6ef32c105389449ae2bc765f348f2f3ef5ef5e38e5e5  app/src/main/jniLibs/armeabi-v7a/libiamfJNI.so
+5b1002fce58f5eb4033b088ec904263cf3a4d9681886d3c188bf9ffcb806b160  app/src/main/jniLibs/x86/libiamfJNI.so
+d3def77f51f1d5b09d6a2438afeeac9d95a1c6d13e5bdcd7c3e095e95551970e  app/src/main/jniLibs/x86_64/libiamfJNI.so

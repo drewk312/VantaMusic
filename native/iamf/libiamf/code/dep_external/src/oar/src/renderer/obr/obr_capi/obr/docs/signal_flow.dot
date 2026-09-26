@@ -1,0 +1,88 @@
+digraph OBR {
+    rankdir=LR;
+    graph [fontname="Arial", fontsize=11];
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11];
+    edge [fontname="Arial", fontsize=9];
+
+    // Input sources
+    subgraph cluster_input {
+        label="Input Sources";
+        style=filled;
+        color=lightblue;
+        Ambisonics [label="Ambisonics\n(1OA-4OA)"];
+        Loudspeaker [label="Loudspeakers\n(5.1, 7.1.4, etc.)"];
+        Object [label="Object\n(Mono/Dual)"];
+        Passthrough [label="Passthrough\n(Mono/Stereo)", fillcolor=lightyellow];
+    }
+
+    // Processing Groups
+    subgraph cluster_binaural {
+        label="Binaural Processing (Per Processing Group)";
+        style=filled;
+        color=lightyellow;
+
+        subgraph cluster_worldlocked {
+            label="World-Locked Path";
+            color=lightcoral;
+            style=filled;
+            Encode_WL [label="Encode\nLspk/Obj"];
+            Mix_WL [label="Ambisonic Bed"];
+        }
+
+        subgraph cluster_headlocked {
+            label="Head-Locked Path";
+            color=lightgreen;
+            style=filled;
+            Encode_HL [label="Encode\nLspk/Obj"];
+            Mix_HL [label="Ambisonic Bed"];
+        }
+
+        HeadTracking [label="Head\nTracking?", shape=diamond, fillcolor=white];
+        Rotate [label="Scene Rotation"];
+        SumBeds [label="Sum\nBeds"];
+        Decode [label="Binaural\nDecoding"];
+    }
+
+    // Passthrough path
+    subgraph cluster_passthrough {
+        label="Passthrough Path";
+        style=filled;
+        color=lightgray;
+        DirectLR [label="Direct\nL/R"];
+    }
+
+    // Output
+    subgraph cluster_output {
+        label="Output Processing";
+        style=filled;
+        color=lightgreen;
+        MixOutput [label="Sum\nAll"];
+        Limiter [label="Peak\nLimiter"];
+        Output [label="Stereo\nOutput L/R", shape=ellipse];
+    }
+
+    // Connections - Input to Processing
+    Ambisonics -> Mix_WL;
+    Ambisonics -> Mix_HL;
+    Loudspeaker -> Encode_WL;
+    Loudspeaker -> Encode_HL;
+    Object -> Encode_WL;
+    Object -> Encode_HL;
+    Passthrough -> DirectLR;
+
+    // Internal binaural processing
+    Encode_WL -> Mix_WL;
+    Encode_HL -> Mix_HL;
+    Mix_WL -> HeadTracking;
+    HeadTracking -> Rotate [label="Yes"];
+    HeadTracking -> SumBeds [label="No"];
+    Rotate -> SumBeds;
+    Mix_HL -> SumBeds;
+    SumBeds -> Decode;
+
+    // Output connections
+    Decode -> MixOutput;
+    DirectLR -> MixOutput;
+    MixOutput -> Limiter;
+    Limiter -> Output;
+}

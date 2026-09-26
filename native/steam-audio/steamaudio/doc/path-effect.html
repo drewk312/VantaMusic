@@ -1,0 +1,383 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Path Effect &mdash; Steam Audio C API  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/steamaudio.css?v=b5aaeb06" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=7f41d439"></script>
+      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Probes" href="probes.html" />
+    <link rel="prev" title="Reflection Effect" href="reflections-effect.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html">
+            
+              <img src="_static/steam-audio-logo.png" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Steam Audio SDK</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide.html">Programmer’s Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-instructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="integration.html">Integrating Steam Audio</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="reference.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="types.html">Basic Data Types</a></li>
+<li class="toctree-l2"><a class="reference internal" href="context.html">Context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="geometry.html">Geometry</a></li>
+<li class="toctree-l2"><a class="reference internal" href="serialization.html">Serialization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="embree.html">Embree</a></li>
+<li class="toctree-l2"><a class="reference internal" href="opencl.html">OpenCL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="radeon-rays.html">Radeon Rays</a></li>
+<li class="toctree-l2"><a class="reference internal" href="trueaudio-next.html">TrueAudio Next</a></li>
+<li class="toctree-l2"><a class="reference internal" href="scene.html">Scene</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audio-buffers.html">Audio Buffers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="hrtf.html">HRTF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="panning-effect.html">Panning Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="binaural-effect.html">Binaural Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="virtual-surround-effect.html">Virtual Surround Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ambisonics-encode-effect.html">Ambisonics Encode Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ambisonics-panning-effect.html">Ambisonics Panning Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ambisonics-binaural-effect.html">Ambisonics Binaural Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ambisonics-rotation-effect.html">Ambisonics Rotation Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ambisonics-decode-effect.html">Ambisonics Decode Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="direct-effect.html">Direct Effect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reflections-effect.html">Reflection Effect</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Path Effect</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#typedefs">Typedefs</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv413IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">IPLPathEffect</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#functions">Functions</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv419iplPathEffectCreate10IPLContextP16IPLAudioSettingsP21IPLPathEffectSettingsP13IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">iplPathEffectCreate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv419iplPathEffectRetain13IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">iplPathEffectRetain()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv420iplPathEffectReleaseP13IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">iplPathEffectRelease()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv418iplPathEffectReset13IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">iplPathEffectReset()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv418iplPathEffectApply13IPLPathEffectP19IPLPathEffectParamsP14IPLAudioBufferP14IPLAudioBuffer"><code class="docutils literal notranslate"><span class="pre">iplPathEffectApply()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv420iplPathEffectGetTail13IPLPathEffectP14IPLAudioBuffer"><code class="docutils literal notranslate"><span class="pre">iplPathEffectGetTail()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv424iplPathEffectGetTailSize13IPLPathEffect"><code class="docutils literal notranslate"><span class="pre">iplPathEffectGetTailSize()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#structures">Structures</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv421IPLPathEffectSettings"><code class="docutils literal notranslate"><span class="pre">IPLPathEffectSettings</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#_CPPv419IPLPathEffectParams"><code class="docutils literal notranslate"><span class="pre">IPLPathEffectParams</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="probes.html">Probes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="baking.html">Baking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="energy-field.html">Energy Field</a></li>
+<li class="toctree-l2"><a class="reference internal" href="impulse-response.html">Impulse Response</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reconstructor.html">Reconstructor</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Steam Audio C API</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="reference.html">API Reference</a></li>
+      <li class="breadcrumb-item active">Path Effect</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="path-effect">
+<h1>Path Effect<a class="headerlink" href="#path-effect" title="Link to this heading"></a></h1>
+<section id="typedefs">
+<h2>Typedefs<a class="headerlink" href="#typedefs" title="Link to this heading"></a></h2>
+<dl class="cpp type">
+<dt class="sig sig-object cpp" id="_CPPv413IPLPathEffect">
+<span id="_CPPv313IPLPathEffect"></span><span id="_CPPv213IPLPathEffect"></span><span id="IPLPathEffect"></span><span class="target" id="group__patheffect_1gad6edab3f377af3ea31738461ee438729"></span><span class="k"><span class="pre">typedef</span></span><span class="w"> </span><span class="k"><span class="pre">struct</span></span><span class="w"> </span><span class="n"><span class="pre">_IPLPathEffect_t</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="sig-name descname"><span class="n"><span class="pre">IPLPathEffect</span></span></span><a class="headerlink" href="#_CPPv413IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Applies the result of simulating sound paths from the source to the listener. </p>
+<p>Multiple paths that sound can take as it propagates from the source to the listener are combined into an Ambisonic sound field. </p>
+</dd></dl>
+
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading"></a></h2>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv419iplPathEffectCreate10IPLContextP16IPLAudioSettingsP21IPLPathEffectSettingsP13IPLPathEffect">
+<span id="_CPPv319iplPathEffectCreate10IPLContextP16IPLAudioSettingsP21IPLPathEffectSettingsP13IPLPathEffect"></span><span id="_CPPv219iplPathEffectCreate10IPLContextP16IPLAudioSettingsP21IPLPathEffectSettingsP13IPLPathEffect"></span><span id="iplPathEffectCreate__IPLContext.IPLAudioSettingsP.IPLPathEffectSettingsP.IPLPathEffectP"></span><span class="target" id="group__patheffect_1ga4040e9cbf1945f4548b29a4a2741b2ca"></span><a class="reference internal" href="types.html#_CPPv48IPLerror" title="IPLerror"><span class="n"><span class="pre">IPLerror</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectCreate</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="context.html#_CPPv410IPLContext" title="IPLContext"><span class="n"><span class="pre">IPLContext</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">context</span></span>, <a class="reference internal" href="audio-buffers.html#_CPPv416IPLAudioSettings" title="IPLAudioSettings"><span class="n"><span class="pre">IPLAudioSettings</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">audioSettings</span></span>, <a class="reference internal" href="#_CPPv421IPLPathEffectSettings" title="IPLPathEffectSettings"><span class="n"><span class="pre">IPLPathEffectSettings</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">effectSettings</span></span>, <a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">effect</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv419iplPathEffectCreate10IPLContextP16IPLAudioSettingsP21IPLPathEffectSettingsP13IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Creates a path effect. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>context</strong> – The context used to initialize Steam Audio. </p></li>
+<li><p><strong>audioSettings</strong> – Global audio processing settings. </p></li>
+<li><p><strong>effectSettings</strong> – The settings to use when creating the path effect. </p></li>
+<li><p><strong>effect</strong> – [out] The created path effect.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Status code indicating whether or not the operation succeeded. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv419iplPathEffectRetain13IPLPathEffect">
+<span id="_CPPv319iplPathEffectRetain13IPLPathEffect"></span><span id="_CPPv219iplPathEffectRetain13IPLPathEffect"></span><span id="iplPathEffectRetain__IPLPathEffect"></span><span class="target" id="group__patheffect_1gac059ed5acea32899caaafe40a6c6b2ff"></span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectRetain</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">effect</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv419iplPathEffectRetain13IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Retains an additional reference to a path effect. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>effect</strong> – The path effect to retain a reference to.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The additional reference to the path effect. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv420iplPathEffectReleaseP13IPLPathEffect">
+<span id="_CPPv320iplPathEffectReleaseP13IPLPathEffect"></span><span id="_CPPv220iplPathEffectReleaseP13IPLPathEffect"></span><span id="iplPathEffectRelease__IPLPathEffectP"></span><span class="target" id="group__patheffect_1gaff7de331da3a6253f153176553df6b75"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectRelease</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">effect</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv420iplPathEffectReleaseP13IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Releases a reference to a path effect. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>effect</strong> – The path effect to release a reference to. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418iplPathEffectReset13IPLPathEffect">
+<span id="_CPPv318iplPathEffectReset13IPLPathEffect"></span><span id="_CPPv218iplPathEffectReset13IPLPathEffect"></span><span id="iplPathEffectReset__IPLPathEffect"></span><span class="target" id="group__patheffect_1ga0f6e84a3a9344256d739ac984ec13117"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectReset</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">effect</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418iplPathEffectReset13IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Resets the internal processing state of a path effect. </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>effect</strong> – The path effect to reset. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418iplPathEffectApply13IPLPathEffectP19IPLPathEffectParamsP14IPLAudioBufferP14IPLAudioBuffer">
+<span id="_CPPv318iplPathEffectApply13IPLPathEffectP19IPLPathEffectParamsP14IPLAudioBufferP14IPLAudioBuffer"></span><span id="_CPPv218iplPathEffectApply13IPLPathEffectP19IPLPathEffectParamsP14IPLAudioBufferP14IPLAudioBuffer"></span><span id="iplPathEffectApply__IPLPathEffect.IPLPathEffectParamsP.IPLAudioBufferP.IPLAudioBufferP"></span><span class="target" id="group__patheffect_1gaf9930dcb1eb35ca771e09446eeb55a20"></span><a class="reference internal" href="audio-buffers.html#_CPPv419IPLAudioEffectState" title="IPLAudioEffectState"><span class="n"><span class="pre">IPLAudioEffectState</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectApply</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">effect</span></span>, <a class="reference internal" href="#_CPPv419IPLPathEffectParams" title="IPLPathEffectParams"><span class="n"><span class="pre">IPLPathEffectParams</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">params</span></span>, <a class="reference internal" href="audio-buffers.html#_CPPv414IPLAudioBuffer" title="IPLAudioBuffer"><span class="n"><span class="pre">IPLAudioBuffer</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">in</span></span>, <a class="reference internal" href="audio-buffers.html#_CPPv414IPLAudioBuffer" title="IPLAudioBuffer"><span class="n"><span class="pre">IPLAudioBuffer</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">out</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418iplPathEffectApply13IPLPathEffectP19IPLPathEffectParamsP14IPLAudioBufferP14IPLAudioBuffer" title="Link to this definition"></a><br /></dt>
+<dd><p>Applies a path effect to an audio buffer. </p>
+<p>This effect CANNOT be applied in-place.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>effect</strong> – The path effect to apply. </p></li>
+<li><p><strong>params</strong> – Parameters for applying the effect. </p></li>
+<li><p><strong>in</strong> – The input audio buffer. Must have 1 channel. </p></li>
+<li><p><strong>out</strong> – The output audio buffer. Must have as many channels as needed for the Ambisonics order specified when creating the effect.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">IPL_AUDIOEFFECTSTATE_TAILREMAINING</span></code> if any tail samples remain in the effect’s internal buffers, or <code class="docutils literal notranslate"><span class="pre">IPL_AUDIOEFFECTSTATE_TAILCOMPLETE</span></code> otherwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv420iplPathEffectGetTail13IPLPathEffectP14IPLAudioBuffer">
+<span id="_CPPv320iplPathEffectGetTail13IPLPathEffectP14IPLAudioBuffer"></span><span id="_CPPv220iplPathEffectGetTail13IPLPathEffectP14IPLAudioBuffer"></span><span id="iplPathEffectGetTail__IPLPathEffect.IPLAudioBufferP"></span><span class="target" id="group__patheffect_1ga2f2ad13281fe7d64d83f2dd4ab5d5837"></span><a class="reference internal" href="audio-buffers.html#_CPPv419IPLAudioEffectState" title="IPLAudioEffectState"><span class="n"><span class="pre">IPLAudioEffectState</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectGetTail</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">effect</span></span>, <a class="reference internal" href="audio-buffers.html#_CPPv414IPLAudioBuffer" title="IPLAudioBuffer"><span class="n"><span class="pre">IPLAudioBuffer</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">out</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv420iplPathEffectGetTail13IPLPathEffectP14IPLAudioBuffer" title="Link to this definition"></a><br /></dt>
+<dd><p>Retrieves a single frame of tail samples from a path effect’s internal buffers. </p>
+<p>After the input to the path effect has stopped, this function must be called instead of <code class="docutils literal notranslate"><span class="pre">iplPathEffectApply</span></code> until the return value indicates that no more tail samples remain.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>effect</strong> – The path effect. </p></li>
+<li><p><strong>out</strong> – The output audio buffer. Must have as many channels as needed for the Ambisonics order specified when creating the effect.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">IPL_AUDIOEFFECTSTATE_TAILREMAINING</span></code> if any tail samples remain in the effect’s internal buffers, or <code class="docutils literal notranslate"><span class="pre">IPL_AUDIOEFFECTSTATE_TAILCOMPLETE</span></code> otherwise. </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv424iplPathEffectGetTailSize13IPLPathEffect">
+<span id="_CPPv324iplPathEffectGetTailSize13IPLPathEffect"></span><span id="_CPPv224iplPathEffectGetTailSize13IPLPathEffect"></span><span id="iplPathEffectGetTailSize__IPLPathEffect"></span><span class="target" id="group__patheffect_1ga777af4f61328e01691de85b24c4d50c9"></span><a class="reference internal" href="types.html#_CPPv48IPLint32" title="IPLint32"><span class="n"><span class="pre">IPLint32</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">iplPathEffectGetTailSize</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv413IPLPathEffect" title="IPLPathEffect"><span class="n"><span class="pre">IPLPathEffect</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">effect</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv424iplPathEffectGetTailSize13IPLPathEffect" title="Link to this definition"></a><br /></dt>
+<dd><p>Returns the number of tail samples remaining in a path effect’s internal buffers. </p>
+<p>Tail samples are audio samples that should be played even after the input to the effect has stopped playing and no further input samples are available.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>effect</strong> – The path effect.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The number of tail samples remaining. </p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="structures">
+<h2>Structures<a class="headerlink" href="#structures" title="Link to this heading"></a></h2>
+<dl class="cpp struct">
+<dt class="sig sig-object cpp" id="_CPPv421IPLPathEffectSettings">
+<span id="_CPPv321IPLPathEffectSettings"></span><span id="_CPPv221IPLPathEffectSettings"></span><span id="IPLPathEffectSettings"></span><span class="target" id="struct_i_p_l_path_effect_settings"></span><span class="k"><span class="pre">struct</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">IPLPathEffectSettings</span></span></span><a class="headerlink" href="#_CPPv421IPLPathEffectSettings" title="Link to this definition"></a><br /></dt>
+<dd><p>Settings used to create a path effect. </p>
+<div class="breathe-sectiondef docutils container">
+<p class="breathe-sectiondef-title rubric" id="breathe-section-title-public-members">Public Members</p>
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N21IPLPathEffectSettings8maxOrderE">
+<span id="_CPPv3N21IPLPathEffectSettings8maxOrderE"></span><span id="_CPPv2N21IPLPathEffectSettings8maxOrderE"></span><span id="IPLPathEffectSettings::maxOrder__IPLint32"></span><span class="target" id="struct_i_p_l_path_effect_settings_1a51ad17576848f04fd5c9ddac74b7bd05"></span><a class="reference internal" href="types.html#_CPPv48IPLint32" title="IPLint32"><span class="n"><span class="pre">IPLint32</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">maxOrder</span></span></span><a class="headerlink" href="#_CPPv4N21IPLPathEffectSettings8maxOrderE" title="Link to this definition"></a><br /></dt>
+<dd><p>The maximum Ambisonics order that will be used by output audio buffers. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N21IPLPathEffectSettings10spatializeE">
+<span id="_CPPv3N21IPLPathEffectSettings10spatializeE"></span><span id="_CPPv2N21IPLPathEffectSettings10spatializeE"></span><span id="IPLPathEffectSettings::spatialize__IPLbool"></span><span class="target" id="struct_i_p_l_path_effect_settings_1a209ceba6ba7e057ab649c4d720a427ee"></span><a class="reference internal" href="types.html#_CPPv47IPLbool" title="IPLbool"><span class="n"><span class="pre">IPLbool</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">spatialize</span></span></span><a class="headerlink" href="#_CPPv4N21IPLPathEffectSettings10spatializeE" title="Link to this definition"></a><br /></dt>
+<dd><p>If <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>, then this effect will render spatialized audio into the output buffer. </p>
+<p>If <code class="docutils literal notranslate"><span class="pre">IPL_FALSE</span></code>, this effect will render un-spatialized (and un-rotated) Ambisonic audio. Setting this to <code class="docutils literal notranslate"><span class="pre">IPL_FALSE</span></code> is mainly useful only if you plan to mix multiple Ambisonic buffers and/or apply additional processing to the Ambisonic audio before spatialization. If you plan to immediately spatialize the output of the path effect, setting this value to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code> can result in significant performance improvements. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N21IPLPathEffectSettings13speakerLayoutE">
+<span id="_CPPv3N21IPLPathEffectSettings13speakerLayoutE"></span><span id="_CPPv2N21IPLPathEffectSettings13speakerLayoutE"></span><span id="IPLPathEffectSettings::speakerLayout__IPLSpeakerLayout"></span><span class="target" id="struct_i_p_l_path_effect_settings_1ae2881f808b7ed510cf1be3a24c2f0ac5"></span><a class="reference internal" href="audio-buffers.html#_CPPv416IPLSpeakerLayout" title="IPLSpeakerLayout"><span class="n"><span class="pre">IPLSpeakerLayout</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">speakerLayout</span></span></span><a class="headerlink" href="#_CPPv4N21IPLPathEffectSettings13speakerLayoutE" title="Link to this definition"></a><br /></dt>
+<dd><p>The speaker layout to use when spatializing. </p>
+<p>Only used if <code class="docutils literal notranslate"><span class="pre">spatialize</span></code> is <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N21IPLPathEffectSettings4hrtfE">
+<span id="_CPPv3N21IPLPathEffectSettings4hrtfE"></span><span id="_CPPv2N21IPLPathEffectSettings4hrtfE"></span><span id="IPLPathEffectSettings::hrtf__IPLHRTF"></span><span class="target" id="struct_i_p_l_path_effect_settings_1afdfe641bbcb9a02f2350ea7b4a997482"></span><a class="reference internal" href="hrtf.html#_CPPv47IPLHRTF" title="IPLHRTF"><span class="n"><span class="pre">IPLHRTF</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">hrtf</span></span></span><a class="headerlink" href="#_CPPv4N21IPLPathEffectSettings4hrtfE" title="Link to this definition"></a><br /></dt>
+<dd><p>The HRTF to use when spatializing. </p>
+<p>Only used if <code class="docutils literal notranslate"><span class="pre">spatialize</span></code> is <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>. </p>
+</dd></dl>
+
+</div>
+</dd></dl>
+
+<dl class="cpp struct">
+<dt class="sig sig-object cpp" id="_CPPv419IPLPathEffectParams">
+<span id="_CPPv319IPLPathEffectParams"></span><span id="_CPPv219IPLPathEffectParams"></span><span id="IPLPathEffectParams"></span><span class="target" id="struct_i_p_l_path_effect_params"></span><span class="k"><span class="pre">struct</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">IPLPathEffectParams</span></span></span><a class="headerlink" href="#_CPPv419IPLPathEffectParams" title="Link to this definition"></a><br /></dt>
+<dd><p>Parameters for applying a path effect to an audio buffer. </p>
+<div class="breathe-sectiondef docutils container">
+<p class="breathe-sectiondef-title rubric" id="breathe-section-title-public-members">Public Members</p>
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams8eqCoeffsE">
+<span id="_CPPv3N19IPLPathEffectParams8eqCoeffsE"></span><span id="_CPPv2N19IPLPathEffectParams8eqCoeffsE"></span><span id="IPLPathEffectParams::eqCoeffs__IPLfloat32A"></span><span class="target" id="struct_i_p_l_path_effect_params_1a827a9f8762d766cdd92cbfa06f71fb64"></span><a class="reference internal" href="types.html#_CPPv410IPLfloat32" title="IPLfloat32"><span class="n"><span class="pre">IPLfloat32</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">eqCoeffs</span></span></span><span class="p"><span class="pre">[</span></span><span class="n"><span class="pre">IPL_NUM_BANDS</span></span><span class="p"><span class="pre">]</span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams8eqCoeffsE" title="Link to this definition"></a><br /></dt>
+<dd><p>3-band EQ coefficients for modeling frequency-dependent attenuation caused by paths bending around obstacles. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams8shCoeffsE">
+<span id="_CPPv3N19IPLPathEffectParams8shCoeffsE"></span><span id="_CPPv2N19IPLPathEffectParams8shCoeffsE"></span><span id="IPLPathEffectParams::shCoeffs__IPLfloat32P"></span><span class="target" id="struct_i_p_l_path_effect_params_1abdd5f0028b34c794999496e899d24278"></span><a class="reference internal" href="types.html#_CPPv410IPLfloat32" title="IPLfloat32"><span class="n"><span class="pre">IPLfloat32</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="sig-name descname"><span class="n"><span class="pre">shCoeffs</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams8shCoeffsE" title="Link to this definition"></a><br /></dt>
+<dd><p>Ambisonic coefficients for modeling the directional distribution of sound reaching the listener. </p>
+<p>The coefficients are specified in world-space, and must be rotated to match the listener’s orientation separately. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams5orderE">
+<span id="_CPPv3N19IPLPathEffectParams5orderE"></span><span id="_CPPv2N19IPLPathEffectParams5orderE"></span><span id="IPLPathEffectParams::order__IPLint32"></span><span class="target" id="struct_i_p_l_path_effect_params_1a8f0bc3d342c8bf145d3f4fc741f84df9"></span><a class="reference internal" href="types.html#_CPPv48IPLint32" title="IPLint32"><span class="n"><span class="pre">IPLint32</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">order</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams5orderE" title="Link to this definition"></a><br /></dt>
+<dd><p>Ambisonic order of the output buffer. </p>
+<p>May be less than the maximum order specified when creating the effect, in which case higher-order <code class="docutils literal notranslate"><span class="pre">shCoeffs</span></code> will be ignored, and CPU usage will be reduced. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams8binauralE">
+<span id="_CPPv3N19IPLPathEffectParams8binauralE"></span><span id="_CPPv2N19IPLPathEffectParams8binauralE"></span><span id="IPLPathEffectParams::binaural__IPLbool"></span><span class="target" id="struct_i_p_l_path_effect_params_1a71666c5e41edbcebeb4a9235c4da0120"></span><a class="reference internal" href="types.html#_CPPv47IPLbool" title="IPLbool"><span class="n"><span class="pre">IPLbool</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">binaural</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams8binauralE" title="Link to this definition"></a><br /></dt>
+<dd><p>If <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>, spatialize using HRTF-based binaural rendering. </p>
+<p>Only used if <code class="docutils literal notranslate"><span class="pre">spatialize</span></code> was set to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code> in <code class="docutils literal notranslate"><a class="reference internal" href="#struct_i_p_l_path_effect_settings"><span class="std std-ref"><span class="pre">IPLPathEffectSettings</span></span></a></code>. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams4hrtfE">
+<span id="_CPPv3N19IPLPathEffectParams4hrtfE"></span><span id="_CPPv2N19IPLPathEffectParams4hrtfE"></span><span id="IPLPathEffectParams::hrtf__IPLHRTF"></span><span class="target" id="struct_i_p_l_path_effect_params_1afdfe641bbcb9a02f2350ea7b4a997482"></span><a class="reference internal" href="hrtf.html#_CPPv47IPLHRTF" title="IPLHRTF"><span class="n"><span class="pre">IPLHRTF</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">hrtf</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams4hrtfE" title="Link to this definition"></a><br /></dt>
+<dd><p>The HRTF to use when spatializing. </p>
+<p>Only used if <code class="docutils literal notranslate"><span class="pre">spatialize</span></code> was set to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code> in <code class="docutils literal notranslate"><a class="reference internal" href="#struct_i_p_l_path_effect_settings"><span class="std std-ref"><span class="pre">IPLPathEffectSettings</span></span></a></code> and <code class="docutils literal notranslate"><span class="pre">binaural</span></code> is set to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams8listenerE">
+<span id="_CPPv3N19IPLPathEffectParams8listenerE"></span><span id="_CPPv2N19IPLPathEffectParams8listenerE"></span><span id="IPLPathEffectParams::listener__IPLCoordinateSpace3"></span><span class="target" id="struct_i_p_l_path_effect_params_1aa748549a6aa4a6f9e2f151371816021e"></span><a class="reference internal" href="geometry.html#_CPPv419IPLCoordinateSpace3" title="IPLCoordinateSpace3"><span class="n"><span class="pre">IPLCoordinateSpace3</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">listener</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams8listenerE" title="Link to this definition"></a><br /></dt>
+<dd><p>The position and orientation of the listener. </p>
+<p>Only used if <code class="docutils literal notranslate"><span class="pre">spatialize</span></code> was set to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code> in <code class="docutils literal notranslate"><a class="reference internal" href="#struct_i_p_l_path_effect_settings"><span class="std std-ref"><span class="pre">IPLPathEffectSettings</span></span></a></code> and <code class="docutils literal notranslate"><span class="pre">binaural</span></code> is set to <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>. </p>
+</dd></dl>
+
+<dl class="cpp var">
+<dt class="sig sig-object cpp" id="_CPPv4N19IPLPathEffectParams11normalizeEQE">
+<span id="_CPPv3N19IPLPathEffectParams11normalizeEQE"></span><span id="_CPPv2N19IPLPathEffectParams11normalizeEQE"></span><span id="IPLPathEffectParams::normalizeEQ__IPLbool"></span><span class="target" id="struct_i_p_l_path_effect_params_1a6c024adad9ba33ff4d10b06da7ac88ee"></span><a class="reference internal" href="types.html#_CPPv47IPLbool" title="IPLbool"><span class="n"><span class="pre">IPLbool</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">normalizeEQ</span></span></span><a class="headerlink" href="#_CPPv4N19IPLPathEffectParams11normalizeEQE" title="Link to this definition"></a><br /></dt>
+<dd><p>If <code class="docutils literal notranslate"><span class="pre">IPL_TRUE</span></code>, the values in <code class="docutils literal notranslate"><span class="pre">eqCoeffs</span></code> will be normalized before being used, i.e., each value in <code class="docutils literal notranslate"><span class="pre">eqCoeffs</span></code> will be divided by the largest value in <code class="docutils literal notranslate"><span class="pre">eqCoeffs</span></code>. </p>
+<p>This can help counteract overly-aggressive filtering due to a physics-based deviation model. If <code class="docutils literal notranslate"><span class="pre">IPL_FALSE</span></code>, the values in <code class="docutils literal notranslate"><span class="pre">eqCoeffs</span></code> will be used as-is. </p>
+</dd></dl>
+
+</div>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="reflections-effect.html" class="btn btn-neutral float-left" title="Reflection Effect" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="probes.html" class="btn btn-neutral float-right" title="Probes" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2017-2023, Valve Corporation.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

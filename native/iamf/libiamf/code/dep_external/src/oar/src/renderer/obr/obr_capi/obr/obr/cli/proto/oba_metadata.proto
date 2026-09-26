@@ -1,0 +1,21 @@
+// Copyright (c) 2025, Alliance for Open Media. All rights reserved
+//
+// This source code is subject to the terms of the BSD 3-Clause Clear License,
+// which you can find in the LICENSE file, and the Open Binaural Renderer
+// Patent License 1.0, which you can find in the PATENTS file.
+
+syntax = "proto2";
+
+package obr_cli_proto;
+
+message SourceList {
+  repeated SourceProperties source = 1;
+}
+
+message SourceProperties {
+  optional int32 input_channel = 1;
+  optional float gain = 2;
+  optional float azimuth = 3;
+  optional float elevation = 4;
+  optional float distance = 5;
+}

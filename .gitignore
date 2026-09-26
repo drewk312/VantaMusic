@@ -114,3 +114,24 @@ desktopApp/bin/
 # Spatial native dependency build outputs
 native/openjoc/target/
 native/ittiam-mpegh/build/
+
+# Local scratch and test artifacts
+*.xml
+*.zip
+*.ps1
+fix_*.py
+patch_*.py
+_tmp_*.mjs
+tmp/
+tmp-*
+test-results/
+test-media/
+releases/
+ai-memory/
+.codex/
+.opencode/
+.gradle-home/
+.gradle_tv_proj/
+.musickit-inspect/
+0
+

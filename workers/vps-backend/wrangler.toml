@@ -1,0 +1,8 @@
+name = "vanta-qobuz-stream"
+main = "src/index.ts"
+compatibility_date = "2026-08-23"
+
+[vars]
+ENVIRONMENT = "production"
+QOBUZ_APP_ID = "712109809"
+QOBUZ_APP_SECRET = "589be88e4538daea11f509d29e4a23b1"

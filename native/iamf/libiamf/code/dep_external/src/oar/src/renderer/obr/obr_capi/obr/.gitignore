@@ -1,0 +1,4 @@
+*~
+bazel-*
+cmake-build-*
+MODULE.bazel.lock
