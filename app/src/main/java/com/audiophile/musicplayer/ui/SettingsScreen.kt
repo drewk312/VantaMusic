@@ -57,6 +57,7 @@ import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryTokenStore
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryImportResult
 import com.audiophile.musicplayer.data.connectors.ConnectedLibraryManager
+import com.audiophile.musicplayer.data.connectors.spotify.SpotifyOAuthManager
 import com.audiophile.musicplayer.AudiophileApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.rememberCoroutineScope
@@ -165,6 +166,7 @@ fun SettingsScreen(
 
     val tokenStore = remember(app) { app.appContainer.connectedLibraryTokenStore }
     val connectedLibraryManager = remember(app) { app.appContainer.connectedLibraryManager }
+    val spotifyOAuthManager = remember(app) { app.appContainer.spotifyOAuthManager }
 
     var streamQuality by remember {
         mutableStateOf(sharedPrefs.getString("stream_quality", "auto") ?: "auto")
@@ -828,6 +830,7 @@ fun SettingsScreen(
                     context = context,
                     tokenStore = tokenStore,
                     connectedLibraryManager = connectedLibraryManager,
+                    spotifyOAuthManager = spotifyOAuthManager,
                     onOpenImports = onOpenImports,
                     onLibraryChanged = onLibraryChanged
                 )
@@ -1251,6 +1254,7 @@ private fun ConnectedLibrariesSettingsGroup(
     context: Context,
     tokenStore: ConnectedLibraryTokenStore?,
     connectedLibraryManager: ConnectedLibraryManager?,
+    spotifyOAuthManager: SpotifyOAuthManager? = null,
     onOpenImports: () -> Unit,
     onLibraryChanged: () -> Unit
 ) {
@@ -1302,9 +1306,17 @@ private fun ConnectedLibrariesSettingsGroup(
     var appleConnected by remember { mutableStateOf(appleHasDevToken && appleHasUserToken) }
     var spotifyConnected by remember { mutableStateOf(spotifyHasToken) }
     var appleStatus by remember { mutableStateOf(statusText(appleConnected, "Apple Music")) }
-    var spotifyStatus by remember { mutableStateOf(statusText(spotifyConnected, "Spotify")) }
+    var spotifyStatus by remember { mutableStateOf(if (spotifyConnected) "Active (Spotify account linked)" else statusText(false, "Spotify")) }
     var showAppleDialog by remember { mutableStateOf(false) }
-    var showSpotifyDialog by remember { mutableStateOf(false) }
+    var showSpotifyClientIdDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tokenStore) {
+        val hasToken = tokenStore?.accessToken(ConnectedLibraryProvider.SPOTIFY)?.isNotBlank() == true
+        if (hasToken != spotifyConnected) {
+            spotifyConnected = hasToken
+            spotifyStatus = if (hasToken) "Active (Spotify account linked)" else statusText(false, "Spotify")
+        }
+    }
 
     if (showAppleDialog) {
         AppleMusicTokenDialog(
@@ -1325,19 +1337,13 @@ private fun ConnectedLibrariesSettingsGroup(
         )
     }
 
-    if (showSpotifyDialog) {
-        SpotifyTokenDialog(
-            onDismiss = { showSpotifyDialog = false },
-            onSave = { accessToken ->
-                val token = accessToken.trim()
-                val stored = tokenStore?.storeTokens(
-                    ConnectedLibraryProvider.SPOTIFY,
-                    accessToken = token,
-                    refreshToken = null
-                )
-                spotifyConnected = stored == true && token.isNotBlank()
-                spotifyStatus = if (stored == true) statusText(spotifyConnected, "Spotify") else "Secure token storage is unavailable."
-                showSpotifyDialog = false
+    if (showSpotifyClientIdDialog && spotifyOAuthManager != null) {
+        SpotifyClientIdDialog(
+            initialClientId = spotifyOAuthManager.getClientId(),
+            onDismiss = { showSpotifyClientIdDialog = false },
+            onSave = { customId ->
+                spotifyOAuthManager.setCustomClientId(customId)
+                showSpotifyClientIdDialog = false
             }
         )
     }
@@ -1369,7 +1375,12 @@ private fun ConnectedLibrariesSettingsGroup(
                     spotifyConnected = false
                     spotifyStatus = statusText(false, "Spotify")
                 } else {
-                    showSpotifyDialog = true
+                    if (spotifyOAuthManager != null) {
+                        spotifyStatus = "Opening Spotify in browser..."
+                        spotifyOAuthManager.launchLogin(context)
+                    } else {
+                        showSpotifyClientIdDialog = true
+                    }
                 }
             }
         }
@@ -1479,6 +1490,8 @@ private fun ConnectedLibrariesSettingsGroup(
                 lastImport = spotifyLastImport,
                 syncLikes = spotifySyncLikes,
                 autoRefreshInterval = spotifyAutoRefresh,
+                connectButtonLabel = if (spotifyConnected) "Disconnect" else "Log in with Spotify",
+                connectButtonColor = if (spotifyConnected) AppAccent else Color(0xFF1DB954),
                 onConnectToggle = { onConnectToggle(ConnectedLibraryProvider.SPOTIFY) },
                 onImport = { onImport(ConnectedLibraryProvider.SPOTIFY) },
                 onSyncLikesChange = {
@@ -1489,7 +1502,8 @@ private fun ConnectedLibrariesSettingsGroup(
                 onDeleteImportedData = {
                     spotifyLastImport = "Never"
                     prefs.edit { remove("spotify_last_import") }
-                }
+                },
+                onAdvancedSettingsClick = { showSpotifyClientIdDialog = true }
             )
         }
         PremiumSettingsClickItem(
@@ -1622,39 +1636,37 @@ private fun AppleMusicTokenDialog(
 }
 
 @Composable
-private fun SpotifyTokenDialog(
+private fun SpotifyClientIdDialog(
+    initialClientId: String,
     onDismiss: () -> Unit,
-    onSave: (accessToken: String) -> Unit
+    onSave: (clientId: String) -> Unit
 ) {
-    var accessToken by remember { mutableStateOf("") }
-    val canSave = accessToken.isNotBlank()
+    var clientId by remember { mutableStateOf(initialClientId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF1A1A1A),
-        title = { Text("Connect Spotify", color = AppText, fontWeight = FontWeight.Bold) },
+        title = { Text("Spotify Client ID", color = AppText, fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Paste a Spotify access token. VANTA uses it to read your library metadata only. Tokens stay encrypted on this device.",
+                    "VANTA includes a built-in Spotify Client ID for 1-click login. If you prefer to use your own Spotify Developer App, enter its Client ID here. Make sure redirect URI vanta://spotify-callback is registered in your Spotify dashboard.",
                     color = AppTextSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
                 )
                 VantaTextField(
-                    value = accessToken,
-                    onValueChange = { accessToken = it },
-                    label = "Access Token",
-                    isPassword = true
+                    value = clientId,
+                    onValueChange = { clientId = it },
+                    label = "Client ID (leave blank for default)"
                 )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(accessToken) },
-                enabled = canSave
+                onClick = { onSave(clientId.trim()) }
             ) {
-                Text("Save", color = if (canSave) AppAccent else AppTextMuted)
+                Text("Save", color = AppAccent)
             }
         },
         dismissButton = {
@@ -1673,11 +1685,14 @@ private fun ConnectedLibraryCard(
     lastImport: String,
     syncLikes: Boolean,
     autoRefreshInterval: String,
+    connectButtonLabel: String? = null,
+    connectButtonColor: Color = AppAccent,
     onConnectToggle: () -> Unit,
     onImport: () -> Unit,
     onSyncLikesChange: (Boolean) -> Unit,
     onAutoRefreshChange: (String) -> Unit,
-    onDeleteImportedData: () -> Unit
+    onDeleteImportedData: () -> Unit,
+    onAdvancedSettingsClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -1698,9 +1713,23 @@ private fun ConnectedLibraryCard(
                     fontSize = 12.sp,
                     lineHeight = 16.sp
                 )
+                if (onAdvancedSettingsClick != null) {
+                    Text(
+                        text = "Advanced: Custom Client ID",
+                        color = AppTextMuted.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .clickable { onAdvancedSettingsClick() }
+                            .padding(top = 2.dp)
+                    )
+                }
             }
             TextButton(onClick = onConnectToggle) {
-                Text(if (connected) "Disconnect" else "Connect Library", color = AppAccent)
+                Text(
+                    text = connectButtonLabel ?: if (connected) "Disconnect" else "Connect Library",
+                    color = if (connected) AppTextMuted else connectButtonColor,
+                    fontWeight = if (!connected && connectButtonLabel != null) FontWeight.Bold else FontWeight.Normal
+                )
             }
         }
         AnimatedVisibility(

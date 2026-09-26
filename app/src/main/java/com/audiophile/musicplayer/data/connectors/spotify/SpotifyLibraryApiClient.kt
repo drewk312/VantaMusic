@@ -23,8 +23,9 @@ import java.util.UUID
  * No stream URLs are ever returned.
  */
 class SpotifyLibraryApiClient(
-    private val accessToken: String,
-    baseUrl: String = "https://api.spotify.com/"
+    private val accessToken: String? = null,
+    baseUrl: String = "https://api.spotify.com/",
+    private val tokenProvider: (() -> String?)? = null
 ) : SpotifyLibraryApi {
 
     private val service: SpotifyWebApi
@@ -32,9 +33,10 @@ class SpotifyLibraryApiClient(
     init {
         val client = OkHttpClient.Builder()
             .addInterceptor { chain ->
+                val token = tokenProvider?.invoke() ?: accessToken.orEmpty()
                 val request = chain.request()
                     .newBuilder()
-                    .addHeader("Authorization", "Bearer $accessToken")
+                    .addHeader("Authorization", "Bearer $token")
                     .build()
                 chain.proceed(request)
             }

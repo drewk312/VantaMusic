@@ -130,12 +130,19 @@ class AppContainer(
     }
     val canonicalMusicResolver by lazy { CanonicalMusicResolver(musicDatabase.canonicalGraphDao()) }
     val connectedLibraryTokenStore by lazy { ConnectedLibraryTokenStore(appContext) }
+    val spotifyOAuthManager by lazy {
+        com.audiophile.musicplayer.data.connectors.spotify.SpotifyOAuthManager(
+            context = appContext,
+            tokenStore = connectedLibraryTokenStore
+        )
+    }
     val connectedLibraryManager by lazy {
         ConnectedLibraryManager(
             context = appContext,
             tokenStore = connectedLibraryTokenStore,
             trackRepository = trackRepository,
-            localLibraryRepository = localLibraryRepository
+            localLibraryRepository = localLibraryRepository,
+            spotifyOAuthManager = spotifyOAuthManager
         )
     }
 

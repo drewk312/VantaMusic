@@ -7,6 +7,7 @@ import androidx.core.content.edit
 import com.audiophile.musicplayer.data.connectors.apple.AppleMusicLibraryConnector
 import com.audiophile.musicplayer.data.connectors.matching.ConnectedLibraryMatcher
 import com.audiophile.musicplayer.data.connectors.spotify.SpotifyLibraryApiClient
+import com.audiophile.musicplayer.data.connectors.spotify.SpotifyOAuthManager
 import com.audiophile.musicplayer.data.connectors.sync.ConnectedLibraryLikeSyncManager
 import com.audiophile.musicplayer.data.connectors.sync.VantaLikedTrackIdentity
 import com.audiophile.musicplayer.data.local.entities.LocalSongEntity
@@ -34,7 +35,8 @@ class ConnectedLibraryManager(
     private val trackRepository: TrackRepository,
     private val localLibraryRepository: LocalLibraryRepository,
     private val matcher: ConnectedLibraryMatcher = ConnectedLibraryMatcher(),
-    private val prefs: SharedPreferences = context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = context.getSharedPreferences("vanta_connected_libraries", Context.MODE_PRIVATE),
+    private val spotifyOAuthManager: SpotifyOAuthManager? = null
 ) {
 
     private val importMutex = kotlinx.coroutines.sync.Mutex()
@@ -43,6 +45,9 @@ class ConnectedLibraryManager(
     suspend fun importLibrary(provider: ConnectedLibraryProvider): ConnectedLibraryImportResult =
         withContext(Dispatchers.IO) {
             importMutex.withLock {
+            if (provider == ConnectedLibraryProvider.SPOTIFY) {
+                spotifyOAuthManager?.getValidAccessToken()
+            }
             val account = buildAccount(provider)
             val localCatalog = trackRepository.getAllTracks()
             val importManager = createImportManager(provider)
@@ -176,7 +181,10 @@ class ConnectedLibraryManager(
                 val accessToken = tokenStore.accessToken(provider)
                     ?: throw IllegalStateException("Missing Spotify access token")
                 com.audiophile.musicplayer.data.connectors.spotify.SpotifyLibraryConnector(
-                    api = SpotifyLibraryApiClient(accessToken)
+                    api = SpotifyLibraryApiClient(
+                        accessToken = accessToken,
+                        tokenProvider = { tokenStore.accessToken(provider) }
+                    )
                 )
             }
             ConnectedLibraryProvider.APPLE_MUSIC -> {

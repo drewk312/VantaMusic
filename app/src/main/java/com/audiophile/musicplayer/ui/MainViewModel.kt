@@ -19,7 +19,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 
 import androidx.lifecycle.viewModelScope
-
 import com.audiophile.musicplayer.AppContainer
 
 import com.audiophile.musicplayer.debug.VantaDiagnosticLog
@@ -1879,7 +1878,54 @@ class MainViewModel @Inject constructor(
 
     fun onLastFmSessionKeyChanged(value: String) = onResolverConfigFieldChanged("lastFmSessionKey", value)
 
+    fun handleSpotifyAuthCallback(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Connecting to Spotify...") }
+            val result = container.spotifyOAuthManager.handleCallback(uri)
+            result.onSuccess {
+                _uiState.update { it.copy(statusMessage = "Spotify connected! Syncing your library...") }
+                runCatching {
+                    container.connectedLibraryManager.importLibrary(ConnectedLibraryProvider.SPOTIFY)
+                }.onSuccess { importResult ->
+                    val summary = importResult.summary
+                    _uiState.update {
+                        it.copy(
+                            statusMessage = "Spotify sync complete: ${summary.tracksImported} tracks, ${summary.playlistsImported} playlists imported.",
+                            libraryNeedsRefresh = true
+                        )
+                    }
+                    refreshAll(skipRoomMaterialize = true)
+                }.onFailure { err ->
+                    Log.e("MainViewModel", "Spotify auto-sync failed after login", err)
+                    _uiState.update { it.copy(statusMessage = "Spotify connected, but initial sync encountered an issue: ${err.message}") }
+                }
+            }.onFailure { err ->
+                Log.e("MainViewModel", "Spotify OAuth callback failed", err)
+                _uiState.update { it.copy(statusMessage = "Spotify login failed: ${err.message}") }
+            }
+        }
+    }
 
+    fun syncSpotifyLibrary() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(statusMessage = "Syncing Spotify library...") }
+            runCatching {
+                container.connectedLibraryManager.importLibrary(ConnectedLibraryProvider.SPOTIFY)
+            }.onSuccess { importResult ->
+                val summary = importResult.summary
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "Spotify sync complete: ${summary.tracksImported} tracks, ${summary.playlistsImported} playlists imported.",
+                        libraryNeedsRefresh = true
+                    )
+                }
+                refreshAll(skipRoomMaterialize = true)
+            }.onFailure { err ->
+                Log.e("MainViewModel", "Spotify manual sync failed", err)
+                _uiState.update { it.copy(statusMessage = "Spotify sync failed: ${err.message}") }
+            }
+        }
+    }
 
     fun refreshAll(skipRoomMaterialize: Boolean = false) {
 

@@ -592,6 +592,7 @@ class MainActivity : ComponentActivity() {
                 it.getSerializable("shared_import_payload") as? SharedImportPayload
             }
         }
+        handleSpotifyCallbackIfNeeded(intent)
 
         activityScope.launch {
             val startedAt = android.os.SystemClock.elapsedRealtime()
@@ -781,6 +782,22 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         sharedImportPayload = extractSharedImportPayload(intent)
+        handleSpotifyCallbackIfNeeded(intent)
+    }
+
+    private fun handleSpotifyCallbackIfNeeded(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme.equals("vanta", ignoreCase = true) && data.host.equals("spotify-callback", ignoreCase = true)) {
+            Log.i("VANTA_SPOTIFY", "Received Spotify OAuth redirect: $data")
+            activityScope.launch {
+                var waitAttempts = 0
+                while (mainViewModel == null && waitAttempts < 50) {
+                    delay(100)
+                    waitAttempts++
+                }
+                mainViewModel?.handleSpotifyAuthCallback(data)
+            }
+        }
     }
 
     private fun extractSharedImportPayload(intent: Intent?): SharedImportPayload? {

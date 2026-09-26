@@ -235,6 +235,9 @@ dependencies {
     // Firebase Auth stays inactive until app/google-services.json is supplied.
     implementation("com.google.firebase:firebase-auth:22.3.1")
 
+    // Chrome Custom Tabs for OAuth PKCE login
+    implementation("androidx.browser:browser:1.8.0")
+
     implementation(project(":shared"))
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

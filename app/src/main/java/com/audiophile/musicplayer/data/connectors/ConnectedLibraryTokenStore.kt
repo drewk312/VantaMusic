@@ -68,6 +68,9 @@ class ConnectedLibraryTokenStore(context: Context) {
     fun musicUserToken(provider: ConnectedLibraryProvider): String? =
         prefs?.getString("${provider.name}_music_user_token", null)?.takeIf { it.isNotBlank() }
 
+    fun expiresAt(provider: ConnectedLibraryProvider): Long =
+        prefs?.getLong("${provider.name}_expires_at", 0L) ?: 0L
+
     fun clear(provider: ConnectedLibraryProvider): Boolean {
         val securePrefs = prefs ?: return false
         securePrefs.edit {

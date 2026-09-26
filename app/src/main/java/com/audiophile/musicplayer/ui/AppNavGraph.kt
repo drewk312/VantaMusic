@@ -56,6 +56,7 @@ import com.audiophile.musicplayer.data.local.entities.UnifiedTrackWithSources
 import com.audiophile.musicplayer.data.local.toPlayableQueueItem
 import com.audiophile.musicplayer.playback.NowPlayingViewModel
 import com.audiophile.musicplayer.playback.PlaybackService
+import com.audiophile.musicplayer.data.connectors.ConnectedLibraryProvider
 import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1292,6 +1293,13 @@ fun AppNavGraph(
                     },
                     onImportLikedCsv = { text ->
                         mainViewModel.importLikedSongsCsvText(text)
+                    },
+                    isSpotifyConnected = container.connectedLibraryTokenStore.accessToken(ConnectedLibraryProvider.SPOTIFY)?.isNotBlank() == true,
+                    onConnectSpotify = {
+                        container.spotifyOAuthManager.launchLogin(ctx)
+                    },
+                    onSyncSpotify = {
+                        mainViewModel.syncSpotifyLibrary()
                     }
                 )
                 AppRoute.ImportText -> ImportTextScreen(

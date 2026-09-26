@@ -137,6 +137,12 @@
                 <data android:host="album.link" />
                 <data android:host="odesli.co" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="vanta" android:host="spotify-callback" />
+            </intent-filter>
         </activity>
 
         <!-- Media3 Playback Service -->

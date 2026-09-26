@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,7 +61,11 @@ fun ImportsScreen(
     onImportTracklistFile: (String, String) -> Unit,
     onImportSpotifyHistory: (android.net.Uri) -> Unit,
     onImportAppleLibrary: (android.net.Uri) -> Unit,
-    onImportLikedCsv: (String) -> Unit
+    onImportLikedCsv: (String) -> Unit,
+    isSpotifyConnected: Boolean = false,
+    isSpotifySyncing: Boolean = false,
+    onConnectSpotify: () -> Unit = {},
+    onSyncSpotify: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -144,8 +150,91 @@ fun ImportsScreen(
             TextButton(onClick = onBack) { Text("Close", color = AppAccent) }
         }
 
+        // 1-Click Spotify Live Sync Hero Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF12141C))
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFF1DB954).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LibraryMusic,
+                                contentDescription = null,
+                                tint = Color(0xFF1DB954),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                "1-Click Spotify Sync",
+                                color = AppText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                if (isSpotifyConnected) "Account connected" else "Instant login, zero token pasting",
+                                color = if (isSpotifyConnected) AppSuccess else AppTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = if (isSpotifyConnected)
+                        "Your Spotify account is connected! Tap below to sync your latest playlists and liked songs directly into VANTA."
+                    else
+                        "Log in with Spotify in 1 tap. VANTA imports your playlists and liked tracks, then automatically matches them to high-fidelity audio streams.",
+                    color = AppTextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+                Button(
+                    onClick = if (isSpotifyConnected) onSyncSpotify else onConnectSpotify,
+                    enabled = !isSpotifySyncing,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = if (isSpotifyConnected) AppAccent else Color(0xFF1DB954),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    if (isSpotifySyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Text("  Syncing Spotify Library...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Text(
+                            if (isSpotifyConnected) "Sync Spotify Library Now" else "Log in with Spotify",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("CHOOSE A SOURCE", color = AppAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            Text("OR IMPORT FROM FILES", color = AppAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
             Text("Your music stays yours. VANTA reads these files on this device.", color = AppTextSecondary, fontSize = 13.sp)
             ImportActionRow(
                 icon = Icons.Filled.LibraryMusic,
