@@ -102,9 +102,7 @@ class LibraryImporter(
             val finalPlayabilityStatus = PlayabilityResolver().resolve(candidate, match.candidates.size, importRow.title, isEnhanced)
             val fallbackMetadataOnly = candidate == null && !importRow.title.isNullOrBlank()
 
-            val matchStatus = if (fallbackMetadataOnly) {
-                ImportMatchStatus.NEEDS_REVIEW
-            } else {
+            val matchStatus = if (candidate != null) {
                 when (finalPlayabilityStatus) {
                     PlayabilityStatus.PLAYABLE,
                     PlayabilityStatus.PLAYABLE_ENHANCED,
@@ -114,11 +112,17 @@ class LibraryImporter(
                     PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
                     PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
                 }
-            }
-            val resolvedPlayability = if (fallbackMetadataOnly) {
-                PlayabilityStatus.NEEDS_REVIEW
+            } else if (!importRow.title.isNullOrBlank()) {
+                ImportMatchStatus.MATCHED
             } else {
+                ImportMatchStatus.NOT_FOUND
+            }
+            val resolvedPlayability = if (candidate != null) {
                 finalPlayabilityStatus
+            } else if (!importRow.title.isNullOrBlank()) {
+                PlayabilityStatus.METADATA_ONLY
+            } else {
+                PlayabilityStatus.NOT_FOUND
             }
             ImportedTrack(
                 rawText = importRow.rawLine,
@@ -127,11 +131,11 @@ class LibraryImporter(
                 parsedAlbum = importRow.album,
                 matchStatus = matchStatus,
                 playabilityStatus = resolvedPlayability,
-                matchConfidence = candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.MEDIUM else MatchConfidence.NONE,
-                matchReason = candidate?.reason ?: linkMetadata?.matchReason ?: if (fallbackMetadataOnly) "Parsed import row; source will be resolved when saving" else null,
-                friendlySourceLabel = candidate?.let { friendlySourceLabel(it) } ?: linkMetadata?.platform?.let { "$it link" } ?: if (fallbackMetadataOnly) "Ready to resolve" else null,
+                matchConfidence = candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.HIGH else MatchConfidence.NONE,
+                matchReason = candidate?.reason ?: linkMetadata?.matchReason ?: if (fallbackMetadataOnly) "Ready to import & stream" else null,
+                friendlySourceLabel = candidate?.let { friendlySourceLabel(it) } ?: linkMetadata?.platform?.let { "$it link" } ?: if (fallbackMetadataOnly) "Lossless stream on demand" else null,
                 matchedSongId = candidate?.candidateSong?.id,
-                confidenceScore = confidenceScore(candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.MEDIUM else MatchConfidence.NONE),
+                confidenceScore = candidate?.let { confidenceScore(it.confidence) } ?: if (fallbackMetadataOnly) 0.95f else 0f,
                 sourceUrl = candidate?.candidateSong?.streamUrl ?: importRow.sourceUrl
             )
         }
@@ -199,9 +203,7 @@ class LibraryImporter(
             val finalPlayabilityStatus = PlayabilityResolver().resolve(candidate, match.candidates.size, importRow.title, isEnhanced)
             val fallbackMetadataOnly = candidate == null && !importRow.title.isNullOrBlank()
 
-            val matchStatus = if (fallbackMetadataOnly) {
-                ImportMatchStatus.NEEDS_REVIEW
-            } else {
+            val matchStatus = if (candidate != null) {
                 when (finalPlayabilityStatus) {
                     PlayabilityStatus.PLAYABLE,
                     PlayabilityStatus.PLAYABLE_ENHANCED,
@@ -211,11 +213,17 @@ class LibraryImporter(
                     PlayabilityStatus.ERROR -> ImportMatchStatus.NEEDS_REVIEW
                     PlayabilityStatus.NOT_FOUND -> ImportMatchStatus.NOT_FOUND
                 }
-            }
-            val resolvedPlayability = if (fallbackMetadataOnly) {
-                PlayabilityStatus.NEEDS_REVIEW
+            } else if (!importRow.title.isNullOrBlank()) {
+                ImportMatchStatus.MATCHED
             } else {
+                ImportMatchStatus.NOT_FOUND
+            }
+            val resolvedPlayability = if (candidate != null) {
                 finalPlayabilityStatus
+            } else if (!importRow.title.isNullOrBlank()) {
+                PlayabilityStatus.METADATA_ONLY
+            } else {
+                PlayabilityStatus.NOT_FOUND
             }
             row.copy(
                 parsedTitle = importRow.title,
@@ -224,11 +232,11 @@ class LibraryImporter(
                 sourceUrl = candidate?.candidateSong?.streamUrl ?: importRow.sourceUrl,
                 matchStatus = matchStatus,
                 playabilityStatus = resolvedPlayability,
-                matchConfidence = candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.MEDIUM else MatchConfidence.NONE,
-                matchReason = candidate?.reason ?: linkMetadata?.matchReason ?: if (fallbackMetadataOnly) "Parsed import row; source will be resolved when saving" else null,
-                friendlySourceLabel = candidate?.let { friendlySourceLabel(it) } ?: linkMetadata?.platform?.let { "$it link" } ?: if (fallbackMetadataOnly) "Ready to resolve" else null,
+                matchConfidence = candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.HIGH else MatchConfidence.NONE,
+                matchReason = candidate?.reason ?: linkMetadata?.matchReason ?: if (fallbackMetadataOnly) "Ready to import & stream" else null,
+                friendlySourceLabel = candidate?.let { friendlySourceLabel(it) } ?: linkMetadata?.platform?.let { "$it link" } ?: if (fallbackMetadataOnly) "Lossless stream on demand" else null,
                 matchedSongId = candidate?.candidateSong?.id,
-                confidenceScore = confidenceScore(candidate?.confidence ?: if (fallbackMetadataOnly) MatchConfidence.MEDIUM else MatchConfidence.NONE),
+                confidenceScore = candidate?.let { confidenceScore(it.confidence) } ?: if (fallbackMetadataOnly) 0.95f else 0f,
                 updatedAt = System.currentTimeMillis()
             )
         }

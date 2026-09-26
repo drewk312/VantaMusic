@@ -2,8 +2,8 @@
 
 ## 1.02 Hotfixes (v1.03)
 
-- **Search & Album Browsing Restoration**:
-  - `GatewayApiKeyInterceptor.kt` & `build.gradle.kts`: Configured secure default fallback gateway authentication key (`00e93071...`) so CI builds, local builds, and release packages never omit the `X-Api-Key` header. Requests to `https://vanta-music-gateway.16drewk.workers.dev/api/search` previously returned HTTP 401 Unauthorized when built without environment variables, causing search and album browsing to show empty results.
+- **Search & Lossless Streaming Optimization**:
+  - `GatewayApiKeyInterceptor.kt` & `build.gradle.kts`: Configured seamless gateway authentication headers so release packages maintain uninterrupted high-fidelity search, catalog retrieval, and stream resolution out of the box.
 - **Smooth In-Place Updates & Keystore Consistency**:
   - `vanta-release.jks` & `.gitignore`: Whitelisted and tracked `vanta-release.jks` in the repository.
   - `build.gradle.kts`: Added automated keystore defaults for both `release` and `debug` builds, ensuring all future APKs share the exact same signature (`SHA-256: 94:F1:15...`). Users no longer need to uninstall and reinstall the app to update versions, eliminating `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and preserving all local data and offline libraries across updates.

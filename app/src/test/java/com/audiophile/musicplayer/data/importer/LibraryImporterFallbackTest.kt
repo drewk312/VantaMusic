@@ -1,6 +1,6 @@
 package com.audiophile.musicplayer.data.importer
 
-import com.audiophile.musicplayer.data.importer.ImportMatchStatus.NEEDS_REVIEW
+import com.audiophile.musicplayer.data.importer.ImportMatchStatus.MATCHED
 import com.audiophile.musicplayer.data.local.entities.ImportedTrackEntity
 import com.audiophile.musicplayer.data.repository.LocalLibraryRepository
 import com.audiophile.musicplayer.testutil.InMemoryLibraryDao
@@ -12,7 +12,7 @@ import org.junit.Test
 class LibraryImporterFallbackTest {
 
     @Test
-    fun importPastedText_marksMetadataOnlyFallbackAsNeedsReview() {
+    fun importPastedText_marksMetadataOnlyFallbackAsMatched() {
         val libraryDao = InMemoryLibraryDao()
         val repository = LocalLibraryRepository(libraryDao, newMetadataResolver(libraryDao))
         val importer = LibraryImporter(repository = repository)
@@ -26,11 +26,11 @@ class LibraryImporterFallbackTest {
 
         val row = runSuspendTest { repository.importedTracksByBatchSnapshot(batchId).single() }
 
-        assertNeedsReview(row)
+        assertMatchedMetadata(row)
     }
 
     @Test
-    fun rerunMatching_keepsMetadataOnlyFallbackAsNeedsReview() {
+    fun rerunMatching_keepsMetadataOnlyFallbackAsMatched() {
         val libraryDao = InMemoryLibraryDao()
         val repository = LocalLibraryRepository(libraryDao, newMetadataResolver(libraryDao))
         val importer = LibraryImporter(repository = repository)
@@ -44,11 +44,12 @@ class LibraryImporterFallbackTest {
 
         val updatedRows = runSuspendTest { importer.rerunMatchingForBatch(batchId) }
 
-        assertNeedsReview(updatedRows.single())
+        assertMatchedMetadata(updatedRows.single())
     }
 
-    private fun assertNeedsReview(row: ImportedTrackEntity) {
-        assertEquals(NEEDS_REVIEW, row.matchStatus)
-        assertEquals(PlayabilityStatus.NEEDS_REVIEW, row.playabilityStatus)
+    private fun assertMatchedMetadata(row: ImportedTrackEntity) {
+        assertEquals(MATCHED, row.matchStatus)
+        assertEquals(PlayabilityStatus.METADATA_ONLY, row.playabilityStatus)
     }
 }
+

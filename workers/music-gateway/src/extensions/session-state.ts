@@ -111,8 +111,20 @@ export class ExtensionSessions extends DurableObject<Env> {
     if (force && result.state.status !== "ready") return null;
     return valid ? result.session! : null;
   }
+  async saveDeviceLibrary(payload: unknown): Promise<void> {
+    const p = payload as { pairCode?: string };
+    if (!p?.pairCode) return;
+    const key = `device-lib:${p.pairCode.trim().toUpperCase()}`;
+    await this.ctx.storage.put(key, payload);
+  }
+  async getDeviceLibrary(pairCode: string): Promise<unknown | null> {
+    const key = `device-lib:${pairCode.trim().toUpperCase()}`;
+    const data = await this.ctx.storage.get(key);
+    return data ?? null;
+  }
   async alarm(): Promise<void> {
     const provider = await this.ctx.storage.get<ZarzProvider>("provider");
     if (provider) await this.getSession(provider);
   }
 }
+

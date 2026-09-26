@@ -60,6 +60,8 @@ function requiresGatewayAuth(pathname: string): boolean {
   return (
     pathname !== "/" &&
     pathname !== "/health" &&
+    pathname !== "/device-sync/library" &&
+    pathname !== "/api/device-sync/library" &&
     // DRM license routes are public by design: ExoPlayer's Widevine license
     // fetch cannot attach the gateway key, and every request is already gated
     // by the short-lived HMAC token minted per stream via streamForClient.

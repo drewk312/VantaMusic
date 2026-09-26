@@ -39,6 +39,8 @@ export function isValidPairCode(code: string): boolean {
   return normalized.length >= 4 && normalized.length <= 8;
 }
 
+const inMemorySyncMap = new Map<string, DeviceLibraryPayload>();
+
 export async function putDeviceLibrary(
   env: Env,
   payload: DeviceLibraryPayload
@@ -67,24 +69,63 @@ export async function putDeviceLibrary(
     tracks,
   };
 
-  if (!env.SOCIAL_KV || !kvWritesEnabled(env)) {
-    return body;
+  // 1. Keep in memory for instant local retrieval
+  inMemorySyncMap.set(code, body);
+
+  // 2. Primary: Durable Object SQLite storage (unlimited writes, no daily KV quota)
+  if (env.EXTENSION_SESSIONS) {
+    try {
+      const id = env.EXTENSION_SESSIONS.idFromName("device-sync");
+      const stub = env.EXTENSION_SESSIONS.get(id);
+      await (stub as any).saveDeviceLibrary(body);
+    } catch (e) {
+      console.warn("DO device-sync save failed", e);
+    }
   }
-  try {
-    await env.SOCIAL_KV.put(keyFor(code), JSON.stringify(body), { expirationTtl: TTL_SECONDS });
-    return body;
-  } catch {
-    return null;
+
+  // 3. Secondary: Cloudflare KV (swallow daily write quota error safely)
+  if (env.SOCIAL_KV && kvWritesEnabled(env)) {
+    try {
+      await env.SOCIAL_KV.put(keyFor(code), JSON.stringify(body), { expirationTtl: TTL_SECONDS });
+    } catch (e) {
+      console.warn("KV device-sync save failed (likely quota limit)", e);
+    }
   }
+
+  return body;
 }
 
 export async function getDeviceLibrary(env: Env, pairCode: string): Promise<DeviceLibraryPayload | null> {
-  if (!isValidPairCode(pairCode) || !env.SOCIAL_KV) return null;
-  try {
-    const raw = await env.SOCIAL_KV.get(keyFor(pairCode));
-    if (!raw) return null;
-    return JSON.parse(raw) as DeviceLibraryPayload;
-  } catch {
-    return null;
+  if (!isValidPairCode(pairCode)) return null;
+  const code = normalizeCode(pairCode);
+
+  // 1. Primary: Durable Object SQLite storage
+  if (env.EXTENSION_SESSIONS) {
+    try {
+      const id = env.EXTENSION_SESSIONS.idFromName("device-sync");
+      const stub = env.EXTENSION_SESSIONS.get(id);
+      const res = await (stub as any).getDeviceLibrary(code);
+      if (res && Array.isArray((res as any).tracks)) {
+        return res as DeviceLibraryPayload;
+      }
+    } catch (e) {
+      console.warn("DO device-sync get failed", e);
+    }
   }
+
+  // 2. Secondary: Cloudflare KV
+  if (env.SOCIAL_KV) {
+    try {
+      const raw = await env.SOCIAL_KV.get(keyFor(code));
+      if (raw) return JSON.parse(raw) as DeviceLibraryPayload;
+    } catch {}
+  }
+
+  // 3. Fallback: in-memory
+  if (inMemorySyncMap.has(code)) {
+    return inMemorySyncMap.get(code)!;
+  }
+
+  return null;
 }
+

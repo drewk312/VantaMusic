@@ -111,26 +111,7 @@ fun ImportPreviewScreen(
                 PreviewMetric("Warnings", warningCount.toString(), Modifier.weight(1f))
             }
 
-            VantaCard {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (rows.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                            Text("Paste a song list to preview parsed rows before matching.", color = AppTextSecondary, fontSize = 14.sp)
-                        }
-                    } else {
-                        rows.forEachIndexed { index, row ->
-                            PreviewRow(row)
-                            if (index < rows.size - 1) {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp).height(0.5.dp)
-                                        .background(AppOutline.copy(alpha = 0.3f))
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
+            // Top action button so users never have to scroll past thousands of rows
             Button(
                 onClick = onContinueToMatch,
                 enabled = rows.isNotEmpty(),
@@ -139,7 +120,58 @@ fun ImportPreviewScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Continue to Match")
+                Text(if (rows.isEmpty()) "Continue to Match" else "Continue to Match (${rows.size} tracks)")
+            }
+
+            val previewRows = rows.take(50)
+            val remainingCount = rows.size - previewRows.size
+
+            VantaCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (rows.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                            Text("Paste a song list to preview parsed rows before matching.", color = AppTextSecondary, fontSize = 14.sp)
+                        }
+                    } else {
+                        previewRows.forEachIndexed { index, row ->
+                            PreviewRow(row)
+                            if (index < previewRows.size - 1) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp).height(0.5.dp)
+                                        .background(AppOutline.copy(alpha = 0.3f))
+                                )
+                            }
+                        }
+                        if (remainingCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "+ $remainingCount more tracks ready to match",
+                                    color = AppAccent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (rows.size > 10) {
+                Button(
+                    onClick = onContinueToMatch,
+                    enabled = rows.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppAccent)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Continue to Match (${rows.size} tracks)")
+                }
             }
         }
     }

@@ -31,6 +31,7 @@ import com.audiophile.musicplayer.data.importer.ImportMatchStatus
 
 import com.audiophile.musicplayer.data.voice.PulseVoiceProfile
 
+import com.audiophile.musicplayer.data.local.toUnifiedTrack
 import com.audiophile.musicplayer.data.local.LibraryCounts
 
 import com.audiophile.musicplayer.data.local.ListeningYearStats
@@ -7581,7 +7582,7 @@ class MainViewModel @Inject constructor(
 
             }
 
-            val result = withContext(Dispatchers.IO) { saveImportedRowsToLibrary(rows, allowMetadataFallback = false) }
+            val result = withContext(Dispatchers.IO) { saveImportedRowsToLibrary(rows, allowMetadataFallback = true) }
 
             val counts = withContext(Dispatchers.IO) { container.localLibraryRepository.libraryCountsSnapshot() }
 
@@ -7750,35 +7751,15 @@ class MainViewModel @Inject constructor(
 
 
     fun playLocalSong(song: LocalSongEntity) {
-
         viewModelScope.launch {
-
             val playableTrack = withContext(Dispatchers.IO) {
-
                 buildPlayableLocalSongQueue(listOf(song)).firstOrNull()
-
-            }
-
-            if (playableTrack == null) {
-
-                _uiState.update {
-
-                    it.copy(
-
-                        statusMessage = "\"${DisplayMetadataCleaner.cleanTitle(song.title)}\" is unavailable. Repair the track or add a playable source."
-
-                    )
-
-                }
-
-                return@launch
-
-            }
-
+            } ?: UnifiedTrackWithSources(
+                track = song.toUnifiedTrack(),
+                sources = emptyList()
+            )
             playTrack(playableTrack)
-
         }
-
     }
 
 
@@ -7969,7 +7950,12 @@ class MainViewModel @Inject constructor(
 
 
 
-            val resolved = resolveImportedRowToPlayableSource(row, title, artist)
+            val resolved = if (rows.size <= 15) {
+                resolveImportedRowToPlayableSource(row, title, artist)
+            } else {
+                val existingStream = row.sourceUrl?.takeIf { isPlayableImportStream(it) }
+                if (existingStream != null) resolveImportedRowToPlayableSource(row, title, artist) else null
+            }
 
             val existing = existingSongs.firstOrNull {
 
@@ -8891,31 +8877,21 @@ class MainViewModel @Inject constructor(
 
 
     private suspend fun buildPlayableLocalSongQueue(songs: List<LocalSongEntity>): List<UnifiedTrackWithSources> {
-
         materializeSongsForPlayback(songs)
-
         val tracksByLocalId = container.trackRepository.getAllTracks()
-
             .asSequence()
-
             .mapNotNull { track -> track.track.localLibraryId?.let { id -> id to track } }
-
             .toMap()
-
-        return songs.mapNotNull { song ->
-
+        return songs.map { song ->
             val materialized = tracksByLocalId[song.id]
-
             when {
-
                 materialized?.sourceValidityStatus()?.canEnterPlaybackFlow() == true -> materialized
-
-                else -> song.toPlayableQueueItem()?.takeIf { it.sourceValidityStatus().canEnterPlaybackFlow() }
-
+                else -> song.toPlayableQueueItem() ?: UnifiedTrackWithSources(
+                    track = song.toUnifiedTrack(),
+                    sources = emptyList()
+                )
             }
-
         }.distinctBy { it.track.localLibraryId?.let { id -> "local:$id" } ?: "track:${it.track.trackId}" }
-
     }
 
 
