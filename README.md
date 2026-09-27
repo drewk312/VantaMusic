@@ -176,6 +176,26 @@ Huge thanks to everyone who supported this project along the way:
 
 ---
 
+## ⚖️ Legal Disclaimer
+
+VANTA is an independent, non-commercial music player made by a fan, for fans.
+
+* **Not affiliated with anyone else.** VANTA is not affiliated with, endorsed by, or sponsored by Spotify, Apple, Google, Dolby Laboratories, Sony, or any record label, artist, or streaming service. Their names are used only to describe compatibility.
+* **No music is hosted here.** VANTA does not host, store, sell, or distribute music. It's a player: it plays what you choose and organizes the library you bring to it.
+* **Your responsibility.** You're responsible for how you use VANTA, including following the laws where you live and the terms of any service or account you connect.
+* **Support the artists.** If you love a song, buy it, stream it on official platforms, see the show, and grab the merch. Artists make the music possible.
+* **No warranty.** VANTA is provided "as is", without warranty of any kind. The developer isn't liable for any damages or losses from using it.
+
+## 📜 Copyright & Trademark Notice
+
+Copyright © drewk312. All rights reserved unless otherwise noted.
+
+The **VANTA™** name, logo, app icon, and branding are not licensed for reuse. Unofficial copies, forks, or re-uploads must not present themselves as official VANTA releases or suggest they're endorsed by the VANTA team. Official releases are published **only** on this repository's [Releases page](https://github.com/drewk312/VantaMusic/releases).
+
+VANTA includes open-source components that remain under their own licenses; their notices ship inside the app. Dolby, Dolby Atmos, Sony 360 Reality Audio, Spotify, and all other trademarks belong to their respective owners.
+
+---
+
 <div align="center">
   <sub>Crafted for uncompromised acoustic fidelity. © drewk312.<br/>This repository is VANTA's public home for downloads and news; the app's source code is private and not published here.</sub>
 </div>
