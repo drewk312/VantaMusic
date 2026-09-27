@@ -192,7 +192,7 @@ Copyright © drewk312. All rights reserved unless otherwise noted.
 
 The **VANTA™** name, logo, app icon, and branding are not licensed for reuse. Unofficial copies, forks, or re-uploads must not present themselves as official VANTA releases or suggest they're endorsed by the VANTA team. Official releases are published **only** on this repository's [Releases page](https://github.com/drewk312/VantaMusic/releases).
 
-VANTA includes open-source components that remain under their own licenses; their notices ship inside the app. Dolby, Dolby Atmos, Sony 360 Reality Audio, Spotify, and all other trademarks belong to their respective owners.
+VANTA uses open-source components, which remain under their own licenses. Dolby, Dolby Atmos, Sony 360 Reality Audio, Spotify, and all other trademarks belong to their respective owners.
 
 ---
 
