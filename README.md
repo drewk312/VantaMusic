@@ -17,7 +17,10 @@ Deep blacks. Warm gold. Lossless sound. Radio that knows exactly what decade it 
 <img src="https://img.shields.io/badge/Android-8.0%2B-101113?style=flat-square&logo=android&logoColor=E8C99B" alt="Android 8.0+" />
 <img src="https://img.shields.io/badge/Phone%20·%20Tablet%20·%20TV-101113?style=flat-square" alt="Phone, tablet and TV" />
 <img src="https://img.shields.io/github/v/release/drewk312/VantaMusic?style=flat-square&color=E8C99B&labelColor=101113&label=latest" alt="Latest release" />
+<img src="https://img.shields.io/badge/Dolby%20Atmos-Spatial%20%26%20Surround-7952B3?style=flat-square&labelColor=101113" alt="Dolby Atmos, spatial and surround" />
+<img src="https://img.shields.io/badge/Zero-Ads%20%26%20Trackers-2EA043?style=flat-square&labelColor=101113" alt="Zero ads and trackers" />
 <a href="https://discord.gg/vN6ztK6m6g"><img src="https://img.shields.io/badge/Discord-VANTA%20HQ-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join VANTA HQ on Discord" /></a>
+<a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=flat-square&logo=kofi&logoColor=white" alt="Support VANTA on Ko-fi" /></a>
 
 </div>
 
@@ -50,6 +53,17 @@ VANTA is a music player for people who actually *listen*. Search any song, bring
 | 🌑 **Built for the dark** | Gold-on-black design, plus an AMOLED true-black mode. |
 | 📺 **Big-screen ready** | A dedicated TV layout and landscape lyric views for the living room. |
 
+## 🎧 Sound that surrounds you
+
+VANTA was built by audiophiles, for audiophiles. Put your headphones on for this part.
+
+- **🌌 Dolby Atmos & immersive audio.** Plays Dolby Atmos (E-AC-3 JOC), Sony 360 Reality Audio and multichannel 5.1 / 7.1 surround mixes, with an ATMOS badge so you always know what you're hearing.
+- **🧭 Spatial modes with head tracking.** Turn VANTA's spatial sound on and the stage moves with your head. Already have a phone with Dolby Atmos built in? Let your phone take over. Your choice.
+- **💎 Lossless up to 24-bit.** Studio-master FLAC, with badges that only say Hi-Res when it truly is.
+- **🎚️ Studio-grade tuning.** A 31-band EQ, a 10-band parametric EQ and Headphone AutoEQ profiles, all live while the song plays.
+- **🔊 Sound Check.** Evens out volume between quiet Atmos mixes and loud stereo masters, so no more grabbing the volume button.
+- **🔌 USB DAC friendly.** With a DAC plugged in, VANTA's effects step aside and your DAC gets clean, untouched audio.
+
 ## 📺 Beyond your phone
 
 <p align="center">
@@ -72,6 +86,18 @@ VANTA is a music player for people who actually *listen*. Search any song, bring
 
 **Stay safe:** only install VANTA from this page, never from mirrors or re-uploads. Every release lists a SHA-256 checksum so you can confirm your download is the real one ([how to verify](SECURITY.md)).
 
+## ☕ Support VANTA
+
+VANTA is free, with **zero ads and zero trackers**, and it's built independently with no investors and no subscriptions. If it's become your favorite way to listen, a coffee keeps the servers running and the updates coming. 💛
+
+<div align="center">
+
+<a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/☕%20Support%20on%20Ko--fi-drewk312-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white" alt="Support VANTA on Ko-fi" height="36" /></a>
+
+**[ko-fi.com/drewk312](https://ko-fi.com/drewk312)**
+
+</div>
+
 ## 💬 Come hang out
 
 Found a bug? Have an idea? Want to show off your stations? We'd love to hear it. Community reports shaped this entire release.
@@ -79,6 +105,15 @@ Found a bug? Have an idea? Want to show off your stations? We'd love to hear it.
 **[Join VANTA HQ on Discord](https://discord.gg/vN6ztK6m6g)** · **[Report an issue](https://github.com/drewk312/VantaMusic/issues)** · **[Support the project ☕](https://ko-fi.com/drewk312)**
 
 For bug reports, include your VANTA version, Android version, device model, and the steps that cause the problem. Please keep passwords, tokens and personal info out of reports and screenshots.
+
+## 🤝 Special thanks
+
+Huge thanks to everyone who helped VANTA get here:
+
+- **Inzo184** (`@inzo1848842`)
+- **Ink & Echo Admin** (`@developerbios`)
+- **Riknar** (`@riknarr`)
+- ...and every single person in the community who tested builds, sent bug reports and shared VANTA with a friend. This release is yours too. 🫶
 
 ---
 
