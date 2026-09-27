@@ -1,95 +1,91 @@
 <div align="center">
 
-<img src="screenshots/vanta_logo.jpg" width="150" alt="VANTA gold emblem" />
+<img src="screenshots/vanta_logo.jpg" width="140" alt="VANTA gold emblem" />
 
 # V A N T A
 
 ### Stay for one more song.
 
-A music-first experience. Deep blacks. Warm gold. Room to listen.
+Deep blacks. Warm gold. Lossless sound. Radio that knows exactly what decade it is.
 
-**ANDROID · BIG-SCREEN LISTENING · LYRICS · PERSONAL AUDIO**
+<br />
 
-[Explore the app](#a-closer-look) · [Releases](https://github.com/drewk312/VantaMusic/releases) · [Join the community](https://discord.gg/7P5erYcx2x) · [Report a bug](https://github.com/drewk312/VantaMusic/issues)
+<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/⬇%20Download-VANTA%201.00-E8C99B?style=for-the-badge&labelColor=101113" alt="Download VANTA 1.00" height="38" /></a>
+
+<br /><br />
+
+<img src="https://img.shields.io/badge/Android-8.0%2B-101113?style=flat-square&logo=android&logoColor=E8C99B" alt="Android 8.0+" />
+<img src="https://img.shields.io/badge/Phone%20·%20Tablet%20·%20TV-101113?style=flat-square" alt="Phone, tablet and TV" />
+<img src="https://img.shields.io/github/v/release/drewk312/VantaMusic?style=flat-square&color=E8C99B&labelColor=101113&label=latest" alt="Latest release" />
+<a href="https://discord.gg/vN6ztK6m6g"><img src="https://img.shields.io/badge/Discord-VANTA%20HQ-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join VANTA HQ on Discord" /></a>
 
 </div>
 
 ---
 
-## Your music. Its own space.
+## 👋 Meet VANTA 1.00
 
-VANTA brings artwork, your library, and playback controls into a dark, uncluttered listening experience. From a pair of headphones to a living-room screen, the focus stays on the music.
+VANTA is a music player for people who actually *listen*. Search any song, bring your whole Spotify library over in one share, and fall into radio that keeps going for as long as you do. All of it is wrapped in a dark, album-first design that gets out of the way of the music.
 
-| Find your next listen | Make it yours | Take the bigger view |
-| :--- | :--- | :--- |
-| Library, search, radio, and recently played in one place. | Audio controls and a player built around artwork, queue, and lyrics. | Dedicated TV and landscape layouts with more room for your music. |
-
-## A closer look
-
-### In your hand
-
-A warm, album-led home screen. A full-screen player that gives the artwork room to breathe.
+**1.00 is a fresh start.** We took every bug report, every "hey, this is weird", and every feature wish from the community and worked through them one by one. Each fix was checked on real builds before it shipped. It's the VANTA we wanted from day one. 🎧
 
 <p align="center">
-<img src="screenshots/vanta_mobile_home.png" width="43%" alt="VANTA mobile home with library navigation and recently played music" />
-&nbsp;
-<img src="screenshots/vanta_mobile_player.png" width="43%" alt="VANTA now-playing screen with album artwork, queue, and lyrics controls" />
+<img src="screenshots/v100_home.png" width="19%" alt="VANTA home screen: Stay for one more song" />
+<img src="screenshots/v100_search.png" width="19%" alt="Search finds Whiskey Lullaby even when misspelled" />
+<img src="screenshots/v100_player.png" width="19%" alt="Now playing Whiskey Lullaby in FLAC" />
+<img src="screenshots/v100_radio.png" width="19%" alt="Radio with Live DJ and decade stations" />
+<img src="screenshots/v100_eq.png" width="19%" alt="31-band equalizer and parametric EQ" />
 </p>
 
-### In your living room
+## ✨ What you get
 
-A dedicated TV interface with prominent navigation, large controls, and a layout made for viewing across the room.
+| | |
+| :--- | :--- |
+| 🔎 **Search that gets you** | Typos welcome: *"whiskey lulaby"* finds Brad Paisley & Alison Krauss. You get the original, not a karaoke cover. |
+| 💚 **Your Spotify, no login** | Share any playlist to VANTA (up to **10,000 songs**) and it keeps itself in sync. CSV imports work too. |
+| 📻 **Radio that never runs dry** | **147 genres and subgenres**, from Yacht Rock to Shoegaze. Stations stay on theme, never loop, and remember your 👍 and 👎. |
+| 🎚️ **Sound, your way** | A 31-band EQ plus a new 10-band **parametric EQ**, all changing live while the song plays. |
+| 💎 **Honest quality** | FLAC means FLAC and 24-bit means 24-bit. Badges only show what you're really hearing. |
+| ⬇️ **Take it offline** | Download whole playlists in lossless quality. |
+| 🌑 **Built for the dark** | Gold-on-black design, plus an AMOLED true-black mode. |
+| 📺 **Big-screen ready** | A dedicated TV layout and landscape lyric views for the living room. |
+
+## 📺 Beyond your phone
 
 <p align="center">
-<img src="screenshots/vanta_tv_home.png" width="96%" alt="VANTA TV discovery interface with large navigation and featured music" />
+<img src="screenshots/vanta_tv_home.png" width="96%" alt="VANTA TV interface with large navigation" />
 </p>
-
-### Give the lyrics the screen
-
-Landscape lyric views turn a wider display into a focused listening space. Use visual features only when it is safe to do so—not while driving.
 
 <p align="center">
-<img src="screenshots/vanta_rv_player.png" width="96%" alt="VANTA landscape lyric view with large text and an ambient background" />
+<img src="screenshots/vanta_rv_player.png" width="96%" alt="VANTA landscape lyric view" />
 </p>
 
-<sub>Images show existing VANTA interface captures. Appearance and feature availability can vary by build and device.</sub>
+<sub>Lyric and visual modes are for when it's safe to look. Never while driving.</sub>
 
-## Built around listening
+## ⬇️ Get VANTA
 
-- **An album-first player** — prominent artwork, playback controls, queue access, and lyrics.
-- **A home for your library** — browse music, revisit recent listens, and explore radio.
-- **Audio tools to explore** — equalizer and spatial-audio controls are part of the app's audio work; behavior depends on the build, device, and output route.
-- **More than a phone layout** — dedicated TV navigation and immersive landscape views.
-- **Community-shaped development** — real device reports help prioritize the next improvements.
+1. Open the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)** on your Android phone, tablet or TV (Android 8.0 or newer).
+2. Download **`vanta-1.00.apk`** and open it.
+3. If Android asks, allow installs from your browser or file manager. That's it. Press play. ▶️
 
-### What we're improving
+**Already have VANTA?** Install 1.00 right over it and your library stays put.
 
-Playback startup and seeking, Spotify connection, CSV matching, phone/TV sync, fullscreen behavior, and audio-effect consistency are active areas of work. These are not being advertised as resolved in a released build.
+**Stay safe:** only install VANTA from this page, never from mirrors or re-uploads. Every release lists a SHA-256 checksum so you can confirm your download is the real one ([how to verify](SECURITY.md)).
 
-## Get VANTA
+## 💬 Come hang out
 
-**Android 8.0 or newer.**
+Found a bug? Have an idea? Want to show off your stations? We'd love to hear it. Community reports shaped this entire release.
 
-> **Release update:** A replacement APK is being prepared and verified. Downloads are temporarily unavailable on this page. The next verified build will be published in Releases with installation guidance and a SHA-256 checksum.
+**[Join VANTA HQ on Discord](https://discord.gg/vN6ztK6m6g)** · **[Report an issue](https://github.com/drewk312/VantaMusic/issues)** · **[Support the project ☕](https://ko-fi.com/drewk312)**
 
-### [Visit official releases →](https://github.com/drewk312/VantaMusic/releases)
-
-You can watch this repository's releases to hear when the next build is available. Only install APKs from the official release page; don't rely on unverified mirrors.
-
-## Help shape the next version
-
-Have a device-specific issue or an idea for a better listening experience? We'd like to hear it.
-
-**[Join VANTA HQ on Discord](https://discord.gg/7P5erYcx2x)** · **[Report a reproducible issue](https://github.com/drewk312/VantaMusic/issues)** · **[Support the project](https://ko-fi.com/drewk312)**
-
-For bug reports, include your app version, Android version, device model, and steps to reproduce. Keep account details, tokens, passwords, and other personal information out of reports and screenshots.
+For bug reports, include your VANTA version, Android version, device model, and the steps that cause the problem. Please keep passwords, tokens and personal info out of reports and screenshots.
 
 ---
 
 <div align="center">
 
-**Made for the moments between play and one more song.**
+**Made for the moments between play and one more song.** 🖤
 
-<sub>This repository is the public VANTA showcase and release destination—not the application source repository. No signing keys or development credentials are distributed here. See <a href="SECURITY.md">security guidance</a>.</sub>
+<sub>This repository is VANTA's public home for downloads and news. The app's source code is private and is not published here. See the <a href="SECURITY.md">security guidance</a>.</sub>
 
 </div>
