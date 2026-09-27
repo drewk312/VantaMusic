@@ -65,7 +65,7 @@ VANTA is a music player for people who actually *listen*. Search any song, bring
 ## ⬇️ Get VANTA
 
 1. Open the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)** on your Android phone, tablet or TV (Android 8.0 or newer).
-2. Download **`vanta-1.00.apk`** and open it.
+2. Download **`vanta.apk`** and open it.
 3. If Android asks, allow installs from your browser or file manager. That's it. Press play. ▶️
 
 **Already have VANTA?** Install 1.00 right over it and your library stays put.

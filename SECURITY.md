@@ -8,8 +8,8 @@ Download VANTA only from this repository's [Releases page](https://github.com/dr
 
 Each release lists the APK's SHA-256 checksum. To check a download on a computer:
 
-- **Windows (PowerShell):** `Get-FileHash .\vanta-1.00.apk -Algorithm SHA256`
-- **macOS / Linux:** `shasum -a 256 vanta-1.00.apk`
+- **Windows (PowerShell):** `Get-FileHash .\vanta.apk -Algorithm SHA256`
+- **macOS / Linux:** `shasum -a 256 vanta.apk`
 
 The result must match the checksum in the release notes exactly.
 
