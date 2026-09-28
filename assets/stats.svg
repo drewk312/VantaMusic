@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="170" viewBox="0 0 1280 170">
+<defs><linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6E3BF"/><stop offset="1" stop-color="#C39A55"/></linearGradient></defs>
+<style>.t{font-family:'Segoe UI',Inter,'Helvetica Neue',Arial,sans-serif}.c{opacity:0;animation:in .7s ease-out forwards}@keyframes in{from{opacity:0;transform:translateY(12px)}to{opacity:1}}
+@media (prefers-reduced-motion: reduce){.c{animation:none;opacity:1}}</style>
+<g transform="translate(16.7,10)"><g class="c" style="animation-delay:0.00s">
+<rect width="236" height="150" rx="22" fill="#141417" stroke="#3A3326"/>
+<text x="118.0" y="78" text-anchor="middle" class="t" font-size="46" font-weight="700" fill="url(#gold)">24-bit</text>
+<text x="118.0" y="116" text-anchor="middle" class="t" font-size="19" fill="#B9AE9C">lossless FLAC</text></g></g><g transform="translate(269.3,10)"><g class="c" style="animation-delay:0.12s">
+<rect width="236" height="150" rx="22" fill="#141417" stroke="#3A3326"/>
+<text x="118.0" y="78" text-anchor="middle" class="t" font-size="46" font-weight="700" fill="url(#gold)">Atmos</text>
+<text x="118.0" y="116" text-anchor="middle" class="t" font-size="19" fill="#B9AE9C">Dolby Atmos + Sony 360</text></g></g><g transform="translate(522.0,10)"><g class="c" style="animation-delay:0.24s">
+<rect width="236" height="150" rx="22" fill="#141417" stroke="#3A3326"/>
+<text x="118.0" y="78" text-anchor="middle" class="t" font-size="40" font-weight="700" fill="url(#gold)">31 + 10</text>
+<text x="118.0" y="116" text-anchor="middle" class="t" font-size="19" fill="#B9AE9C">EQ + parametric bands</text></g></g><g transform="translate(774.7,10)"><g class="c" style="animation-delay:0.36s">
+<rect width="236" height="150" rx="22" fill="#141417" stroke="#3A3326"/>
+<text x="118.0" y="78" text-anchor="middle" class="t" font-size="46" font-weight="700" fill="url(#gold)">147</text>
+<text x="118.0" y="116" text-anchor="middle" class="t" font-size="19" fill="#B9AE9C">radio genres</text></g></g><g transform="translate(1027.3,10)"><g class="c" style="animation-delay:0.48s">
+<rect width="236" height="150" rx="22" fill="#141417" stroke="#3A3326"/>
+<text x="118.0" y="78" text-anchor="middle" class="t" font-size="46" font-weight="700" fill="url(#gold)">0</text>
+<text x="118.0" y="116" text-anchor="middle" class="t" font-size="19" fill="#B9AE9C">ads or trackers</text></g></g></svg>
