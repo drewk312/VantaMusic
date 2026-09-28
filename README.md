@@ -34,6 +34,18 @@ I build VANTA on my own, in my spare time. I wanted a player that plays lossless
 2. Open it on your phone, tablet or Android TV and tap <kbd>Install</kbd>. If Android asks, allow installs from your browser or file manager.
 3. Already have VANTA? Install over it. Your library stays, and the app lets you know when there's an update.
 
+### On a TV
+
+No phone or USB stick needed. Use the free **Downloader** app and this code:
+
+<p align="center"><kbd>&nbsp;6677141&nbsp;</kbd></p>
+
+1. Install **Downloader** (by AFTVnews) from your TV's app store.
+2. In your TV's settings, allow Downloader to install unknown apps.
+3. Open Downloader, type <kbd>6677141</kbd> and select <kbd>Go</kbd>. VANTA downloads and asks to install.
+
+The code always points to the newest `vanta.apk` on this page. Works on Android TV and Google TV; Fire TV should work on Fire OS 7 or newer.
+
 > [!IMPORTANT]
 > The only official downloads are on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
 
