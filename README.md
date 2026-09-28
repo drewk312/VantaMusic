@@ -1,205 +1,87 @@
 <div align="center">
 
-<img src="./screenshots/vanta_logo.jpg" width="160" alt="VANTA Luxury Audio Emblem" />
+<img src="./screenshots/vanta_logo.jpg" width="150" alt="VANTA logo" />
 
-# 🌌 VANTA
-### The Reference Hi-Res Lossless & Dolby Atmos Spatial Music Player
+# VANTA
 
-[![Platform](https://img.shields.io/badge/Platform-Android_8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/drewk312/VantaMusic/releases/latest)
-[![Audio Engine](https://img.shields.io/badge/Audio-24--bit_Lossless_FLAC-gold?style=for-the-badge)](#-acoustic-architecture--features)
-[![Spatial Sound](https://img.shields.io/badge/Spatial-Dolby_Atmos_·_Sony_360-7952B3?style=for-the-badge)](#-acoustic-architecture--features)
-[![Spotify Sync](https://img.shields.io/badge/Spotify-Share_to_Sync_·_No_Login-1DB954?style=for-the-badge&logo=spotify&logoColor=white)](#-spotify-playlists-no-login-needed)
-[![License](https://img.shields.io/badge/License-Freeware-000000?style=for-the-badge)](#%EF%B8%8F-security--privacy-guarantee)
-[![Discord](https://img.shields.io/badge/Community-VANTA_HQ_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/vN6ztK6m6g)
-[![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/drewk312)
+A free Android music player for people who care how their music sounds.
 
-<br/>
-
-<p align="center">
-  <b>VANTA</b> is a handcrafted, flagship music player for audiophiles who demand real fidelity. Studio-master <b>24-bit lossless FLAC</b>, <b>Dolby Atmos & Sony 360 immersive playback</b>, a studio-grade <b>DSP & parametric EQ suite</b>, and <b>Spotify playlists with no login</b>, all wrapped in a deep-black, gold-accented design that turns any pair of headphones into your private listening room.
-</p>
-
-<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/📥%20Download-VANTA%201.00-E8C99B?style=for-the-badge&labelColor=101113" alt="Download VANTA 1.00" height="40" /></a>
-
-[✨ What's New in 1.00](#-whats-new-in-100) • [💎 Acoustic Architecture](#-acoustic-architecture--features) • [📸 Device Showcase](#-multi-device-showcase) • [🛡️ Privacy & Security](#%EF%B8%8F-security--privacy-guarantee) • [☕ Support](#-support-the-project) • [🤝 Thanks](#-special-thanks)
-
----
+[![Download](https://img.shields.io/badge/Download-latest_release-E8C99B?style=for-the-badge&labelColor=101113)](https://github.com/drewk312/VantaMusic/releases/latest)
+[![Android 8.0+](https://img.shields.io/badge/Android-8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/drewk312/VantaMusic/releases/latest)
+[![Discord](https://img.shields.io/badge/Discord-VANTA_HQ-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/vN6ztK6m6g)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/drewk312)
 
 </div>
 
-## ✨ What's New in 1.01
-
-**Your reports, fixed.** Every fix below is covered by automated tests (782 in the app, all passing), and most were also checked by hand on Android 16 and 17.
-
-* 💚 **Spotify sharing works**: sharing a playlist to VANTA no longer says "Could not resolve" or crashes every time you reopen the app.
-* ▶️ **Playlists and albums keep going**: tap any song and VANTA plays on through the rest, in the right order, with the right songs.
-* 💿 **Albums fixed**: no more empty albums, album order matches the real tracklist, and artist pages list **Albums** and **Singles & EPs** separately.
-* 🎚️ **EQ on IEMs and USB DACs**: effects now work on USB DACs and dongles, and you can **import AutoEQ presets** into the parametric EQ.
-* 🎤 **Lyrics on time**: lyrics follow the player's real clock, never show another song's words, and got a cleaner look.
-* 🌌 **Fuller Dolby Atmos on headphones**: Atmos gets +8 dB of makeup gain and a bass lift, with a limiter so it never clips. It was playing much quieter than stereo.
-* 📂 **Import one folder**: pick the folder your music lives in instead of scanning the whole phone.
-* 🔍 **Real file details**: sample rate and bit depth read from the file itself, even before you press play.
-* 🔗 **Share links**: share a song or playlist and it opens straight into VANTA for anyone who has it.
-
-👉 **[Read the full 1.00 release notes](https://github.com/drewk312/VantaMusic/releases/latest)**
-
----
-
-## 📸 Multi-Device Showcase
-
-### 📱 Flagship Mobile Luxury Experience
-> Deep AMOLED obsidian aesthetics, album-first artwork, synced lyrics, live format badges, and a studio-grade equalizer one tap away.
-
 <p align="center">
-  <img src="./screenshots/v100_home.png" width="19%" alt="VANTA Home" />
-  <img src="./screenshots/v100_search.png" width="19%" alt="VANTA Search" />
-  <img src="./screenshots/v100_player.png" width="19%" alt="VANTA Now Playing in FLAC" />
-  <img src="./screenshots/v100_radio.png" width="19%" alt="VANTA Radio" />
-  <img src="./screenshots/v100_eq.png" width="19%" alt="VANTA Equalizer" />
+  <img src="./screenshots/v100_home.png" width="19%" alt="Home" />
+  <img src="./screenshots/v100_search.png" width="19%" alt="Search" />
+  <img src="./screenshots/v100_player.png" width="19%" alt="Now playing" />
+  <img src="./screenshots/v100_radio.png" width="19%" alt="Radio" />
+  <img src="./screenshots/v100_eq.png" width="19%" alt="Equalizer" />
 </p>
 
----
+Hey, I'm Drew. I build VANTA on my own, in my spare time. It plays lossless FLAC and Dolby Atmos, has a proper EQ, and does radio that stays on the genre you picked. There are no ads and no tracking, and it's free.
 
-### 📺 Android TV & 10-Foot Living Room Theater
-> Tailored for D-pad remote navigation on Google TV, Fire TV and Nvidia Shield, with ambient backdrops and living-room jukebox staging. Link your phone and TV with a code.
+## Download
+
+Grab `vanta.apk` from the [latest release](https://github.com/drewk312/VantaMusic/releases/latest), open it on your phone or TV, and let Android install it. If you already have VANTA, install it over the top and your library stays put. The app also tells you when an update is out.
+
+Please only download it from this page. Every release lists what changed and a SHA-256 checksum if you want to double-check the file ([how](SECURITY.md)).
+
+## What it does
+
+**Sound**
+- Lossless FLAC up to 24-bit, plus local FLAC, ALAC and WAV files.
+- Dolby Atmos and Sony 360 Reality Audio, with optional spatial audio and head tracking for headphones.
+- A 31-band EQ, a 10-band parametric EQ with AutoEQ preset import, tube amp, Bass Cannon and a convolver. Changes apply while the song plays, including on USB DACs.
+- Sound Check to even out volume between tracks.
+- File Info shows the real codec, sample rate and bit depth. The Hi-Res badge only appears when the file actually is hi-res.
+
+**Finding music**
+- Search that copes with typos and puts the original recording ahead of covers.
+- Radio for 147 genres and subgenres that stays on theme, doesn't repeat a song within a day, and learns from your thumbs up and down.
+- Artist pages with albums and singles/EPs listed separately.
+- Synced lyrics.
+
+**Your library**
+- Import Spotify playlists by sharing them to VANTA or pasting the link, with no login.
+- Import CSV exports of your playlists or Liked Songs. Each song keeps its exact recording (ISRC).
+- Import local music from one folder or the whole phone.
+- Download playlists for offline listening.
+- Share a song or playlist with a link that opens right in VANTA.
+
+**Everywhere**
+- Phone, tablet and Android TV, with a TV layout built for remotes and a landscape mode for car and RV mounts.
 
 <p align="center">
-  <img src="./screenshots/vanta_tv_home.png" width="96%" alt="VANTA Android TV Home" />
+  <img src="./screenshots/vanta_tv_home.png" width="96%" alt="VANTA on Android TV" />
 </p>
 
----
+## Good to know
 
-### 🚐 RV, Cockpit & Landscape Panoramic Mode
-> High-contrast oversized touch targets, full-width timing and cinematic line-by-line synced lyrics for dashboard and RV mounts. (Glance only when it's safe. Never while driving.)
+Spotify only gives out the first 100 songs of a playlist through a shared link, so that's what a link import brings in. For bigger playlists or your Liked Songs, export them as a CSV and import that instead. There's no size limit that way.
 
-<p align="center">
-  <img src="./screenshots/vanta_rv_player.png" width="96%" alt="VANTA RV Cockpit Player" />
-</p>
+## Privacy
 
----
+- No ads, no analytics, no trackers.
+- No microphone permission. The visualizer reacts to the audio itself.
+- Releases are signed, and the in-app updater checks the checksum and signature before it installs anything.
 
-## 💎 Acoustic Architecture & Features
+## Help and support
 
-### 🎧 Dolby Atmos & Immersive Spatial Audio
-* **Dolby Atmos playback**: immersive E-AC-3 JOC mixes and multichannel **5.1 / 7.1 surround**, sent straight to your device's own Atmos engine.
-* **Sony 360 Reality Audio** support for 3D object-based mixes.
-* **VANTA Immersive Sound with Head Tracking**: headphone spatial modes with crossfeed that turn with your head. Already have Dolby Atmos built into your phone? Let it take over. Your choice.
+- Chat, bugs and ideas: [Discord](https://discord.gg/vN6ztK6m6g)
+- Bug reports: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
+- If you'd like to support VANTA: [ko-fi.com/drewk312](https://ko-fi.com/drewk312)
 
-### 💎 Lossless Signal Path
-* Studio-master **24-bit FLAC** streaming, plus native FLAC, ALAC and WAV playback.
-* **Float output** and **Auto Headroom** keep loud masters clean and clip-free.
-* **USB DAC friendly**: your EQ and effects work on USB DACs and dongles too; with every effect off, the audio reaches your DAC untouched.
-* **Built-in audio inspector**: tap *View File Info* to see the real codec, container, sample rate, bit depth and bitrate of what's playing. Badges only say Hi-Res when it truly is.
+Thanks to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`), **Riknar** (`@riknarr`), and everyone who has tested builds and sent reports.
 
-### 🟢 Spotify Playlists, No Login Needed
-* **Share → VANTA.** Share any public Spotify playlist or paste its link. No developer keys, no sign-in screens.
-* **The honest limit:** Spotify only hands out the **first 100 songs** of a shared link. For bigger playlists or your Liked Songs, import a **CSV export** instead and every song comes through (we tested a 5,777-song library: 5,762 matched).
-* **Auto-sync:** linked playlists are re-checked every few hours for new songs (within that same 100-song window).
-* **CSV imports** keep each song's exact recording (ISRC), so you get the version you loved.
+## Legal
 
-### 🎛️ Studio-Grade DSP & Parametric EQ Suite
-* **31-Band Graphic EQ** with presets, from Bass Boost to Studio and Concert Hall.
-* **10-Band Parametric Equalizer**: surgical shaping with frequency, gain and Q per band.
-* **Import AutoEQ presets**: load any AutoEQ / Squig.link / Equalizer APO parametric preset for your headphones or IEMs in one tap.
-* **Tube Amp Simulation, Bass Cannon & Convolver** for warmth, punch and custom room impulses.
-* Every change applies **live**, mid-song.
+VANTA is an independent, non-commercial project. It isn't affiliated with or endorsed by Spotify, Apple, Google, Dolby, Sony, or any label, artist or streaming service; their names are only used to describe compatibility. VANTA doesn't host, store, sell or distribute music. You're responsible for how you use it and for following the terms of any service you connect. If you love an artist, support them by buying their music, streaming it officially, and going to their shows.
 
-### 🎚️ Format-Aware Sound Check
-* Levels perceived loudness between quiet multichannel Atmos mixes and heavily compressed stereo masters for smooth, continuous listening.
+VANTA is provided as is, with no warranty.
 
-### 📻 Endless Radio & AI DJ
-* **147 genre & subgenre stations**, each one endless and on theme, with a 24-hour no-repeat and artist spacing.
-* **Live DJ** with optional host narration, plus crossfade and Automix transitions.
+Copyright © drewk312. The VANTA name, logo and branding may not be reused, and unofficial copies must not present themselves as official releases. Official releases are only published on this repository's [Releases page](https://github.com/drewk312/VantaMusic/releases). VANTA includes open-source components under their own licenses. Dolby, Dolby Atmos, Sony 360 Reality Audio, Spotify and other trademarks belong to their owners.
 
----
-
-## 📥 Instant Download & Setup
-
-Download the signed release package directly from GitHub Releases:
-
-👉 **[Download VANTA 1.00 APK (Latest Official Release)](https://github.com/drewk312/VantaMusic/releases/latest)**
-
-### Quick Installation:
-1. Tap the download link above to get `vanta.apk`.
-2. Open the downloaded file on your Android device (Android 8.0 Oreo or newer).
-3. If prompted by your browser, tap **Allow from this source**.
-4. Launch **VANTA** and hear your music in pure clarity. 🎧
-
-**Already have VANTA?** Install 1.00 right over it and your library stays.
-
----
-
-## 🛡️ Security & Privacy Guarantee
-
-VANTA is strictly non-commercial, privacy-respecting software built by music lovers for music lovers:
-
-* **Zero Advertisements**: no banner ads, popup interruptions, or commercial breaks.
-* **Zero Telemetry or Trackers**: no third-party analytics, behavioral tracking, or data profiling.
-* **No microphone access**: the visualizer reacts to the music itself, so VANTA never asks for your mic.
-* **Signed & verified releases**: rebuilt on a brand-new signing key, and the in-app updater checks every download's checksum and signature before installing.
-* **Release Checksum (SHA-256)** for `vanta.apk` 1.01:
-  ```text
-  627657C440E089CDB4678631DD297175E67D16868DAC07BAFF7576F5BFB2AEB4
-  ```
-  How to check it: see **[SECURITY.md](SECURITY.md)**. Only install VANTA from this page, never from mirrors or re-uploads.
-
----
-
-## ☕ Support the Project
-
-VANTA is independently built with no investors, no subscriptions and no ads. If it's become your favorite way to listen and you'd like to support ongoing development, servers and new features:
-
-<div align="center">
-
-[![Ko-fi Support](https://img.shields.io/badge/Support_on_Ko--fi-drewk312-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/drewk312)
-
-**[ko-fi.com/drewk312](https://ko-fi.com/drewk312)**
-
-</div>
-
----
-
-## 💬 Join the Community
-
-Connect with fellow audiophiles, share your EQ settings, suggest features and get live help:
-
-* **Discord**: [Join VANTA HQ on Discord](https://discord.gg/vN6ztK6m6g)
-* **Bug Reports & Feedback**: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
-* **Support the Project**: [ko-fi.com/drewk312](https://ko-fi.com/drewk312)
-
----
-
-## 🤝 Special Thanks
-
-Huge thanks to everyone who supported this project along the way:
-
-* **Inzo184** (`@inzo1848842`)
-* **Ink & Echo Admin** (`@developerbios`)
-* **Riknar** (`@riknarr`)
-* *...and to everyone in the community who tested builds, sent reports and shared VANTA with a friend. 1.01 is yours too.* 🫶
-
----
-
-## ⚖️ Legal Disclaimer
-
-VANTA is an independent, non-commercial music player made by a fan, for fans.
-
-* **Not affiliated with anyone else.** VANTA is not affiliated with, endorsed by, or sponsored by Spotify, Apple, Google, Dolby Laboratories, Sony, or any record label, artist, or streaming service. Their names are used only to describe compatibility.
-* **No music is hosted here.** VANTA does not host, store, sell, or distribute music. It's a player: it plays what you choose and organizes the library you bring to it.
-* **Your responsibility.** You're responsible for how you use VANTA, including following the laws where you live and the terms of any service or account you connect.
-* **Support the artists.** If you love a song, buy it, stream it on official platforms, see the show, and grab the merch. Artists make the music possible.
-* **No warranty.** VANTA is provided "as is", without warranty of any kind. The developer isn't liable for any damages or losses from using it.
-
-## 📜 Copyright & Trademark Notice
-
-Copyright © drewk312. All rights reserved unless otherwise noted.
-
-The **VANTA™** name, logo, app icon, and branding are not licensed for reuse. Unofficial copies, forks, or re-uploads must not present themselves as official VANTA releases or suggest they're endorsed by the VANTA team. Official releases are published **only** on this repository's [Releases page](https://github.com/drewk312/VantaMusic/releases).
-
-VANTA uses open-source components, which remain under their own licenses. Dolby, Dolby Atmos, Sony 360 Reality Audio, Spotify, and all other trademarks belong to their respective owners.
-
----
-
-<div align="center">
-  <sub>Crafted for uncompromised acoustic fidelity. © drewk312.<br/>This repository is VANTA's public home for downloads and news; the app's source code is private and not published here.</sub>
-</div>
+This repository is for downloads and news. The app's source code is private.
