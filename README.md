@@ -21,7 +21,7 @@ A free Android music player for people who care how their music sounds.
   <img src="./screenshots/v100_eq.png" width="19%" alt="Equalizer" />
 </p>
 
-Hey, I'm Drew. I build VANTA on my own, in my spare time. It plays lossless FLAC and Dolby Atmos, has a proper EQ, and does radio that stays on the genre you picked. There are no ads and no tracking, and it's free.
+I build VANTA on my own, in my spare time. It plays lossless FLAC and Dolby Atmos, has a proper EQ, and does radio that stays on the genre you picked. There are no ads and no tracking, and it's free.
 
 ## Download
 
