@@ -27,16 +27,19 @@
 
 </div>
 
-## ✨ What's New in 1.00
+## ✨ What's New in 1.01
 
-**A fresh start.** We took every bug report and feature wish from the community and worked through them one by one, testing every fix on real builds before it shipped.
+**Your reports, fixed.** Every fix below is covered by automated tests (782 in the app, all passing), and most were also checked by hand on Android 16 and 17.
 
-* ▶️ **Press play and it plays**: faster starts, skips that always land, albums in order, and seeking that goes where you let go.
-* 🔎 **Search that knows what you meant**: typos welcome (*"whiskey lulaby"* finds Brad Paisley & Alison Krauss), and the original always beats the cover.
-* 📻 **Endless radio, done properly**: **147 genres & subgenres**, from Yacht Rock to Shoegaze. Stations stay on theme, never loop, and remember your 👍 / 👎.
-* 🎚️ **Live EQ + new parametric EQ**: every change is heard instantly, no restarting the song.
-* ⬇️ **Offline playlists** in lossless quality.
-* 🛠️ **Rock-solid**: big libraries, huge imports, File Info and downloads are all crash-free, with honest quality badges everywhere.
+* 💚 **Spotify sharing works**: sharing a playlist to VANTA no longer says "Could not resolve" or crashes every time you reopen the app.
+* ▶️ **Playlists and albums keep going**: tap any song and VANTA plays on through the rest, in the right order, with the right songs.
+* 💿 **Albums fixed**: no more empty albums, album order matches the real tracklist, and artist pages list **Albums** and **Singles & EPs** separately.
+* 🎚️ **EQ on IEMs and USB DACs**: effects now work on USB DACs and dongles, and you can **import AutoEQ presets** into the parametric EQ.
+* 🎤 **Lyrics on time**: lyrics follow the player's real clock, never show another song's words, and got a cleaner look.
+* 🌌 **Fuller Dolby Atmos on headphones**: Atmos gets +8 dB of makeup gain and a bass lift, with a limiter so it never clips. It was playing much quieter than stereo.
+* 📂 **Import one folder**: pick the folder your music lives in instead of scanning the whole phone.
+* 🔍 **Real file details**: sample rate and bit depth read from the file itself, even before you press play.
+* 🔗 **Share links**: share a song or playlist and it opens straight into VANTA for anyone who has it.
 
 👉 **[Read the full 1.00 release notes](https://github.com/drewk312/VantaMusic/releases/latest)**
 
@@ -85,18 +88,19 @@
 ### 💎 Lossless Signal Path
 * Studio-master **24-bit FLAC** streaming, plus native FLAC, ALAC and WAV playback.
 * **Float output** and **Auto Headroom** keep loud masters clean and clip-free.
-* **USB DAC friendly**: with a DAC connected, VANTA's effects step aside and your DAC gets clean, untouched audio.
+* **USB DAC friendly**: your EQ and effects work on USB DACs and dongles too; with every effect off, the audio reaches your DAC untouched.
 * **Built-in audio inspector**: tap *View File Info* to see the real codec, container, sample rate, bit depth and bitrate of what's playing. Badges only say Hi-Res when it truly is.
 
 ### 🟢 Spotify Playlists, No Login Needed
-* **Share → VANTA.** Share any Spotify playlist (up to **10,000 songs**) or paste its link. No developer keys, no sign-in screens.
-* **Auto-sync**: add songs in Spotify and they show up in VANTA automatically.
-* **CSV imports** from Exportify, Soundiiz and friends keep each song's exact recording, so you get the version you loved.
+* **Share → VANTA.** Share any public Spotify playlist or paste its link. No developer keys, no sign-in screens.
+* **The honest limit:** Spotify only hands out the **first 100 songs** of a shared link. For bigger playlists or your Liked Songs, import a **CSV export** instead and every song comes through (we tested a 5,777-song library: 5,762 matched).
+* **Auto-sync:** linked playlists are re-checked every few hours for new songs (within that same 100-song window).
+* **CSV imports** keep each song's exact recording (ISRC), so you get the version you loved.
 
 ### 🎛️ Studio-Grade DSP & Parametric EQ Suite
 * **31-Band Graphic EQ** with presets, from Bass Boost to Studio and Concert Hall.
 * **10-Band Parametric Equalizer**: surgical shaping with frequency, gain and Q per band.
-* **Headphone AutoEQ**: load target compensation curves for your headphones.
+* **Import AutoEQ presets**: load any AutoEQ / Squig.link / Equalizer APO parametric preset for your headphones or IEMs in one tap.
 * **Tube Amp Simulation, Bass Cannon & Convolver** for warmth, punch and custom room impulses.
 * Every change applies **live**, mid-song.
 
@@ -133,9 +137,9 @@ VANTA is strictly non-commercial, privacy-respecting software built by music lov
 * **Zero Telemetry or Trackers**: no third-party analytics, behavioral tracking, or data profiling.
 * **No microphone access**: the visualizer reacts to the music itself, so VANTA never asks for your mic.
 * **Signed & verified releases**: rebuilt on a brand-new signing key, and the in-app updater checks every download's checksum and signature before installing.
-* **Release Checksum (SHA-256)** for `vanta.apk` 1.00:
+* **Release Checksum (SHA-256)** for `vanta.apk` 1.01:
   ```text
-  A9D0899FDC7666BC50642168C3CEC480842329FFB8E82A938159ED52A112B6AB
+  627657C440E089CDB4678631DD297175E67D16868DAC07BAFF7576F5BFB2AEB4
   ```
   How to check it: see **[SECURITY.md](SECURITY.md)**. Only install VANTA from this page, never from mirrors or re-uploads.
 
@@ -172,7 +176,7 @@ Huge thanks to everyone who supported this project along the way:
 * **Inzo184** (`@inzo1848842`)
 * **Ink & Echo Admin** (`@developerbios`)
 * **Riknar** (`@riknarr`)
-* *...and to everyone in the community who tested builds, sent reports and shared VANTA with a friend. 1.00 is yours too.* 🫶
+* *...and to everyone in the community who tested builds, sent reports and shared VANTA with a friend. 1.01 is yours too.* 🫶
 
 ---
 
