@@ -74,7 +74,7 @@ Spotify only gives out the first 100 songs of a playlist through a shared link, 
 - Bug reports: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
 - If you'd like to support VANTA: [ko-fi.com/drewk312](https://ko-fi.com/drewk312)
 
-Thanks to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`), **Riknar** (`@riknarr`), and everyone who has tested builds and sent reports.
+Shoutouts to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`) and **Riknar** (`@riknarr`).
 
 ## Legal
 
