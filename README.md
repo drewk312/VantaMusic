@@ -8,18 +8,15 @@
   </picture>
 </a>
 
-**A free Android music player for people who care how their music sounds.**
+<h3>The music player for people who care how it sounds.</h3>
 
-<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/Download_VANTA-free_for_Android-E8C99B?style=for-the-badge&labelColor=101113" height="44" alt="Download VANTA, free for Android" /></a>
+<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/Get_VANTA-E8C99B?style=for-the-badge" height="40" alt="Get VANTA" /></a>
 
+<sub>Android 8.0+ &nbsp;·&nbsp; phone, tablet and TV</sub>
 
-[![Latest release](https://img.shields.io/github/v/release/drewk312/VantaMusic?style=for-the-badge&label=Download&color=E8C99B&labelColor=101113)](https://github.com/drewk312/VantaMusic/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/drewk312/VantaMusic/total?style=for-the-badge&color=E8C99B&labelColor=101113)](https://github.com/drewk312/VantaMusic/releases)
-[![Android 8.0+](https://img.shields.io/badge/Android-8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=101113)](#download)
-[![Discord](https://img.shields.io/badge/Discord-VANTA_HQ-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=101113)](https://discord.gg/vN6ztK6m6g)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113)](https://ko-fi.com/drewk312)
+<br /><br />
 
-[Why VANTA](#why-vanta) · [Screenshots](#screenshots) · [Sound](#sound-that-surrounds-you) · [Your music](#bring-your-music) · [TV & car](#tv-and-car) · [Download](#download) · [FAQ](#faq)
+<sub><a href="#why-vanta">Features</a> &nbsp;·&nbsp; <a href="#sound-that-surrounds-you">Sound</a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#faq">FAQ</a> &nbsp;·&nbsp; <a href="https://discord.gg/vN6ztK6m6g">Discord</a></sub>
 
 <br />
 
@@ -29,26 +26,24 @@
 
 </div>
 
-I build VANTA on my own, in my spare time. I wanted a player that plays lossless and Dolby Atmos properly, has an EQ that actually does something, and does radio that stays on the genre you picked. So I made one. There are no ads and no tracking, and it's free.
+I build VANTA on my own, in my spare time. I wanted a player that plays lossless and Dolby Atmos properly, has an EQ that actually does something, and does radio that stays on the genre you picked. So I made one.
 
 <h2 align="center" id="why-vanta">Why VANTA</h2>
 
-
 <table>
   <tr>
-    <td width="50%" valign="top"><h3>🎧 Hear all of it</h3>Lossless FLAC up to 24-bit, Dolby Atmos, Sony 360 Reality Audio and 5.1 / 7.1 surround mixes. A badge on the player tells you exactly what you're hearing, and it never calls a lossy stream Hi-Res.</td>
-    <td width="50%" valign="top"><h3>🎚️ An EQ that does something</h3>A 31-band EQ and a 10-band parametric EQ you hear change as you move them. Drop in the AutoEQ preset for your IEMs and you're done.</td>
+    <td width="50%" valign="top"><h3>Hear all of it</h3>Lossless FLAC up to 24-bit, Dolby Atmos, Sony 360 Reality Audio and 5.1 / 7.1 surround mixes. A badge on the player tells you exactly what you're hearing, and it never calls a lossy stream Hi-Res.</td>
+    <td width="50%" valign="top"><h3>An EQ that does something</h3>A 31-band EQ and a 10-band parametric EQ you hear change as you move them. Drop in the AutoEQ preset for your IEMs and you're done.</td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><h3>📻 Radio that stays on genre</h3>147 genres and subgenres, each with its own endless station that learns from your thumbs. 50s rock and roll plays Chuck Berry, not Pharrell.</td>
-    <td width="50%" valign="top"><h3>🔗 Bring your music, share it back</h3>Share a Spotify playlist straight in, no login needed. Send a song to a friend as a link and it opens right in their VANTA.</td>
+    <td width="50%" valign="top"><h3>Radio that stays on genre</h3>147 genres and subgenres, each with its own endless station that learns from your thumbs. 50s rock and roll plays Chuck Berry, not Pharrell.</td>
+    <td width="50%" valign="top"><h3>Bring your music, share it back</h3>Share a Spotify playlist straight in, no login needed. Send a song to a friend as a link and it opens right in their VANTA.</td>
   </tr>
 </table>
 
 <p align="center"><b>No ads. No trackers. No subscription. Just music.</b></p>
 
 <h2 align="center" id="screenshots">Screenshots</h2>
-
 
 <table>
   <tr>
@@ -61,12 +56,11 @@ I build VANTA on my own, in my spare time. I wanted a player that plays lossless
     <td align="center"><img src="./assets/new.png" alt="Daily Discover" /><br /><sub><b>New</b><br />A daily mix picked from your taste</sub></td>
     <td align="center"><img src="./assets/eq.png" alt="31-band equalizer" /><br /><sub><b>31-band EQ</b><br />Changes apply while the song plays</sub></td>
     <td align="center"><img src="./assets/peq.png" alt="Parametric EQ" /><br /><sub><b>Parametric EQ</b><br />Import AutoEQ presets for your IEMs</sub></td>
-    <td align="center"><img src="./screenshots/vanta_logo.jpg" alt="VANTA logo" /><br /><sub><b>No ads. No trackers.</b><br />Just music.</sub></td>
+    <td align="center"><img src="./screenshots/vanta_logo.jpg" alt="VANTA logo" /><br /><sub><b>VANTA</b><br />Made for listening</sub></td>
   </tr>
 </table>
 
 <h2 align="center" id="sound-that-surrounds-you">Sound that surrounds you</h2>
-
 
 Put your headphones on for this part.
 
@@ -80,7 +74,6 @@ Put your headphones on for this part.
 | **File Info** | Reads the sample rate and bit depth straight from your local files, even before you press play. The Hi-Res badge only shows when a file really is hi-res. |
 
 <h2 align="center" id="bring-your-music">Bring your music</h2>
-
 
 Share a Spotify playlist straight to VANTA. You don't need to log in.
 
@@ -110,7 +103,6 @@ You can also:
 
 <h2 align="center" id="tv-and-car">TV and car</h2>
 
-
 VANTA runs on Android TV with a layout built for the remote, and it has a landscape mode for car and RV dash mounts.
 
 <p align="center">
@@ -122,13 +114,11 @@ VANTA runs on Android TV with a layout built for the remote, and it has a landsc
 
 <h2 align="center" id="privacy">Privacy</h2>
 
-
 - No ads, analytics or trackers.
 - No microphone permission. The visualizer reacts to the audio itself.
 - Every release is signed. The in-app updater checks the checksum and the signature before it installs anything.
 
-<h2 align="center" id="download">Download</h2>
-
+<h2 align="center" id="install">Install</h2>
 
 1. Get `vanta.apk` from the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)**.
 2. Open it on your phone, tablet or Android TV and tap <kbd>Install</kbd>. If Android asks, allow installs from your browser or file manager.
@@ -136,8 +126,7 @@ VANTA runs on Android TV with a layout built for the remote, and it has a landsc
 
 <h3 align="center" id="on-a-tv">On a TV</h3>
 
-
-No phone or USB stick needed. Use the free **Downloader** app and this code:
+No phone or USB stick needed. Use the **Downloader** app and this code:
 
 <p align="center"><kbd>&nbsp;6677141&nbsp;</kbd></p>
 
@@ -148,10 +137,9 @@ No phone or USB stick needed. Use the free **Downloader** app and this code:
 The code always points to the newest `vanta.apk` on this page. Works on Android TV and Google TV; Fire TV should work on Fire OS 7 or newer.
 
 > [!IMPORTANT]
-> The only official downloads are on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
+> VANTA is only officially released on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
 
 <h2 align="center" id="faq">FAQ</h2>
-
 
 <details>
 <summary><b>Is it really free?</b></summary>
@@ -186,13 +174,12 @@ On <a href="https://discord.gg/vN6ztK6m6g">Discord</a> or in <a href="https://gi
 <details>
 <summary><b>Is the source code available?</b></summary>
 <br />
-No. This repo is for downloads and news, and the app's source is private.
+No. This repo is for releases and news, and the app's source is private.
 </details>
 
 <h2 align="center" id="support">Support</h2>
 
-
-VANTA is free and made by one person. If it's earned a spot on your phone and you'd like to help keep it going, a coffee on Ko-fi means a lot.
+VANTA is made by one person. If it's earned a spot on your phone and you'd like to help keep it going, a coffee on Ko-fi means a lot.
 
 <p align="center"><a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/Buy_me_a_coffee-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113" alt="Buy me a coffee on Ko-fi" /></a></p>
 
@@ -202,7 +189,6 @@ VANTA is free and made by one person. If it's earned a spot on your phone and yo
 Shoutouts to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`) and **Riknar** (`@riknarr`).
 
 <h2 align="center" id="legal">Legal</h2>
-
 
 VANTA is an independent, non-commercial project. It isn't affiliated with or endorsed by Spotify, Apple, Google, Dolby, Sony, or any label, artist or streaming service; their names are only used to describe compatibility. VANTA doesn't host, store, sell or distribute music. You're responsible for how you use it and for following the terms of any service you connect. If you love an artist, support them by buying their music, streaming it officially, and going to their shows.
 
