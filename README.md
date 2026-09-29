@@ -10,13 +10,16 @@
 
 **A free Android music player for people who care how their music sounds.**
 
+<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/Download_VANTA-free_for_Android-E8C99B?style=for-the-badge&labelColor=101113" height="44" alt="Download VANTA, free for Android" /></a>
+
+
 [![Latest release](https://img.shields.io/github/v/release/drewk312/VantaMusic?style=for-the-badge&label=Download&color=E8C99B&labelColor=101113)](https://github.com/drewk312/VantaMusic/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/drewk312/VantaMusic/total?style=for-the-badge&color=E8C99B&labelColor=101113)](https://github.com/drewk312/VantaMusic/releases)
 [![Android 8.0+](https://img.shields.io/badge/Android-8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=101113)](#download)
 [![Discord](https://img.shields.io/badge/Discord-VANTA_HQ-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=101113)](https://discord.gg/vN6ztK6m6g)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113)](https://ko-fi.com/drewk312)
 
-[Download](#download) · [Screenshots](#screenshots) · [Sound](#sound) · [Your music](#bring-your-music) · [TV & car](#tv-and-car) · [Privacy](#privacy) · [FAQ](#faq)
+[Why VANTA](#why-vanta) · [Screenshots](#screenshots) · [Sound](#sound-that-surrounds-you) · [Your music](#bring-your-music) · [TV & car](#tv-and-car) · [Download](#download) · [FAQ](#faq)
 
 <br />
 
@@ -28,26 +31,20 @@
 
 I build VANTA on my own, in my spare time. I wanted a player that plays lossless and Dolby Atmos properly, has an EQ that actually does something, and does radio that stays on the genre you picked. So I made one. There are no ads and no tracking, and it's free.
 
-## Download
+## Why VANTA
 
-1. Get `vanta.apk` from the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)**.
-2. Open it on your phone, tablet or Android TV and tap <kbd>Install</kbd>. If Android asks, allow installs from your browser or file manager.
-3. Already have VANTA? Install over it. Your library stays, and the app lets you know when there's an update.
+<table>
+  <tr>
+    <td width="50%" valign="top"><h3>🎧 Hear all of it</h3>Lossless FLAC up to 24-bit, Dolby Atmos, Sony 360 Reality Audio and 5.1 / 7.1 surround mixes. A badge on the player tells you exactly what you're hearing, and it never calls a lossy stream Hi-Res.</td>
+    <td width="50%" valign="top"><h3>🎚️ An EQ that does something</h3>A 31-band EQ and a 10-band parametric EQ you hear change as you move them. Drop in the AutoEQ preset for your IEMs and you're done.</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><h3>📻 Radio that stays on genre</h3>147 genres and subgenres, each with its own endless station that learns from your thumbs. 50s rock and roll plays Chuck Berry, not Pharrell.</td>
+    <td width="50%" valign="top"><h3>🔗 Bring your music, share it back</h3>Share a Spotify playlist straight in, no login needed. Send a song to a friend as a link and it opens right in their VANTA.</td>
+  </tr>
+</table>
 
-### On a TV
-
-No phone or USB stick needed. Use the free **Downloader** app and this code:
-
-<p align="center"><kbd>&nbsp;6677141&nbsp;</kbd></p>
-
-1. Install **Downloader** (by AFTVnews) from your TV's app store.
-2. In your TV's settings, allow Downloader to install unknown apps.
-3. Open Downloader, type <kbd>6677141</kbd> and select <kbd>Go</kbd>. VANTA downloads and asks to install.
-
-The code always points to the newest `vanta.apk` on this page. Works on Android TV and Google TV; Fire TV should work on Fire OS 7 or newer.
-
-> [!IMPORTANT]
-> The only official downloads are on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
+<p align="center"><b>No ads. No trackers. No subscription. Just music.</b></p>
 
 ## Screenshots
 
@@ -66,12 +63,14 @@ The code always points to the newest `vanta.apk` on this page. Works on Android 
   </tr>
 </table>
 
-## Sound
+## Sound that surrounds you
+
+Put your headphones on for this part.
 
 | | |
 |---|---|
 | **Lossless** | FLAC up to 24-bit, plus your own FLAC, ALAC and WAV files. |
-| **Spatial** | Dolby Atmos and Sony 360 Reality Audio, with optional spatial audio and head tracking for headphones. |
+| **Spatial** | Dolby Atmos, Sony 360 Reality Audio and multichannel 5.1 / 7.1 surround, with an ATMOS badge so you know what you're hearing. Turn on spatial audio with head tracking and the stage moves with your head, or let your phone's own Dolby Atmos take over. |
 | **EQ** | A 31-band EQ and a 10-band parametric EQ (frequency, gain and Q for each band). Import AutoEQ, Squig.link and Equalizer APO presets. |
 | **Effects** | Bass Cannon, tube amp and a convolver. |
 | **Sound Check** | Evens out the volume between tracks. |
@@ -122,6 +121,27 @@ VANTA runs on Android TV with a layout built for the remote, and it has a landsc
 - No microphone permission. The visualizer reacts to the audio itself.
 - Every release is signed. The in-app updater checks the checksum and the signature before it installs anything.
 
+## Download
+
+1. Get `vanta.apk` from the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)**.
+2. Open it on your phone, tablet or Android TV and tap <kbd>Install</kbd>. If Android asks, allow installs from your browser or file manager.
+3. Already have VANTA? Install over it. Your library stays, and the app lets you know when there's an update.
+
+### On a TV
+
+No phone or USB stick needed. Use the free **Downloader** app and this code:
+
+<p align="center"><kbd>&nbsp;6677141&nbsp;</kbd></p>
+
+1. Install **Downloader** (by AFTVnews) from your TV's app store.
+2. In your TV's settings, allow Downloader to install unknown apps.
+3. Open Downloader, type <kbd>6677141</kbd> and select <kbd>Go</kbd>. VANTA downloads and asks to install.
+
+The code always points to the newest `vanta.apk` on this page. Works on Android TV and Google TV; Fire TV should work on Fire OS 7 or newer.
+
+> [!IMPORTANT]
+> The only official downloads are on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
+
 ## FAQ
 
 <details>
@@ -160,15 +180,11 @@ On <a href="https://discord.gg/vN6ztK6m6g">Discord</a> or in <a href="https://gi
 No. This repo is for downloads and news, and the app's source is private.
 </details>
 
-## Support VANTA
+## Support
 
-VANTA is free, and it's staying that way: no ads, no subscription, nothing to unlock. I build it on my own in my spare time, and the servers that make streaming work cost money every month. If VANTA has earned a spot on your phone, a coffee on Ko-fi goes straight into keeping it running and getting the next update out. You can also find it in the app under Settings → Support & Donations.
+VANTA is free and made by one person. If it's earned a spot on your phone and you'd like to help keep it going, a coffee on Ko-fi means a lot.
 
-<p align="center">
-  <a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/Buy_me_a_coffee-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113" alt="Buy me a coffee on Ko-fi" /></a>
-</p>
-
-Can't chip in? Telling a friend about VANTA, or sending a bug report, helps just as much. Thank you for listening with me.
+<p align="center"><a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/Buy_me_a_coffee-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113" alt="Buy me a coffee on Ko-fi" /></a></p>
 
 - Chat, bugs and ideas: [Discord](https://discord.gg/vN6ztK6m6g)
 - Bug reports: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
