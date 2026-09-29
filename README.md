@@ -10,7 +10,7 @@
 
 <h3>The music player for people who care how it sounds.</h3>
 
-<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/Get_VANTA-E8C99B?style=for-the-badge" height="40" alt="Get VANTA" /></a>
+<a href="https://github.com/drewk312/VantaMusic/releases/latest"><img src="https://img.shields.io/badge/Get_VANTA-E8C99B?style=for-the-badge" width="150" alt="Get VANTA" /></a>
 
 <sub>Android 8.0+ &nbsp;·&nbsp; phone, tablet and TV</sub>
 
