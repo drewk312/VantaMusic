@@ -73,7 +73,7 @@ The code always points to the newest `vanta.apk` on this page. Works on Android 
 | **Lossless** | FLAC up to 24-bit, plus your own FLAC, ALAC and WAV files. |
 | **Spatial** | Dolby Atmos and Sony 360 Reality Audio, with optional spatial audio and head tracking for headphones. |
 | **EQ** | A 31-band EQ and a 10-band parametric EQ (frequency, gain and Q for each band). Import AutoEQ, Squig.link and Equalizer APO presets. |
-| **Effects** | Bass Cannon, tube amp and a convolver. Every effect works on headphones, Bluetooth and USB DACs. |
+| **Effects** | Bass Cannon, tube amp and a convolver. |
 | **Sound Check** | Evens out the volume between tracks. |
 | **File Info** | Reads the sample rate and bit depth straight from your local files, even before you press play. The Hi-Res badge only shows when a file really is hi-res. |
 
@@ -139,7 +139,7 @@ For now it's released here on GitHub. The in-app updater tells you when a new ve
 <details>
 <summary><b>Does the EQ work with my USB DAC or dongle?</b></summary>
 <br />
-Yes. The EQ and effects work on headphones, Bluetooth and USB DACs. Only the phone's built-in speaker gets a gentler profile, so it doesn't distort.
+It should. Headphones, Bluetooth and USB DACs get the full EQ and effects, and only the phone's built-in speaker gets a gentler profile so it doesn't distort. I haven't tested every DAC, so if the EQ does nothing on yours, tell me which one on <a href="https://discord.gg/vN6ztK6m6g">Discord</a>.
 </details>
 
 <details>
@@ -160,11 +160,18 @@ On <a href="https://discord.gg/vN6ztK6m6g">Discord</a> or in <a href="https://gi
 No. This repo is for downloads and news, and the app's source is private.
 </details>
 
-## Support
+## Support VANTA
+
+VANTA is free, and it's staying that way: no ads, no subscription, nothing to unlock. I build it on my own in my spare time, and the servers that make streaming work cost money every month. If VANTA has earned a spot on your phone, a coffee on Ko-fi goes straight into keeping it running and getting the next update out. You can also find it in the app under Settings → Support & Donations.
+
+<p align="center">
+  <a href="https://ko-fi.com/drewk312"><img src="https://img.shields.io/badge/Buy_me_a_coffee-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=101113" alt="Buy me a coffee on Ko-fi" /></a>
+</p>
+
+Can't chip in? Telling a friend about VANTA, or sending a bug report, helps just as much. Thank you for listening with me.
 
 - Chat, bugs and ideas: [Discord](https://discord.gg/vN6ztK6m6g)
 - Bug reports: [GitHub Issues](https://github.com/drewk312/VantaMusic/issues)
-- Support VANTA: [ko-fi.com/drewk312](https://ko-fi.com/drewk312)
 
 Shoutouts to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`) and **Riknar** (`@riknarr`).
 
