@@ -31,7 +31,8 @@
 
 I build VANTA on my own, in my spare time. I wanted a player that plays lossless and Dolby Atmos properly, has an EQ that actually does something, and does radio that stays on the genre you picked. So I made one. There are no ads and no tracking, and it's free.
 
-## Why VANTA
+<h2 align="center" id="why-vanta">Why VANTA</h2>
+
 
 <table>
   <tr>
@@ -46,7 +47,8 @@ I build VANTA on my own, in my spare time. I wanted a player that plays lossless
 
 <p align="center"><b>No ads. No trackers. No subscription. Just music.</b></p>
 
-## Screenshots
+<h2 align="center" id="screenshots">Screenshots</h2>
+
 
 <table>
   <tr>
@@ -63,7 +65,8 @@ I build VANTA on my own, in my spare time. I wanted a player that plays lossless
   </tr>
 </table>
 
-## Sound that surrounds you
+<h2 align="center" id="sound-that-surrounds-you">Sound that surrounds you</h2>
+
 
 Put your headphones on for this part.
 
@@ -76,7 +79,8 @@ Put your headphones on for this part.
 | **Sound Check** | Evens out the volume between tracks. |
 | **File Info** | Reads the sample rate and bit depth straight from your local files, even before you press play. The Hi-Res badge only shows when a file really is hi-res. |
 
-## Bring your music
+<h2 align="center" id="bring-your-music">Bring your music</h2>
+
 
 Share a Spotify playlist straight to VANTA. You don't need to log in.
 
@@ -104,7 +108,8 @@ You can also:
 - Start a radio station from 147 genres and subgenres. It stays on theme, won't repeat a song within a day, and learns from your thumbs up and down.
 - Read synced lyrics as the song plays.
 
-## TV and car
+<h2 align="center" id="tv-and-car">TV and car</h2>
+
 
 VANTA runs on Android TV with a layout built for the remote, and it has a landscape mode for car and RV dash mounts.
 
@@ -115,19 +120,22 @@ VANTA runs on Android TV with a layout built for the remote, and it has a landsc
   <img src="./screenshots/vanta_rv_player.png" width="100%" alt="VANTA in landscape on a dash mount" />
 </p>
 
-## Privacy
+<h2 align="center" id="privacy">Privacy</h2>
+
 
 - No ads, analytics or trackers.
 - No microphone permission. The visualizer reacts to the audio itself.
 - Every release is signed. The in-app updater checks the checksum and the signature before it installs anything.
 
-## Download
+<h2 align="center" id="download">Download</h2>
+
 
 1. Get `vanta.apk` from the **[latest release](https://github.com/drewk312/VantaMusic/releases/latest)**.
 2. Open it on your phone, tablet or Android TV and tap <kbd>Install</kbd>. If Android asks, allow installs from your browser or file manager.
 3. Already have VANTA? Install over it. Your library stays, and the app lets you know when there's an update.
 
-### On a TV
+<h3 align="center" id="on-a-tv">On a TV</h3>
+
 
 No phone or USB stick needed. Use the free **Downloader** app and this code:
 
@@ -142,7 +150,8 @@ The code always points to the newest `vanta.apk` on this page. Works on Android 
 > [!IMPORTANT]
 > The only official downloads are on this repo's [Releases page](https://github.com/drewk312/VantaMusic/releases). Each release lists what changed and a SHA-256 checksum, and [SECURITY.md](SECURITY.md) shows how to check it.
 
-## FAQ
+<h2 align="center" id="faq">FAQ</h2>
+
 
 <details>
 <summary><b>Is it really free?</b></summary>
@@ -180,7 +189,8 @@ On <a href="https://discord.gg/vN6ztK6m6g">Discord</a> or in <a href="https://gi
 No. This repo is for downloads and news, and the app's source is private.
 </details>
 
-## Support
+<h2 align="center" id="support">Support</h2>
+
 
 VANTA is free and made by one person. If it's earned a spot on your phone and you'd like to help keep it going, a coffee on Ko-fi means a lot.
 
@@ -191,7 +201,8 @@ VANTA is free and made by one person. If it's earned a spot on your phone and yo
 
 Shoutouts to **Inzo184** (`@inzo1848842`), **Ink & Echo Admin** (`@developerbios`) and **Riknar** (`@riknarr`).
 
-## Legal
+<h2 align="center" id="legal">Legal</h2>
+
 
 VANTA is an independent, non-commercial project. It isn't affiliated with or endorsed by Spotify, Apple, Google, Dolby, Sony, or any label, artist or streaming service; their names are only used to describe compatibility. VANTA doesn't host, store, sell or distribute music. You're responsible for how you use it and for following the terms of any service you connect. If you love an artist, support them by buying their music, streaming it officially, and going to their shows.
 
