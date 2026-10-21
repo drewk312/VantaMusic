@@ -16,7 +16,7 @@
   </picture>
 </a>
 
-<sub><a href="#why-vanta">Features</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#sound">Sound</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#install">Install</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#faq">Questions</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="https://discord.gg/vN6ztK6m6g">Discord</a></sub>
+<sub><a href="#why-vanta">Features</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#widgets">Widgets</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#sound">Sound</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#install">Install</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="#faq">Questions</a> &nbsp;&nbsp;·&nbsp;&nbsp; <a href="https://discord.gg/vN6ztK6m6g">Discord</a></sub>
 
 <br /><br />
 
@@ -48,6 +48,17 @@
 
 <br />
 
+<a name="widgets"></a>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-widgets-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-widgets-light.svg" /><img src="./assets/h-widgets-dark.svg" width="100%" alt="On your home screen: hardware from every decade" /></picture></p>
+
+<p align="center"><sub><i>Home-screen widgets drawn as the real thing. The reels turn, the record spins under the arm,<br />the tape winds across and your cover spins on the disc. Every button gives a small click under your thumb.</i></sub></p>
+
+<p align="center"><img src="./assets/widgets.png" width="100%" alt="VANTA widgets playing The Weeknd: a pocket player with a click wheel in silver, black, black with a red wheel, and white; a 1960s reel-to-reel deck; a 1970s turntable; a 1980s cassette deck; and a 1990s CD player" /></p>
+
+<p align="center"><sub>Pick your own colours and give each widget a name. The same players also run full screen in the app,<br />under <kbd>Settings</kbd> → <kbd>Player style</kbd>, where turning the pocket player's click wheel sets the volume.</sub></p>
+
+<br />
+
 <a name="sound"></a>
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-sound-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-sound-light.svg" /><img src="./assets/h-sound-dark.svg" width="100%" alt="The sound: sound that surrounds you" /></picture></p>
 
@@ -73,7 +84,7 @@
 <a name="tv-and-car"></a>
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-beyond-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-beyond-light.svg" /><img src="./assets/h-beyond-dark.svg" width="100%" alt="Beyond the phone: on your TV and in your car" /></picture></p>
 
-<p align="center"><sub><i>A layout built for the remote on Android TV, and a landscape mode for car and RV dash mounts.</i></sub></p>
+<p align="center"><sub><i>A layout built for the remote on Android TV, Android Auto with your whole library in the car,<br />and a landscape mode for car and RV dash mounts.</i></sub></p>
 
 <p align="center"><img src="./screenshots/vanta_tv_home.png" width="100%" alt="VANTA on Android TV" /></p>
 <p align="center"><img src="./screenshots/vanta_rv_player.png" width="100%" alt="VANTA in landscape on a dash mount" /></p>
@@ -116,6 +127,12 @@ It should. Headphones, Bluetooth and USB DACs get the full EQ and effects, and o
 <summary><b>How do I use my AutoEQ preset?</b></summary>
 <br />
 Open the EQ, turn on the parametric EQ and tap <kbd>Import</kbd>. Pick the <code>ParametricEQ.txt</code> file for your headphones from AutoEQ, or an export from Squig.link or Equalizer APO.
+</details>
+
+<details>
+<summary><b>How do I add a widget?</b></summary>
+<br />
+Long-press an empty spot on your home screen, tap <kbd>Widgets</kbd> and find VANTA. Drag the one you want onto your home screen. To change its colours or name later, long-press it and open its settings.
 </details>
 
 <details>
