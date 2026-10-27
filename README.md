@@ -12,7 +12,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./assets/cta-dark.svg" />
     <source media="(prefers-color-scheme: light)" srcset="./assets/cta-light.svg" />
-    <img src="./assets/cta-dark.svg" width="100%" alt="The music player for people who care how it sounds. Get VANTA. Android 8.0 and up, phone, tablet and TV." />
+    <img src="./assets/cta-dark.svg" width="100%" alt="Lossless, Dolby Atmos, a live DJ, and players from every decade. Get VANTA. Android 8.0 and up, phone, tablet and TV." />
   </picture>
 </a>
 
@@ -20,9 +20,9 @@
 
 <br /><br />
 
-<img src="./assets/hero.jpg" width="100%" alt="VANTA on three phones: an artist page, Blinding Lights playing in Dolby Atmos, and the equalizer" />
+<img src="./assets/hero.jpg" width="100%" alt="VANTA on three phones: Pulse playing a set around Earth, Wind &amp; Fire, September playing in 360 Reality Audio, and its lyrics lighting up word by word" />
 
-<img src="./assets/stats.svg" width="100%" alt="24-bit lossless FLAC · Dolby Atmos and Sony 360 · 31-band EQ plus 10-band parametric · 147 radio genres · 0 ads or trackers" />
+<img src="./assets/stats.svg" width="100%" alt="24-bit lossless FLAC · Dolby Atmos and Sony 360 · 31-band EQ plus parametric · a live DJ that talks between songs · 0 ads or trackers" />
 
 <br />
 
@@ -35,7 +35,7 @@
 <a name="why-vanta"></a>
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-why-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-why-light.svg" /><img src="./assets/h-why-dark.svg" width="100%" alt="Why VANTA: made for listening" /></picture></p>
 
-<p align="center"><img src="./assets/features.svg" width="100%" alt="Hear all of it: lossless FLAC up to 24-bit, Dolby Atmos, Sony 360 Reality Audio and 5.1 / 7.1 surround. An EQ that does something: 31-band and 10-band parametric, with AutoEQ presets. Radio that stays on genre: 147 genres and subgenres, endless, learns from your thumbs. Bring your music, share it back: share a Spotify playlist in, and send friends links that open in VANTA." /></p>
+<p align="center"><img src="./assets/features.svg" width="100%" alt="A DJ that talks: Pulse plays a set around any artist, tells you why it picked each song, and talks between tracks in a voice that runs on your phone. Sing it yourself: turn the singer down, then out; lyrics light up word by word and translate on your phone. Hear all of it: lossless FLAC up to 24-bit, Dolby Atmos, Sony 360 Reality Audio and 5.1 / 7.1 surround. An EQ that does something: 31-band and 10-band parametric, with AutoEQ presets. Radio that stays on genre: 147 genres and subgenres, endless, learns from your thumbs. Bring your library: sign in to Spotify or Apple Music and pick your playlists and Liked Songs." /></p>
 
 <p align="center"><img src="./assets/no-ads.svg" width="100%" alt="No ads, no trackers, no subscription, just music" /></p>
 
@@ -44,7 +44,7 @@
 <a name="screenshots"></a>
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-screens-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-screens-light.svg" /><img src="./assets/h-screens-dark.svg" width="100%" alt="A look inside: every screen, built around the music" /></picture></p>
 
-<p align="center"><img src="./assets/gallery.png" width="100%" alt="Screenshots: Home, Artist pages, Now playing, Radio, New, 31-band EQ and Parametric EQ" /></p>
+<p align="center"><img src="./assets/gallery.jpg" width="100%" alt="Screenshots: Home, Search, Radio, Now playing, lyrics lit up word by word, Pulse, song credits and the 31-band equalizer" /></p>
 
 <br />
 
@@ -55,7 +55,13 @@
 
 <p align="center"><img src="./assets/widgets.png" width="100%" alt="VANTA widgets playing The Weeknd: a pocket player with a click wheel in silver, black, black with a red wheel, and white; a 1960s reel-to-reel deck; a 1970s turntable; a 1980s cassette deck; and a 1990s CD player" /></p>
 
-<p align="center"><sub>Pick your own colours and give each widget a name. The same players also run full screen in the app,<br />under <kbd>Settings</kbd> → <kbd>Player style</kbd>, where turning the pocket player's click wheel sets the volume.</sub></p>
+<p align="center"><sub>Pick your own colours and give each widget a name.</sub></p>
+
+<br />
+
+<p align="center"><img src="./assets/decades.jpg" width="100%" alt="The same players full screen in the app: a 1960s reel-to-reel, a 1970s turntable, a 1980s cassette deck, a 1990s CD player and a 2000s pocket player, all playing Get Down On It by Kool &amp; The Gang" /></p>
+
+<p align="center"><sub>The same players also run full screen in the app, under <kbd>Settings</kbd> → <kbd>Appearance</kbd> → <kbd>Player style</kbd>,<br />where turning the pocket player's click wheel sets the volume.</sub></p>
 
 <br />
 
@@ -71,13 +77,11 @@
 <a name="bring-your-music"></a>
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/h-music-dark.svg" /><source media="(prefers-color-scheme: light)" srcset="./assets/h-music-light.svg" /><img src="./assets/h-music-dark.svg" width="100%" alt="Your music: bring it all with you" /></picture></p>
 
-<p align="center"><img src="./assets/flow.svg" width="100%" alt="In Spotify, share a playlist to VANTA. Preview its name and songs, then import it. It stays in sync when the Spotify playlist changes." /></p>
+<p align="center"><img src="./assets/flow.svg" width="100%" alt="Sign in to Spotify or Apple Music inside VANTA, pick your playlists and Liked Songs, and they come over as one library with each song once. Turn on Keep in sync and new songs come over while VANTA is open." /></p>
 
-<p align="center"><sub>In Spotify, tap <kbd>Share</kbd> on a playlist and pick <kbd>VANTA</kbd>, or paste the link into VANTA's Imports screen.</sub></p>
+<p align="center"><sub>Open <kbd>Library</kbd> → <kbd>Add music</kbd> and sign in on Spotify's or Apple Music's own page. VANTA only reads your library;<br />nothing is posted to your account. Your likes arrive as hearts, and a song in five playlists is still one song.</sub></p>
 
-<p align="center"><sub>Spotify only gives out the first 100 songs of a playlist through a shared link. For bigger playlists or your Liked Songs,<br />export them as a CSV and import that instead. There's no size limit that way, and each song keeps its exact recording.</sub></p>
-
-<p align="center"><img src="./assets/extras.svg" width="100%" alt="Also in VANTA: local music from one folder or the whole phone, offline playlists in lossless, search that handles typos and puts originals before covers, and synced lyrics." /></p>
+<p align="center"><img src="./assets/extras.svg" width="100%" alt="Also in VANTA: credits for every song, share the song you're playing as a picture in your player style, search that handles typos and puts originals before covers, local music from one folder or the whole phone, offline playlists in lossless, and quiet holiday touches you can turn off." /></p>
 
 <br />
 
@@ -86,8 +90,7 @@
 
 <p align="center"><sub><i>A layout built for the remote on Android TV, Android Auto with your whole library in the car,<br />and a landscape mode for car and RV dash mounts.</i></sub></p>
 
-<p align="center"><img src="./screenshots/vanta_tv_home.png" width="100%" alt="VANTA on Android TV" /></p>
-<p align="center"><img src="./screenshots/vanta_rv_player.png" width="100%" alt="VANTA in landscape on a dash mount" /></p>
+<p align="center"><img src="./assets/tv.jpg" width="100%" alt="VANTA on Android TV: the jukebox with a turning record, VU meters and the queue, plus the TV's Home, synced lyrics and Radio screens" /></p>
 
 <br />
 
@@ -151,7 +154,7 @@ No. This repo is for releases and news, and the app's source is private.
 
 <div align="center">
 
-<sub>VANTA is made by one person. If it's earned a spot on your phone, a coffee helps keep it going.</sub>
+<sub>VANTA is made by one person. If it's earned a spot on your phone, a coffee helps keep it going,<br />and a star on this page helps other people find it.</sub>
 
 <a href="https://ko-fi.com/drewk312"><img src="./assets/kofi.svg" width="240" alt="Support VANTA on Ko-fi" /></a>
 
